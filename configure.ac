@@ -2159,6 +2159,18 @@ HAVE_X_WINDOWS=no
 HAVE_X11=no
 USE_X_TOOLKIT=none
 
+AC_ARG_WITH([window-service-only],
+  [AS_HELP_STRING([--with-window-service-only],
+		  [build a service only window system without any real UI code,
+		    any ui request will forward to service client.])])
+case $with_window_service_only in
+  no) ;;
+  yes) window_system=service-only term_header= HAVE_NS=no HAVE_NT_GUI=no HAVE_X_WINDOWS=no HAVE_X11=no USE_X_TOOLKIT=none;;
+  *) ;;
+esac
+
+AC_MSG_CHECKING(window service only:$with_window_service_only)
+
 case "${window_system}" in
   x11 )
     HAVE_X_WINDOWS=yes
