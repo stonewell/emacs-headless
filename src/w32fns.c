@@ -1,4 +1,4 @@
-/* Graphical user interface functions for the Microsoft Windows API.
+#/* Graphical user interface functions for the Microsoft Windows API.
 
 Copyright (C) 1989, 1992-2018 Free Software Foundation, Inc.
 

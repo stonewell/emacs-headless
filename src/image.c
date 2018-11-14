@@ -1197,6 +1197,11 @@ four_corners_best (XImagePtr_or_DC ximg, int *corners,
 #define Free_Pixmap(display, pixmap) \
   ns_release_object (pixmap)
 
+#elif defined (HAVE_SERVICE_ONLY_GUI)
+
+#define Free_Pixmap(display, pixmap) \
+  so_free_pixmap (pixmap)
+
 #else
 
 #define Free_Pixmap(display, pixmap) \
@@ -4703,7 +4708,7 @@ x_to_xcolors (struct frame *f, struct image *img, bool rgb_p)
   p = colors;
   for (y = 0; y < img->height; ++y)
     {
-#if defined (HAVE_X_WINDOWS) || defined (HAVE_NTGUI)
+#if defined (HAVE_X_WINDOWS) || defined (HAVE_NTGUI) || defined(HAVE_SERVICE_ONLY_GUI)
       XColor *row = p;
       for (x = 0; x < img->width; ++x, ++p)
 	p->pixel = GET_PIXEL (ximg, x, y);

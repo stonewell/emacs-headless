@@ -2132,6 +2132,7 @@ if test "${HAVE_W32}" = "no" && test "${opsys}" = "cygwin"; then
 fi
 
 AC_SUBST(W32_OBJ)
+AC_SUBST(SERVICE_ONLY_OBJ)
 AC_SUBST(W32_LIBS)
 AC_SUBST(EMACSRES)
 AC_SUBST(EMACS_MANIFEST)
@@ -2165,7 +2166,16 @@ AC_ARG_WITH([window-service-only],
 		    any ui request will forward to service client.])])
 case $with_window_service_only in
   no) ;;
-  yes) window_system=service-only term_header= HAVE_NS=no HAVE_NT_GUI=no HAVE_X_WINDOWS=no HAVE_X11=no USE_X_TOOLKIT=none;;
+  yes) window_system=service-only
+       term_header=service_only_term.h
+       HAVE_NS=no
+       HAVE_NTGUI=no
+       HAVE_X_WINDOWS=no
+       HAVE_X11=no
+       USE_X_TOOLKIT=none
+       SERVICE_ONLY_OBJ=service_only_fns.o
+       AC_DEFINE(HAVE_SERVICE_ONLY_GUI, 1, [Define to use service only GUI.])
+       ;;
   *) ;;
 esac
 

@@ -57,6 +57,13 @@ xstrcasecmp (char const *a, char const *b)
   return c_strcasecmp (a, b);
 }
 
+#ifdef HAVE_SERVICE_ONLY_GUI
+#include "service_only_gui.h"
+typedef struct so_display_info Display_Info;
+typedef XImage *XImagePtr;
+typedef HANDLE XImagePtr_or_DC;
+#endif
+
 #ifdef HAVE_X_WINDOWS
 #include <X11/Xresource.h> /* for XrmDatabase */
 typedef struct x_display_info Display_Info;
@@ -3385,7 +3392,7 @@ bool valid_image_p (Lisp_Object);
 void prepare_image_for_display (struct frame *, struct image *);
 ptrdiff_t lookup_image (struct frame *, Lisp_Object);
 
-#if defined (HAVE_X_WINDOWS) ||  defined (HAVE_NS)
+#if defined (HAVE_X_WINDOWS) ||  defined (HAVE_NS) || defined(HAVE_SERVICE_ONLY_GUI)
 #define RGB_PIXEL_COLOR unsigned long
 #endif
 
