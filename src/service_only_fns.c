@@ -1,7 +1,32 @@
 #include <config.h>
 
-#include "frame.h"
+#include <c-ctype.h>
+
+#include "lisp.h"
 #include "service_only_term.h"
+#include "frame.h"
+#include "window.h"
+#include "buffer.h"
+#include "keyboard.h"
+#include "blockinput.h"
+#include "coding.h"
+
+/**
+ * x_hide_tip:
+ *
+ * Hide currently visible tooltip and cancel its timer.
+ *
+ * This will try to make tooltip_frame invisible (if DELETE is false)
+ * or delete tooltip_frame (if DELETE is true).
+ *
+ * Return Qt if the tooltip was either deleted or made invisible, Qnil
+ * otherwise.
+ */
+static Lisp_Object
+x_hide_tip (bool delete)
+{
+  return Qnil;
+}
 
 DEFUN ("x-hide-tip", Fx_hide_tip, Sx_hide_tip, 0, 0, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
@@ -91,6 +116,7 @@ DEFUN ("x-server-max-request-size", Fx_server_max_request_size,
   return make_fixnum (1);
 }
 
+GC
 x_create_gc (struct frame *f,
 	     unsigned long mask,
 	     XGCValues *xgcv)
@@ -100,6 +126,7 @@ x_create_gc (struct frame *f,
   return gc;
 }
 
+void
 x_free_gc (struct frame *f, GC gc)
 {
   xfree (gc);

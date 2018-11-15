@@ -4991,7 +4991,7 @@ x_disable_image (struct frame *f, struct image *img)
   if (n_planes < 2 || cross_disabled_images)
     {
 #ifndef HAVE_NTGUI
-#ifndef HAVE_NS  /* TODO: NS support, however this not needed for toolbars */
+#if !defined(HAVE_NS) && !defined(HAVE_SERVICE_ONLY_GUI)  /* TODO: NS support, however this not needed for toolbars */
 
 #define MaskForeground(f)  WHITE_PIX_DEFAULT (f)
 

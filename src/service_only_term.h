@@ -332,9 +332,14 @@ x_free_gc (struct frame *f, GC gc);
 extern unsigned long
 so_get_pixel(XImagePtr ximage, int x, int y);
 extern void
+so_put_pixel(XImagePtr ximage, int x, int y, unsigned long pixel);
+extern void
 so_free_pixmap(XImagePtr ximage);
 
 #define GET_PIXEL(ximg, x, y) so_get_pixel(ximg, x, y)
+#define XGetPixel(ximage, x, y) so_get_pixel(ximage, x, y)
+#define XPutPixel(ximage, x, y, pixel) so_put_pixel(ximage, x, y, pixel)
+
 #define NO_PIXMAP 0
 
 #define PIX_MASK_RETAIN	0
@@ -353,4 +358,13 @@ Pixmap XCreatePixmapFromBitmapData(Display *display,
                                    unsigned int height,
                                    unsigned long fg,
                                    unsigned long bg, unsigned int depth);
+
+
+extern int
+x_display_pixel_height (struct so_display_info *dpyinfo);
+
+extern int
+x_display_pixel_width (struct so_display_info *dpyinfo);
+
+
 #endif // __SERVICE_ONLY_TERM_H__
