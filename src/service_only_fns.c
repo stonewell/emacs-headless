@@ -166,3 +166,11 @@ check_x_display_info (Lisp_Object object)
       return FRAME_DISPLAY_INFO (f);
     }
 }
+
+DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
+       1, 1, 0,
+       doc: /* SKIP: real doc in xfns.c.  */)
+     (Lisp_Object parameters) {
+  error ("Cannot create a GUI frame in a service only session");
+  return Qnil;
+}

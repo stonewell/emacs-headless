@@ -2173,7 +2173,7 @@ case $with_window_service_only in
        HAVE_X_WINDOWS=no
        HAVE_X11=no
        USE_X_TOOLKIT=none
-       SERVICE_ONLY_OBJ=service_only_fns.o
+       SERVICE_ONLY_OBJ="service_only_fns.o service_only_term.o"
        AC_DEFINE(HAVE_SERVICE_ONLY_GUI, 1, [Define to use service only GUI.])
        ;;
   *) ;;
