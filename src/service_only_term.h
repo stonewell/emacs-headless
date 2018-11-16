@@ -352,13 +352,15 @@ extern int so_defined_color (struct frame *f, const char *color,
 #define x_defined_color so_defined_color
 
 extern
-Pixmap XCreatePixmapFromBitmapData(Display *display,
-                                   void * d,
-                                   char *data, unsigned int width,
-                                   unsigned int height,
-                                   unsigned long fg,
-                                   unsigned long bg, unsigned int depth);
+Pixmap so_create_pixmap(Display *display,
+                        void * d,
+                        char *data, unsigned int width,
+                        unsigned int height,
+                        unsigned long fg,
+                        unsigned long bg, unsigned int depth);
 
+#define XCreatePixmapFromBitmapData(display, d, data, width, height, fg, bg, depth) \
+    so_create_pixmap(display, d, data, width, height, fg, bg, depth)
 
 extern int
 x_display_pixel_height (struct so_display_info *dpyinfo);
@@ -366,5 +368,7 @@ x_display_pixel_height (struct so_display_info *dpyinfo);
 extern int
 x_display_pixel_width (struct so_display_info *dpyinfo);
 
+extern
+struct so_display_info *x_display_info_for_name (Lisp_Object);
 
 #endif // __SERVICE_ONLY_TERM_H__

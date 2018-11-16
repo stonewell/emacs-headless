@@ -131,3 +131,46 @@ x_free_gc (struct frame *f, GC gc)
 {
   xfree (gc);
 }
+
+struct so_display_info *
+check_x_display_info (Lisp_Object object)
+{
+  if (NILP (object))
+    {
+      struct frame *sf = XFRAME (selected_frame);
+
+      if (FRAME_W32_P (sf) && FRAME_LIVE_P (sf))
+	return FRAME_DISPLAY_INFO (sf);
+      else
+	return &one_so_display_info;
+    }
+  else if (TERMINALP (object))
+    {
+      struct terminal *t = decode_live_terminal (object);
+
+      if (t->type != output_service_only)
+	error ("Terminal %d is not a service only display", t->id);
+
+      return t->display_info.so;
+    }
+  else if (STRINGP (object))
+    return x_display_info_for_name (object);
+  else
+    {
+      struct frame *f;
+
+      CHECK_LIVE_FRAME (object);
+      f = XFRAME (object);
+      if (! FRAME_W32_P (f))
+	error ("Non-ServiceOnly frame used");
+      return FRAME_DISPLAY_INFO (f);
+    }
+}
+
+DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
+       1, 1, 0,
+       doc: /* SKIP: real doc in xfns.c.  */)
+     (Lisp_Object parameters) {
+  error ("Cannot create a GUI frame in a service only session");
+  return Qnil;
+}
