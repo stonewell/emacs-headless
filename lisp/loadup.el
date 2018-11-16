@@ -257,6 +257,9 @@
 (load "emacs-lisp/tabulated-list")
 (load "buff-menu")
 
+(load "term/common-win")
+(load "term/service_only_gui-win")
+
 (if (fboundp 'x-create-frame)
     (progn
       (load "fringe")

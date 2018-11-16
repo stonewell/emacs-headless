@@ -1557,6 +1557,11 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 
       syms_of_menu ();
 
+#ifdef HAVE_SERVICE_ONLY_GUI
+      syms_of_soterm();
+      syms_of_sofns();
+#endif
+
 #ifdef HAVE_NTGUI
       syms_of_w32term ();
       syms_of_w32fns ();

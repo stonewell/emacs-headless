@@ -94,3 +94,6 @@ so_defined_color (struct frame *f, const char *color, XColor *color_def,
                   bool alloc_p) {
   return 0;
 }
+
+void syms_of_soterm (void) {
+}

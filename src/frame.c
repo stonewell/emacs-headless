@@ -5649,6 +5649,7 @@ syms_of_frame (void)
   DEFSYM (Qparent_id, "parent-id");
   DEFSYM (Qx, "x");
   DEFSYM (Qw32, "w32");
+  DEFSYM (QServiceOnlyGui, "service_only_gui");
   DEFSYM (Qpc, "pc");
   DEFSYM (Qns, "ns");
   DEFSYM (Qvisible, "visible");

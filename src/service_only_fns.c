@@ -174,3 +174,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   error ("Cannot create a GUI frame in a service only session");
   return Qnil;
 }
+
+void syms_of_sofns (void) {
+  defsubr (&Sx_create_frame);
+}

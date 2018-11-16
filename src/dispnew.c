@@ -6088,6 +6088,15 @@ init_display (void)
     }
 #endif
 
+#ifdef HAVE_SERVICE_ONLY_GUI
+  if (!inhibit_window_system)
+    {
+      Vinitial_window_system = QServiceOnlyGui;
+      Vwindow_system_version = make_fixnum (20);
+      return;
+    }
+#endif /* HAVE_SERVICE_ONLY_GUI */
+
   /* If no window system has been specified, try to use the terminal.  */
   if (! isatty (STDIN_FILENO))
     fatal ("standard input is not a tty");
