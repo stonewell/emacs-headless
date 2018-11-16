@@ -1810,15 +1810,19 @@ AC_SUBST(AUTO_DEPEND)
 ## we end up building without one.  Any new window system should
 ## set window_system to an appropriate value and add objects to
 ## window-system-specific substs.
+AC_ARG_WITH([window-service-only],
+  [AS_HELP_STRING([--with-window-service-only],
+		  [build a service only window system without any real UI code,
+		    any ui request will forward to service client.])])
 
 window_system=none
 AC_PATH_X
-if test "$no_x" != yes; then
+if test "$no_x" != yes && test "$with_window_service_only" != yes; then
   window_system=x11
 fi
 
 LD_SWITCH_X_SITE_RPATH=
-if test "${x_libraries}" != NONE; then
+if test "${x_libraries}" != NONE && test "$with_window_service_only" != yes; then
   if test -n "${x_libraries}"; then
     LD_SWITCH_X_SITE=-L`AS_ECHO(["$x_libraries"]) | sed -e 's/:/ -L/g'`
     LD_SWITCH_X_SITE_RPATH=-Wl,-rpath,`
@@ -1879,7 +1883,7 @@ CPPFLAGS="$CPPFLAGS -x objective-c"
 CFLAGS="$CFLAGS -x objective-c"
 GNU_OBJC_CFLAGS=
 LIBS_GNUSTEP=
-if test "${with_ns}" != no; then
+if test "${with_ns}" != no && test "$with_window_service_only" != yes; then
   if test "${opsys}" = darwin; then
      NS_IMPL_COCOA=yes
      ns_appdir=`pwd`/nextstep/Emacs.app
@@ -2045,7 +2049,7 @@ CLIENTRES=
 CLIENTW=
 W32_RES_LINK=
 EMACS_MANIFEST=
-if test "${with_w32}" != no; then
+if test "${with_w32}" != no && test "$with_window_service_only" != yes; then
   case "${opsys}" in
     cygwin)
       AC_CHECK_HEADER([windows.h], [HAVE_W32=yes],
@@ -2132,7 +2136,6 @@ if test "${HAVE_W32}" = "no" && test "${opsys}" = "cygwin"; then
 fi
 
 AC_SUBST(W32_OBJ)
-AC_SUBST(SERVICE_ONLY_OBJ)
 AC_SUBST(W32_LIBS)
 AC_SUBST(EMACSRES)
 AC_SUBST(EMACS_MANIFEST)
@@ -2160,10 +2163,6 @@ HAVE_X_WINDOWS=no
 HAVE_X11=no
 USE_X_TOOLKIT=none
 
-AC_ARG_WITH([window-service-only],
-  [AS_HELP_STRING([--with-window-service-only],
-		  [build a service only window system without any real UI code,
-		    any ui request will forward to service client.])])
 case $with_window_service_only in
   no) ;;
   yes) window_system=service-only
@@ -2173,13 +2172,14 @@ case $with_window_service_only in
        HAVE_X_WINDOWS=no
        HAVE_X11=no
        USE_X_TOOLKIT=none
-       SERVICE_ONLY_OBJ=service_only_fns.o
+       SERVICE_ONLY_OBJ="service_only_fns.o service_only_term.o"
        AC_DEFINE(HAVE_SERVICE_ONLY_GUI, 1, [Define to use service only GUI.])
        ;;
   *) ;;
 esac
 
-AC_MSG_CHECKING(window service only:$with_window_service_only)
+AC_MSG_CHECKING(window service only:$with_window_service_only $SERVICE_ONLY_OBJ)
+AC_SUBST(SERVICE_ONLY_OBJ)
 
 case "${window_system}" in
   x11 )
