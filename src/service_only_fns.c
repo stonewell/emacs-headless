@@ -1,6 +1,7 @@
 #include <config.h>
 
 #include <c-ctype.h>
+#include <stdio.h>
 
 #include "lisp.h"
 #include "service_only_term.h"
@@ -141,8 +142,10 @@ check_x_display_info (Lisp_Object object)
 
       if (FRAME_SO_P (sf) && FRAME_LIVE_P (sf))
 	return FRAME_DISPLAY_INFO (sf);
-      else
+      else {
+  fprintf(stderr, "%d\n", __LINE__);
 	return &one_so_display_info;
+      }
     }
   else if (TERMINALP (object))
     {
@@ -153,15 +156,17 @@ check_x_display_info (Lisp_Object object)
 
       return t->display_info.so;
     }
-  else if (STRINGP (object))
+  else if (STRINGP (object)) {
+  fprintf(stderr, "%d\n", __LINE__);
     return x_display_info_for_name (object);
+  }
   else
     {
       struct frame *f;
 
       CHECK_LIVE_FRAME (object);
       f = XFRAME (object);
-      if (! FRAME_W32_P (f))
+      if (! FRAME_SO_P (f))
 	error ("Non-ServiceOnly frame used");
       return FRAME_DISPLAY_INFO (f);
     }
@@ -183,7 +188,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   struct kboard *kb;
   int x_width = 0, x_height = 0;
 
-  if (!FRAME_W32_P (SELECTED_FRAME ())
+  if (!FRAME_SO_P (SELECTED_FRAME ())
       && !FRAME_INITIAL_P (SELECTED_FRAME ()))
     error ("Cannot create a GUI frame in a -nw session");
 
@@ -315,4 +320,154 @@ frame_parm_handler so_frame_parm_handlers[] =
 
 void syms_of_sofns (void) {
   defsubr (&Sx_create_frame);
+}
+
+struct so_display_info *x_display_info_for_name (Lisp_Object name) {
+  struct so_display_info *dpyinfo;
+
+  CHECK_STRING (name);
+
+  fprintf(stderr, "%d\n", __LINE__);
+  for (dpyinfo = &one_so_display_info; dpyinfo; dpyinfo = dpyinfo->next)
+    if (!NILP (Fstring_equal (XCAR (dpyinfo->name_list_element), name)))
+      return dpyinfo;
+
+  /* Use this general default value to start with.  */
+  Vx_resource_name = Vinvocation_name;
+
+  validate_x_resource_name ();
+
+  fprintf(stderr, "%d\n", __LINE__);
+  dpyinfo = so_term_init (name, NULL, SSDATA (Vx_resource_name));
+
+  if (dpyinfo == 0)
+    error ("Cannot connect to server %s", SDATA (name));
+
+  XSETFASTINT (Vwindow_system_version, 1);
+
+  return dpyinfo;
+}
+
+DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
+       1, 3, 0, doc: /* SKIP: real doc in xfns.c.  */)
+  (Lisp_Object display, Lisp_Object xrm_string, Lisp_Object must_succeed)
+{
+  char *xrm_option;
+  struct so_display_info *dpyinfo;
+
+  CHECK_STRING (display);
+
+  /* Signal an error in order to encourage correct use from callers.
+   * If we ever support multiple window systems in the same Emacs,
+   * we'll need callers to be precise about what window system they
+   * want.  */
+
+  fprintf(stderr, "display:%s\n", SSDATA (display));
+
+  if (strcmp (SSDATA (display), "w32") != 0)
+    error ("The name of the display in this Emacs must be \"w32\"");
+
+  /* If initialization has already been done, return now to avoid
+     overwriting critical parts of one_so_display_info.  */
+  if (window_system_available (NULL))
+    return Qnil;
+
+  if (! NILP (xrm_string))
+    CHECK_STRING (xrm_string);
+
+  /* /\* Allow color mapping to be defined externally; first look in user's */
+  /*    HOME directory, then in Emacs etc dir for a file called rgb.txt. *\/ */
+  /* { */
+  /*   Lisp_Object color_file; */
+
+  /*   color_file = build_string ("~/rgb.txt"); */
+
+  /*   if (NILP (Ffile_readable_p (color_file))) */
+  /*     color_file = */
+  /*       Fexpand_file_name (build_string ("rgb.txt"), */
+  /*       		   Fsymbol_value (intern ("data-directory"))); */
+
+  /*   Vso_color_map = Fx_load_color_file (color_file); */
+  /* } */
+  /* if (NILP (Vso_color_map)) */
+  /*   Vso_color_map = so_default_color_map (); */
+
+  /* /\* Merge in system logical colors.  *\/ */
+  /* add_system_logical_colors_to_map (&Vso_color_map); */
+
+  if (! NILP (xrm_string))
+    xrm_option = SSDATA (xrm_string);
+  else
+    xrm_option = NULL;
+
+  /* Use this general default value to start with.  */
+  /* First remove .exe suffix from invocation-name - it looks ugly. */
+  {
+    char basename[ 255 ], *str;
+
+    lispstpcpy (basename, Vinvocation_name);
+    str = strrchr (basename, '.');
+    if (str) *str = 0;
+    Vinvocation_name = build_string (basename);
+  }
+  Vx_resource_name = Vinvocation_name;
+
+  validate_x_resource_name ();
+
+  fprintf(stderr, "%d\n", __LINE__);
+
+  /* This is what opens the connection and sets x_current_display.
+     This also initializes many symbols, such as those used for input.  */
+  dpyinfo = so_term_init (display, xrm_option, SSDATA (Vx_resource_name));
+
+  if (dpyinfo == 0)
+    {
+      if (!NILP (must_succeed))
+	fatal ("Cannot connect to server %s.\n",
+	       SDATA (display));
+      else
+	error ("Cannot connect to server %s", SDATA (display));
+    }
+
+  XSETFASTINT (Vwindow_system_version, 1);
+  return Qnil;
+}
+
+DEFUN ("x-close-connection", Fx_close_connection,
+       Sx_close_connection, 1, 1, 0,
+       doc: /* SKIP: real doc in xfns.c.  */)
+  (Lisp_Object display)
+{
+  struct so_display_info *dpyinfo = check_x_display_info (display);
+
+  if (dpyinfo->reference_count > 0)
+    error ("Display still has frames on it");
+
+  block_input ();
+  x_destroy_all_bitmaps (dpyinfo);
+
+  x_delete_display (dpyinfo);
+  unblock_input ();
+
+  return Qnil;
+}
+
+DEFUN ("x-display-list", Fx_display_list, Sx_display_list, 0, 0, 0,
+       doc: /* SKIP: real doc in xfns.c.  */)
+  (void)
+{
+  Lisp_Object result = Qnil;
+  struct so_display_info *wdi;
+
+  for (wdi = x_display_list; wdi; wdi = wdi->next)
+    result = Fcons (XCAR (wdi->name_list_element), result);
+
+  return result;
+}
+
+DEFUN ("x-synchronize", Fx_synchronize, Sx_synchronize, 1, 2, 0,
+       doc: /* SKIP: real doc in xfns.c.  */)
+  (Lisp_Object on, Lisp_Object display)
+{
+  return Qnil;
 }

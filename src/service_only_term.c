@@ -92,30 +92,6 @@ void x_clear_under_internal_border (struct frame *f) {
 void x_implicitly_set_name (struct frame * f, Lisp_Object arg, Lisp_Object oldval) {
 }
 
-struct so_display_info *x_display_info_for_name (Lisp_Object name) {
-  struct so_display_info *dpyinfo;
-
-  CHECK_STRING (name);
-
-  for (dpyinfo = &one_so_display_info; dpyinfo; dpyinfo = dpyinfo->next)
-    if (!NILP (Fstring_equal (XCAR (dpyinfo->name_list_element), name)))
-      return dpyinfo;
-
-  /* Use this general default value to start with.  */
-  Vx_resource_name = Vinvocation_name;
-
-  validate_x_resource_name ();
-
-  dpyinfo = so_term_init (name, NULL, SSDATA (Vx_resource_name));
-
-  if (dpyinfo == 0)
-    error ("Cannot connect to server %s", SDATA (name));
-
-  XSETFASTINT (Vwindow_system_version, 1);
-
-  return dpyinfo;
-}
-
 bool x_bitmap_icon (struct frame * f, Lisp_Object arg) {
   return false;
 }
@@ -290,7 +266,9 @@ so_create_terminal (struct so_display_info *dpyinfo)
 {
   struct terminal *terminal;
 
-  terminal = create_terminal (output_w32, &so_redisplay_interface);
+  fprintf(stderr, "%d\n", __LINE__);
+
+  terminal = create_terminal (output_service_only, &so_redisplay_interface);
 
   terminal->display_info.so = dpyinfo;
   dpyinfo->terminal = terminal;
@@ -321,10 +299,10 @@ so_create_terminal (struct so_display_info *dpyinfo)
   terminal->delete_terminal_hook = x_delete_terminal;
   /* Other hooks are NULL by default.  */
 
-  /* We don't yet support separate terminals on W32, so don't try to share
+  /* We don't yet support separate terminals on service only gui, so don't try to share
      keyboards between virtual terminals that are on the same physical
      terminal like X does.  */
-  terminal->kboard = allocate_kboard (Qw32);
+  terminal->kboard = allocate_kboard (QServiceOnlyGui);
   /* Don't let the initial kboard remain current longer than necessary.
      That would cause problems if a file loaded on startup tries to
      prompt in the mini-buffer.  */
@@ -359,6 +337,8 @@ so_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   block_input ();
 
+  fprintf(stderr, "%d\n", __LINE__);
+
   if (!so_initialized)
     {
       so_initialize ();
@@ -370,6 +350,7 @@ so_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
   dpyinfo = &one_so_display_info;
   terminal = so_create_terminal (dpyinfo);
 
+  fprintf(stderr, "dpyinfo=%p, terminal=%p, %p\n", dpyinfo, terminal, dpyinfo->terminal);
   /* Set the name of the terminal. */
   terminal->name = xlispstrdup (display_name);
 
