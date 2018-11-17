@@ -752,6 +752,11 @@ default_pixels_per_inch_y (void)
 #else
 #define FRAME_NS_P(f) ((f)->output_method == output_ns)
 #endif
+#ifndef HAVE_SERVICE_ONLY_GUI
+#define FRAME_SO_P(f) false
+#else
+#define FRAME_SO_P(f) ((f)->output_method == output_service_only)
+#endif
 
 /* FRAME_WINDOW_P tests whether the frame is a window, and is
    defined to be the predicate for the window system being used.  */

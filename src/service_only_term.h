@@ -371,6 +371,9 @@ x_display_pixel_width (struct so_display_info *dpyinfo);
 extern
 struct so_display_info *x_display_info_for_name (Lisp_Object);
 
+extern struct so_display_info *so_term_init (Lisp_Object,
+					       char *, char *);
+
 extern void syms_of_soterm (void);
 extern void syms_of_sofns (void);
 #endif // __SERVICE_ONLY_TERM_H__

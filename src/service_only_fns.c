@@ -139,7 +139,7 @@ check_x_display_info (Lisp_Object object)
     {
       struct frame *sf = XFRAME (selected_frame);
 
-      if (FRAME_W32_P (sf) && FRAME_LIVE_P (sf))
+      if (FRAME_SO_P (sf) && FRAME_LIVE_P (sf))
 	return FRAME_DISPLAY_INFO (sf);
       else
 	return &one_so_display_info;
@@ -171,8 +171,96 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
        1, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
      (Lisp_Object parameters) {
-  error ("Cannot create a GUI frame in a service only session");
-  return Qnil;
+  struct frame *f;
+  Lisp_Object frame, tem;
+  Lisp_Object name;
+  bool minibuffer_only = false;
+  long window_prompting = 0;
+  ptrdiff_t count = SPECPDL_INDEX ();
+  Lisp_Object display;
+  struct so_display_info *dpyinfo = NULL;
+  Lisp_Object parent, parent_frame;
+  struct kboard *kb;
+  int x_width = 0, x_height = 0;
+
+  if (!FRAME_W32_P (SELECTED_FRAME ())
+      && !FRAME_INITIAL_P (SELECTED_FRAME ()))
+    error ("Cannot create a GUI frame in a -nw session");
+
+  /* Make copy of frame parameters because the original is in pure
+     storage now. */
+  parameters = Fcopy_alist (parameters);
+
+  /* Use this general default value to start with
+     until we know if this frame has a specified name.  */
+  Vx_resource_name = Vinvocation_name;
+
+  display = x_get_arg (dpyinfo, parameters, Qterminal, 0, 0, RES_TYPE_NUMBER);
+  if (EQ (display, Qunbound))
+    display = x_get_arg (dpyinfo, parameters, Qdisplay, 0, 0, RES_TYPE_STRING);
+  if (EQ (display, Qunbound))
+    display = Qnil;
+  dpyinfo = check_x_display_info (display);
+  kb = dpyinfo->terminal->kboard;
+
+  if (!dpyinfo->terminal->name)
+    error ("Terminal is not live, can't create new frames on it");
+
+  name = x_get_arg (dpyinfo, parameters, Qname, "name", "Name", RES_TYPE_STRING);
+  if (!STRINGP (name)
+      && ! EQ (name, Qunbound)
+      && ! NILP (name))
+    error ("Invalid frame name--not a string or nil");
+
+  if (STRINGP (name))
+    Vx_resource_name = name;
+
+  /* See if parent window is specified.  */
+  parent = x_get_arg (dpyinfo, parameters, Qparent_id, NULL, NULL,
+		      RES_TYPE_NUMBER);
+  if (EQ (parent, Qunbound))
+    parent = Qnil;
+  else if (!NILP (parent))
+    CHECK_FIXNUM (parent);
+
+  /* make_frame_without_minibuffer can run Lisp code and garbage collect.  */
+  /* No need to protect DISPLAY because that's not used after passing
+     it to make_frame_without_minibuffer.  */
+  frame = Qnil;
+  tem = x_get_arg (dpyinfo, parameters, Qminibuffer, "minibuffer", "Minibuffer",
+		   RES_TYPE_SYMBOL);
+  if (EQ (tem, Qnone) || NILP (tem))
+    f = make_frame_without_minibuffer (Qnil, kb, display);
+  else if (EQ (tem, Qonly))
+    {
+      f = make_minibuffer_frame ();
+      minibuffer_only = true;
+    }
+  else if (WINDOWP (tem))
+    f = make_frame_without_minibuffer (tem, kb, display);
+  else
+    f = make_frame (true);
+
+  XSETFRAME (frame, f);
+
+ /* Initialize `default-minibuffer-frame' in case this is the first
+     frame on this terminal.  */
+  if (FRAME_HAS_MINIBUF_P (f)
+      && (!FRAMEP (KVAR (kb, Vdefault_minibuffer_frame))
+	  || !FRAME_LIVE_P (XFRAME (KVAR (kb, Vdefault_minibuffer_frame)))))
+    kset_default_minibuffer_frame (kb, frame);
+
+  /* All remaining specified parameters, which have not been "used"
+     by x_get_arg and friends, now go in the misc. alist of the frame.  */
+  for (tem = parameters; CONSP (tem); tem = XCDR (tem))
+    if (CONSP (XCAR (tem)) && !NILP (XCAR (XCAR (tem))))
+      fset_param_alist (f, Fcons (XCAR (tem), f->param_alist));
+
+  /* Make sure windows on this frame appear in calls to next-window
+     and similar functions.  */
+  Vwindow_list = Qnil;
+
+  return unbind_to (count, frame);
 }
 
 void syms_of_sofns (void) {
