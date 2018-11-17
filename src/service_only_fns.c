@@ -263,6 +263,56 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   return unbind_to (count, frame);
 }
 
+frame_parm_handler so_frame_parm_handlers[] =
+{
+  x_set_autoraise,
+  x_set_autolower,
+  0, //x_set_background_color,
+  0, //x_set_border_color,
+  0, //x_set_border_width,
+  0, //x_set_cursor_color,
+  0, //x_set_cursor_type,
+  0, //x_set_font,
+  0, //x_set_foreground_color,
+  0, //x_set_icon_name,
+  0, //x_set_icon_type,
+  0, //x_set_internal_border_width,
+  x_set_right_divider_width,
+  x_set_bottom_divider_width,
+  0, //x_set_menu_bar_lines,
+  0, //x_set_mouse_color,
+  0, //x_explicitly_set_name,
+  x_set_scroll_bar_width,
+  x_set_scroll_bar_height,
+  0, //x_set_title,
+  x_set_unsplittable,
+  x_set_vertical_scroll_bars,
+  x_set_horizontal_scroll_bars,
+  x_set_visibility,
+  0, //x_set_tool_bar_lines,
+  0, /* x_set_scroll_bar_foreground, */
+  0, /* x_set_scroll_bar_background, */
+  x_set_screen_gamma,
+  x_set_line_spacing,
+  x_set_left_fringe,
+  x_set_right_fringe,
+  0, /* x_set_wait_for_wm, */
+  x_set_fullscreen,
+  x_set_font_backend,
+  x_set_alpha,
+  0, /* x_set_sticky */
+  0, /* x_set_tool_bar_position */
+  0, /* x_set_inhibit_double_buffering */
+  0, //x_set_undecorated,
+  0, //x_set_parent_frame,
+  0, //x_set_skip_taskbar,
+  0, //x_set_no_focus_on_map,
+  0, //x_set_no_accept_focus,
+  0, //x_set_z_group,
+  0, /* x_set_override_redirect */
+  x_set_no_special_glyphs,
+};
+
 void syms_of_sofns (void) {
   defsubr (&Sx_create_frame);
 }
