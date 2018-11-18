@@ -143,7 +143,6 @@ check_x_display_info (Lisp_Object object)
       if (FRAME_SO_P (sf) && FRAME_LIVE_P (sf))
 	return FRAME_DISPLAY_INFO (sf);
       else {
-  fprintf(stderr, "%d\n", __LINE__);
 	return &one_so_display_info;
       }
     }
@@ -157,7 +156,6 @@ check_x_display_info (Lisp_Object object)
       return t->display_info.so;
     }
   else if (STRINGP (object)) {
-  fprintf(stderr, "%d\n", __LINE__);
     return x_display_info_for_name (object);
   }
   else
@@ -248,7 +246,314 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   XSETFRAME (frame, f);
 
- /* Initialize `default-minibuffer-frame' in case this is the first
+  parent_frame = x_get_arg (dpyinfo, parameters, Qparent_frame, NULL, NULL,
+			    RES_TYPE_SYMBOL);
+  /* Apply `parent-frame' parameter only when no `parent-id' was
+     specified.  */
+  if (!NILP (parent_frame)
+      && (!NILP (parent)
+	  || !FRAMEP (parent_frame)
+	  || !FRAME_LIVE_P (XFRAME (parent_frame))
+	  || !FRAME_SO_P (XFRAME (parent_frame))))
+    parent_frame = Qnil;
+
+  fset_parent_frame (f, parent_frame);
+  store_frame_param (f, Qparent_frame, parent_frame);
+
+  tem = x_get_arg (dpyinfo, parameters, Qundecorated, NULL, NULL,
+		   RES_TYPE_BOOLEAN);
+  FRAME_UNDECORATED (f) = !NILP (tem) && !EQ (tem, Qunbound);
+  store_frame_param (f, Qundecorated, FRAME_UNDECORATED (f) ? Qt : Qnil);
+
+  tem = x_get_arg (dpyinfo, parameters, Qskip_taskbar, NULL, NULL,
+		   RES_TYPE_BOOLEAN);
+  FRAME_SKIP_TASKBAR (f) = !NILP (tem) && !EQ (tem, Qunbound);
+  store_frame_param (f, Qskip_taskbar,
+		     (NILP (tem) || EQ (tem, Qunbound)) ? Qnil : Qt);
+
+  /* By default, make scrollbars the system standard width and height. */
+  /* FRAME_CONFIG_SCROLL_BAR_WIDTH (f) = GetSystemMetrics (SM_CXVSCROLL); */
+  /* FRAME_CONFIG_SCROLL_BAR_HEIGHT (f) = GetSystemMetrics (SM_CXHSCROLL); */
+
+  f->terminal = dpyinfo->terminal;
+
+  f->output_method = output_service_only;
+  f->output_data.so = xzalloc (sizeof (struct so_output));
+  FRAME_FONTSET (f) = -1;
+
+  fset_icon_name
+    (f, x_get_arg (dpyinfo, parameters, Qicon_name, "iconName", "Title",
+		   RES_TYPE_STRING));
+  if (! STRINGP (f->icon_name))
+    fset_icon_name (f, Qnil);
+
+  /*  FRAME_DISPLAY_INFO (f) = dpyinfo; */
+
+  /* With FRAME_DISPLAY_INFO set up, this unwind-protect is safe.  */
+  /* record_unwind_protect (do_unwind_create_frame, frame); */
+
+#ifdef GLYPH_DEBUG
+  image_cache_refcount =
+    FRAME_IMAGE_CACHE (f) ? FRAME_IMAGE_CACHE (f)->refcount : 0;
+  dpyinfo_refcount = dpyinfo->reference_count;
+#endif /* GLYPH_DEBUG */
+
+  /* Specify the parent under which to make this window - this seems to
+     have no effect on Windows because parent_desc is explicitly reset
+     below.  */
+  if (!NILP (parent))
+    {
+      /* Cast to UINT_PTR shuts up compiler warnings about cast to
+	 pointer from integer of different size.  */
+      f->output_data.so->parent_desc = (Window) (uintptr_t) XFIXNAT (parent);
+      f->output_data.so->explicit_parent = true;
+    }
+  else
+    {
+      f->output_data.so->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
+      f->output_data.so->explicit_parent = false;
+    }
+
+  /* Set the name; the functions to which we pass f expect the name to
+     be set.  */
+  if (EQ (name, Qunbound) || NILP (name))
+    {
+      fset_name (f, build_string (dpyinfo->so_id_name));
+      f->explicit_name = false;
+    }
+  else
+    {
+      fset_name (f, name);
+      f->explicit_name = true;
+      /* Use the frame's title when getting resources for this frame.  */
+      specbind (Qx_resource_name, name);
+    }
+
+  /* register_font_driver (&sofont_driver, f); */
+
+  x_default_parameter (f, parameters, Qfont_backend, Qnil,
+		       "fontBackend", "FontBackend", RES_TYPE_STRING);
+
+  /* Extract the window parameters from the supplied values
+     that are needed to determine window geometry.  */
+  /* x_default_font_parameter (f, parameters); */
+
+  /* Default BorderWidth to 0 to match other platforms.  */
+  x_default_parameter (f, parameters, Qborder_width, make_fixnum (0),
+		       "borderWidth", "BorderWidth", RES_TYPE_NUMBER);
+
+  /* We recognize either internalBorderWidth or internalBorder
+     (which is what xterm calls it).  */
+  if (NILP (Fassq (Qinternal_border_width, parameters)))
+    {
+      Lisp_Object value;
+
+      value = x_get_arg (dpyinfo, parameters, Qinternal_border_width,
+			 "internalBorder", "InternalBorder", RES_TYPE_NUMBER);
+      if (! EQ (value, Qunbound))
+	parameters = Fcons (Fcons (Qinternal_border_width, value),
+			    parameters);
+    }
+
+  x_default_parameter (f, parameters, Qinternal_border_width, make_fixnum (0),
+		       "internalBorderWidth", "InternalBorder", RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qright_divider_width, make_fixnum (0),
+		       NULL, NULL, RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qbottom_divider_width, make_fixnum (0),
+		       NULL, NULL, RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qvertical_scroll_bars, Qright,
+		       "verticalScrollBars", "ScrollBars", RES_TYPE_SYMBOL);
+  x_default_parameter (f, parameters, Qhorizontal_scroll_bars, Qnil,
+		       "horizontalScrollBars", "ScrollBars", RES_TYPE_SYMBOL);
+
+  /* Also do the stuff which must be set before the window exists.  */
+  x_default_parameter (f, parameters, Qforeground_color, build_string ("black"),
+		       "foreground", "Foreground", RES_TYPE_STRING);
+  x_default_parameter (f, parameters, Qbackground_color, build_string ("white"),
+		       "background", "Background", RES_TYPE_STRING);
+  x_default_parameter (f, parameters, Qmouse_color, build_string ("black"),
+		       "pointerColor", "Foreground", RES_TYPE_STRING);
+  x_default_parameter (f, parameters, Qborder_color, build_string ("black"),
+		       "borderColor", "BorderColor", RES_TYPE_STRING);
+  x_default_parameter (f, parameters, Qscreen_gamma, Qnil,
+		       "screenGamma", "ScreenGamma", RES_TYPE_FLOAT);
+  x_default_parameter (f, parameters, Qline_spacing, Qnil,
+		       "lineSpacing", "LineSpacing", RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qleft_fringe, Qnil,
+		       "leftFringe", "LeftFringe", RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qright_fringe, Qnil,
+		       "rightFringe", "RightFringe", RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qno_focus_on_map, Qnil,
+		       NULL, NULL, RES_TYPE_BOOLEAN);
+  x_default_parameter (f, parameters, Qno_accept_focus, Qnil,
+		       NULL, NULL, RES_TYPE_BOOLEAN);
+  x_default_parameter (f, parameters, Qno_special_glyphs, Qnil,
+		       NULL, NULL, RES_TYPE_BOOLEAN);
+
+  /* Process alpha here (Bug#16619).  On XP this fails with child
+     frames.  For `no-focus-on-map' frames delay processing of alpha
+     until the frame becomes visible.  */
+  if (!FRAME_NO_FOCUS_ON_MAP (f))
+    x_default_parameter (f, parameters, Qalpha, Qnil,
+			 "alpha", "Alpha", RES_TYPE_NUMBER);
+
+  /* Init faces first since we need the frame's column width/line
+     height in various occasions.  */
+  init_frame_faces (f);
+
+  /* We have to call adjust_frame_size here since otherwise
+     x_set_tool_bar_lines will already work with the character sizes
+     installed by init_frame_faces while the frame's pixel size is still
+     calculated from a character size of 1 and we subsequently hit the
+     (height >= 0) assertion in window_box_height.
+
+     The non-pixelwise code apparently worked around this because it
+     had one frame line vs one toolbar line which left us with a zero
+     root window height which was obviously wrong as well ...
+
+     Also process `min-width' and `min-height' parameters right here
+     because `frame-windows-min-size' needs them.  */
+  tem = x_get_arg (dpyinfo, parameters, Qmin_width, NULL, NULL,
+		   RES_TYPE_NUMBER);
+  if (FIXNUMP (tem))
+    store_frame_param (f, Qmin_width, tem);
+  tem = x_get_arg (dpyinfo, parameters, Qmin_height, NULL, NULL,
+		   RES_TYPE_NUMBER);
+  if (FIXNUMP (tem))
+    store_frame_param (f, Qmin_height, tem);
+  adjust_frame_size (f, FRAME_COLS (f) * FRAME_COLUMN_WIDTH (f),
+		     FRAME_LINES (f) * FRAME_LINE_HEIGHT (f), 5, true,
+		     Qx_create_frame_1);
+
+  /* The X resources controlling the menu-bar and tool-bar are
+     processed specially at startup, and reflected in the mode
+     variables; ignore them here.  */
+  if (NILP (parent_frame))
+    {
+      x_default_parameter (f, parameters, Qmenu_bar_lines,
+			   NILP (Vmenu_bar_mode)
+			   ? make_fixnum (0) : make_fixnum (1),
+			   NULL, NULL, RES_TYPE_NUMBER);
+    }
+  else
+    /* No menu bar for child frames.  */
+    store_frame_param (f, Qmenu_bar_lines, make_fixnum (0));
+
+  x_default_parameter (f, parameters, Qtool_bar_lines,
+		       NILP (Vtool_bar_mode)
+		       ? make_fixnum (0) : make_fixnum (1),
+		       NULL, NULL, RES_TYPE_NUMBER);
+
+  x_default_parameter (f, parameters, Qbuffer_predicate, Qnil,
+		       "bufferPredicate", "BufferPredicate", RES_TYPE_SYMBOL);
+  x_default_parameter (f, parameters, Qtitle, Qnil,
+		       "title", "Title", RES_TYPE_STRING);
+
+  f->output_data.so->parent_desc = FRAME_DISPLAY_INFO (f)->root_window;
+  /* f->output_data.so->text_cursor = so_load_cursor (IDC_IBEAM); */
+  /* f->output_data.so->nontext_cursor = so_load_cursor (IDC_ARROW); */
+  /* f->output_data.so->modeline_cursor = so_load_cursor (IDC_ARROW); */
+  /* f->output_data.so->hand_cursor = so_load_cursor (IDC_HAND); */
+  /* f->output_data.so->hourglass_cursor = so_load_cursor (IDC_WAIT); */
+  /* f->output_data.so->horizontal_drag_cursor = so_load_cursor (IDC_SIZEWE); */
+  /* f->output_data.so->vertical_drag_cursor = so_load_cursor (IDC_SIZENS); */
+  /* f->output_data.so->left_edge_cursor = so_load_cursor (IDC_SIZEWE); */
+  /* f->output_data.so->top_left_corner_cursor = so_load_cursor (IDC_SIZENWSE); */
+  /* f->output_data.so->top_edge_cursor = so_load_cursor (IDC_SIZENS); */
+  /* f->output_data.so->top_right_corner_cursor = so_load_cursor (IDC_SIZENESW); */
+  /* f->output_data.so->right_edge_cursor = so_load_cursor (IDC_SIZEWE); */
+  /* f->output_data.so->bottom_right_corner_cursor = so_load_cursor (IDC_SIZENWSE); */
+  /* f->output_data.so->bottom_edge_cursor = so_load_cursor (IDC_SIZENS); */
+  /* f->output_data.so->bottom_left_corner_cursor = so_load_cursor (IDC_SIZENESW); */
+
+  /* f->output_data.so->current_cursor = f->output_data.so->nontext_cursor; */
+
+  window_prompting = x_figure_window_size (f, parameters, true, &x_width, &x_height);
+
+  tem = x_get_arg (dpyinfo, parameters, Qunsplittable, 0, 0, RES_TYPE_BOOLEAN);
+  f->no_split = minibuffer_only || EQ (tem, Qt);
+
+  /* so_window (f, window_prompting, minibuffer_only); */
+  /* x_icon (f, parameters); */
+
+  /* x_make_gc (f); */
+
+  /* Now consider the frame official.  */
+  f->terminal->reference_count++;
+  FRAME_DISPLAY_INFO (f)->reference_count++;
+  Vframe_list = Fcons (frame, Vframe_list);
+
+  /* We need to do this after creating the window, so that the
+     icon-creation functions can say whose icon they're describing.  */
+  x_default_parameter (f, parameters, Qicon_type, Qnil,
+		       "bitmapIcon", "BitmapIcon", RES_TYPE_SYMBOL);
+
+  x_default_parameter (f, parameters, Qauto_raise, Qnil,
+		       "autoRaise", "AutoRaiseLower", RES_TYPE_BOOLEAN);
+  x_default_parameter (f, parameters, Qauto_lower, Qnil,
+		       "autoLower", "AutoRaiseLower", RES_TYPE_BOOLEAN);
+  x_default_parameter (f, parameters, Qcursor_type, Qbox,
+		       "cursorType", "CursorType", RES_TYPE_SYMBOL);
+  x_default_parameter (f, parameters, Qscroll_bar_width, Qnil,
+		       "scrollBarWidth", "ScrollBarWidth", RES_TYPE_NUMBER);
+  x_default_parameter (f, parameters, Qscroll_bar_height, Qnil,
+		       "scrollBarHeight", "ScrollBarHeight", RES_TYPE_NUMBER);
+
+  /* Allow x_set_window_size, now.  */
+  f->can_x_set_window_size = true;
+
+  if (x_width > 0)
+    SET_FRAME_WIDTH (f, x_width);
+  if (x_height > 0)
+    SET_FRAME_HEIGHT (f, x_height);
+
+  /* Tell the server what size and position, etc, we want, and how
+     badly we want them.  This should be done after we have the menu
+     bar so that its size can be taken into account.  */
+  /* block_input (); */
+  /* x_wm_set_size_hint (f, window_prompting, false); */
+  /* unblock_input (); */
+
+  adjust_frame_size (f, FRAME_TEXT_WIDTH (f), FRAME_TEXT_HEIGHT (f), 0, true,
+		     Qx_create_frame_2);
+
+  /* Process fullscreen parameter here in the hope that normalizing a
+     fullheight/fullwidth frame will produce the size set by the last
+     adjust_frame_size call.  */
+  x_default_parameter (f, parameters, Qfullscreen, Qnil,
+		       "fullscreen", "Fullscreen", RES_TYPE_SYMBOL);
+  x_default_parameter (f, parameters, Qz_group, Qnil,
+		       NULL, NULL, RES_TYPE_SYMBOL);
+
+  /* Make the window appear on the frame and enable display, unless
+     the caller says not to.  However, with explicit parent, Emacs
+     cannot control visibility, so don't try.  */
+  if (!f->output_data.so->explicit_parent)
+    {
+      Lisp_Object visibility
+	= x_get_arg (dpyinfo, parameters, Qvisibility, 0, 0, RES_TYPE_SYMBOL);
+
+      if (EQ (visibility, Qicon)) {
+	/* x_iconify_frame (f); */
+      }
+      else
+	{
+	  if (EQ (visibility, Qunbound))
+	    visibility = Qt;
+
+	  /* if (!NILP (visibility)) */
+	  /*   x_make_frame_visible (f); */
+	}
+
+      store_frame_param (f, Qvisibility, visibility);
+    }
+
+  /* For `no-focus-on-map' frames set alpha here.  */
+  if (FRAME_NO_FOCUS_ON_MAP (f))
+    x_default_parameter (f, parameters, Qalpha, Qnil,
+			 "alpha", "Alpha", RES_TYPE_NUMBER);
+
+  /* Initialize `default-minibuffer-frame' in case this is the first
      frame on this terminal.  */
   if (FRAME_HAS_MINIBUF_P (f)
       && (!FRAMEP (KVAR (kb, Vdefault_minibuffer_frame))
@@ -318,16 +623,11 @@ frame_parm_handler so_frame_parm_handlers[] =
   x_set_no_special_glyphs,
 };
 
-void syms_of_sofns (void) {
-  defsubr (&Sx_create_frame);
-}
-
 struct so_display_info *x_display_info_for_name (Lisp_Object name) {
   struct so_display_info *dpyinfo;
 
   CHECK_STRING (name);
 
-  fprintf(stderr, "%d\n", __LINE__);
   for (dpyinfo = &one_so_display_info; dpyinfo; dpyinfo = dpyinfo->next)
     if (!NILP (Fstring_equal (XCAR (dpyinfo->name_list_element), name)))
       return dpyinfo;
@@ -337,7 +637,6 @@ struct so_display_info *x_display_info_for_name (Lisp_Object name) {
 
   validate_x_resource_name ();
 
-  fprintf(stderr, "%d\n", __LINE__);
   dpyinfo = so_term_init (name, NULL, SSDATA (Vx_resource_name));
 
   if (dpyinfo == 0)
@@ -362,10 +661,8 @@ DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
    * we'll need callers to be precise about what window system they
    * want.  */
 
-  fprintf(stderr, "display:%s\n", SSDATA (display));
-
-  if (strcmp (SSDATA (display), "w32") != 0)
-    error ("The name of the display in this Emacs must be \"w32\"");
+  if (strcmp (SSDATA (display), "service_only_gui") != 0)
+    error ("The name of the display in this Emacs must be \"service_only_gui\"");
 
   /* If initialization has already been done, return now to avoid
      overwriting critical parts of one_so_display_info.  */
@@ -413,8 +710,6 @@ DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
   Vx_resource_name = Vinvocation_name;
 
   validate_x_resource_name ();
-
-  fprintf(stderr, "%d\n", __LINE__);
 
   /* This is what opens the connection and sets x_current_display.
      This also initializes many symbols, such as those used for input.  */
@@ -470,4 +765,26 @@ DEFUN ("x-synchronize", Fx_synchronize, Sx_synchronize, 1, 2, 0,
   (Lisp_Object on, Lisp_Object display)
 {
   return Qnil;
+}
+
+DEFUN ("set-message-beep", Fset_message_beep, Sset_message_beep, 1, 1, 0,
+       doc: /* Set the sound generated when the bell is rung.
+SOUND is `asterisk', `exclamation', `hand', `question', `ok', or `silent'
+to use the corresponding system sound for the bell.  The `silent' sound
+prevents Emacs from making any sound at all.
+SOUND is nil to use the normal beep.  */)
+  (Lisp_Object sound)
+{
+  CHECK_SYMBOL (sound);
+
+  return sound;
+}
+
+void syms_of_sofns (void) {
+  defsubr (&Sx_create_frame);
+  defsubr (&Sx_open_connection);
+  defsubr (&Sx_close_connection);
+  defsubr (&Sx_display_list);
+  defsubr (&Sx_synchronize);
+  defsubr (&Sset_message_beep);
 }

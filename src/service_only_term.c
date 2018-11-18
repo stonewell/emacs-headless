@@ -266,8 +266,6 @@ so_create_terminal (struct so_display_info *dpyinfo)
 {
   struct terminal *terminal;
 
-  fprintf(stderr, "%d\n", __LINE__);
-
   terminal = create_terminal (output_service_only, &so_redisplay_interface);
 
   terminal->display_info.so = dpyinfo;
@@ -337,8 +335,6 @@ so_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   block_input ();
 
-  fprintf(stderr, "%d\n", __LINE__);
-
   if (!so_initialized)
     {
       so_initialize ();
@@ -350,7 +346,6 @@ so_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
   dpyinfo = &one_so_display_info;
   terminal = so_create_terminal (dpyinfo);
 
-  fprintf(stderr, "dpyinfo=%p, terminal=%p, %p\n", dpyinfo, terminal, dpyinfo->terminal);
   /* Set the name of the terminal. */
   terminal->name = xlispstrdup (display_name);
 
