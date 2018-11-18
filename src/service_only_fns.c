@@ -329,7 +329,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
       specbind (Qx_resource_name, name);
     }
 
-  /* register_font_driver (&sofont_driver, f); */
+  register_font_driver (&sofont_driver, f);
 
   x_default_parameter (f, parameters, Qfont_backend, Qnil,
 		       "fontBackend", "FontBackend", RES_TYPE_STRING);
@@ -781,6 +781,8 @@ SOUND is nil to use the normal beep.  */)
 }
 
 void syms_of_sofns (void) {
+  syms_of_sofont();
+
   defsubr (&Sx_create_frame);
   defsubr (&Sx_open_connection);
   defsubr (&Sx_close_connection);

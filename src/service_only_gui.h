@@ -120,4 +120,7 @@ typedef struct {
    (nr).right = ((nr).left + (width)),		\
    (nr).bottom = ((nr).top + (height)))
 
+extern struct font_driver sofont_driver;
+extern void syms_of_sofont (void);
+
 #endif //__SERVICE_ONLY_GUI_H__

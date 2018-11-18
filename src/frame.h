@@ -770,6 +770,9 @@ default_pixels_per_inch_y (void)
 #ifdef HAVE_NS
 #define FRAME_WINDOW_P(f) FRAME_NS_P(f)
 #endif
+#ifdef HAVE_SERVICE_ONLY_GUI
+#define FRAME_WINDOW_P(f) FRAME_SO_P(f)
+#endif
 #ifndef FRAME_WINDOW_P
 #define FRAME_WINDOW_P(f) ((void) (f), false)
 #endif
