@@ -780,6 +780,21 @@ SOUND is nil to use the normal beep.  */)
   return sound;
 }
 
+void x_change_tool_bar_height (struct frame *f, int h) {
+}
+
+Lisp_Object
+x_get_focus_frame (struct frame *frame)
+{
+  struct so_display_info *dpyinfo = FRAME_DISPLAY_INFO (frame);
+  Lisp_Object xfocus;
+  if (! dpyinfo->so_focus_frame)
+    return Qnil;
+
+  XSETFRAME (xfocus, dpyinfo->so_focus_frame);
+  return xfocus;
+}
+
 void syms_of_sofns (void) {
   syms_of_sofont();
 

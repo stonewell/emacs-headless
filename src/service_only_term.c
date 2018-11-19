@@ -366,3 +366,20 @@ so_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   return dpyinfo;
 }
+
+void frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y) {
+}
+
+void x_iconify_frame (struct frame *f) {
+}
+
+void x_make_frame_invisible (struct frame *f) {
+}
+
+void x_make_frame_visible (struct frame *f) {
+}
+
+void
+x_set_window_size (struct frame *f, bool change_gravity,
+		   int width, int height, bool pixelwise) {
+}
