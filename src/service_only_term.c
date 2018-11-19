@@ -70,7 +70,52 @@ x_focus_frame (struct frame *f, bool noactivate) {
 
 Lisp_Object
 x_new_font (struct frame *f, Lisp_Object font_object, int fontset) {
-  return 0;
+  fprintf(stderr, "%d\n", __LINE__);
+
+  struct font *font = XFONT_OBJECT (font_object);
+  int unit, font_ascent, font_descent;
+
+  if (fontset < 0)
+    fontset = fontset_from_font (font_object);
+  FRAME_FONTSET (f) = fontset;
+  if (FRAME_FONT (f) == font)
+    /* This font is already set in frame F.  There's nothing more to
+       do.  */
+    return font_object;
+
+  FRAME_FONT (f) = font;
+  FRAME_BASELINE_OFFSET (f) = font->baseline_offset;
+  FRAME_COLUMN_WIDTH (f) = unit = font->average_width;
+  get_font_ascent_descent (font, &font_ascent, &font_descent);
+  FRAME_LINE_HEIGHT (f) = font_ascent + font_descent;
+
+  /* Compute number of scrollbar columns.  */
+  unit = FRAME_COLUMN_WIDTH (f);
+  if (FRAME_CONFIG_SCROLL_BAR_WIDTH (f) > 0)
+    FRAME_CONFIG_SCROLL_BAR_COLS (f)
+      = (FRAME_CONFIG_SCROLL_BAR_WIDTH (f) + unit - 1) / unit;
+  else
+    {
+      FRAME_CONFIG_SCROLL_BAR_COLS (f) = (14 + unit - 1) / unit;
+      FRAME_CONFIG_SCROLL_BAR_WIDTH (f) =
+	FRAME_CONFIG_SCROLL_BAR_COLS (f) * unit;
+    }
+
+  /* Now make the frame display the given font.  */
+  if (FRAME_X_WINDOW (f) != 0)
+    {
+      /* Don't change the size of a tip frame; there's no point in
+	 doing it because it's done in Fx_show_tip, and it leads to
+	 problems because the tip frame has no widget.  */
+      if (!FRAME_TOOLTIP_P (f))
+	adjust_frame_size (f, FRAME_COLS (f) * FRAME_COLUMN_WIDTH (f),
+			   FRAME_LINES (f) * FRAME_LINE_HEIGHT (f), 3,
+			   false, Qfont);
+    }
+
+  /* X version sets font of input methods here also.  */
+
+  return font_object;
 }
 
 void

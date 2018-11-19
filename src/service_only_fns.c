@@ -170,6 +170,47 @@ check_x_display_info (Lisp_Object object)
     }
 }
 
+static void
+x_default_font_parameter (struct frame *f, Lisp_Object parms)
+{
+  struct so_display_info *dpyinfo = FRAME_DISPLAY_INFO (f);
+  Lisp_Object font_param = x_get_arg (dpyinfo, parms, Qfont, NULL, NULL,
+				RES_TYPE_STRING);
+  Lisp_Object font;
+  if (EQ (font_param, Qunbound))
+    font_param = Qnil;
+  font = !NILP (font_param) ? font_param
+    : x_get_arg (dpyinfo, parms, Qfont, "font", "Font", RES_TYPE_STRING);
+
+  if (!STRINGP (font))
+    {
+      int i;
+      static const char *names[]
+	= { "Courier New-10",
+	    "-*-Courier-normal-r-*-*-13-*-*-*-c-*-iso8859-1",
+	    "-*-Fixedsys-normal-r-*-*-12-*-*-*-c-*-iso8859-1",
+	    "Fixedsys",
+	    NULL };
+
+      for (i = 0; names[i]; i++)
+	{
+	  font = font_open_by_name (f, build_unibyte_string (names[i]));
+	  if (! NILP (font))
+	    break;
+	}
+      if (NILP (font))
+	error ("No suitable font was found");
+    }
+  else if (!NILP (font_param))
+    {
+      /* Remember the explicit font parameter, so we can re-apply it after
+	 we've applied the `default' face settings.  */
+      x_set_frame_parameters (f, Fcons (Fcons (Qfont_parameter, font_param),
+					Qnil));
+    }
+  x_default_parameter (f, parms, Qfont, font, "font", "Font", RES_TYPE_STRING);
+}
+
 DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
        1, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
@@ -336,7 +377,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   /* Extract the window parameters from the supplied values
      that are needed to determine window geometry.  */
-  /* x_default_font_parameter (f, parameters); */
+  x_default_font_parameter (f, parameters);
 
   /* Default BorderWidth to 0 to match other platforms.  */
   x_default_parameter (f, parameters, Qborder_width, make_fixnum (0),
@@ -582,7 +623,7 @@ frame_parm_handler so_frame_parm_handlers[] =
   0, //x_set_border_width,
   0, //x_set_cursor_color,
   0, //x_set_cursor_type,
-  0, //x_set_font,
+  x_set_font,
   0, //x_set_foreground_color,
   0, //x_set_icon_name,
   0, //x_set_icon_type,
@@ -796,6 +837,35 @@ x_get_focus_frame (struct frame *frame)
 }
 
 void syms_of_sofns (void) {
+  DEFSYM (Qundefined_color, "undefined-color");
+  DEFSYM (Qcancel_timer, "cancel-timer");
+  DEFSYM (Qhyper, "hyper");
+  DEFSYM (Qsuper, "super");
+  DEFSYM (Qmeta, "meta");
+  DEFSYM (Qalt, "alt");
+  DEFSYM (Qctrl, "ctrl");
+  DEFSYM (Qcontrol, "control");
+  DEFSYM (Qshift, "shift");
+  DEFSYM (Qfont_parameter, "font-parameter");
+  DEFSYM (Qgeometry, "geometry");
+  DEFSYM (Qworkarea, "workarea");
+  DEFSYM (Qmm_size, "mm-size");
+  DEFSYM (Qframes, "frames");
+  DEFSYM (Qtip_frame, "tip-frame");
+
+  /* Symbols used elsewhere, but only in MS-Windows-specific code.  */
+  DEFSYM (Qgnutls, "gnutls");
+  DEFSYM (Qlibxml2, "libxml2");
+  DEFSYM (Qserif, "serif");
+  DEFSYM (Qzlib, "zlib");
+  DEFSYM (Qlcms2, "lcms2");
+  DEFSYM (Qjson, "json");
+
+  Fput (Qundefined_color, Qerror_conditions,
+	listn (CONSTYPE_PURE, 2, Qundefined_color, Qerror));
+  Fput (Qundefined_color, Qerror_message,
+	build_pure_c_string ("Undefined color"));
+
   syms_of_sofont();
 
   defsubr (&Sx_create_frame);
@@ -804,4 +874,5 @@ void syms_of_sofns (void) {
   defsubr (&Sx_display_list);
   defsubr (&Sx_synchronize);
   defsubr (&Sset_message_beep);
+
 }
