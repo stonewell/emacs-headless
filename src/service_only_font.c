@@ -31,6 +31,7 @@ int
 sofont_draw (struct glyph_string *s, int from, int to,
 	      int x, int y, bool with_background)
 {
+  fprintf(stderr, "sofont draw:%s\n", s->char2b);
   return 0;
 }
 
@@ -129,12 +130,38 @@ sofont_open (struct frame *f, Lisp_Object font_entity, int pixel_size)
   font->encoding_charset = -1;
   font->repertory_charset = -1;
   font->min_width = font->space_width;
-  font->ascent = 0.1;
-  font->descent = 0.9;
+  font->ascent = pixel_size;
+  font->descent = 1;
   font->height = pixel_size;
 
+  font->props[FONT_NAME_INDEX] = Ffont_xlfd_name (font_object, Qnil);
   return font_object;
 }
+
+static unsigned
+sofont_encode_char (struct font *font, int c)
+{
+    return c;
+}
+
+static
+void
+sofont_text_extents (struct font *font, unsigned *code,
+		      int nglyphs, struct font_metrics *metrics)
+{
+  memset (metrics, 0, sizeof (struct font_metrics));
+  metrics->width = 10 * nglyphs;
+  metrics->lbearing = 0;
+  metrics->rbearing = 10 * nglyphs;
+  metrics->ascent = font->ascent;
+  metrics->descent = font->descent;
+}
+
+static
+void
+sofont_close (struct font *font) {
+}
+
 
 struct font_driver sofont_driver =
   {
@@ -146,12 +173,12 @@ struct font_driver sofont_driver =
     NULL, // sofont_list_family,
     NULL, /* free_entity */
     sofont_open,
-    NULL, // sofont_close,
+    sofont_close,
     NULL, /* prepare_face */
     NULL, /* done_face */
     NULL, // sofont_has_char,
-    NULL, // sofont_encode_char,
-    NULL, // sofont_text_extents,
+    sofont_encode_char,
+    sofont_text_extents,
     sofont_draw,
     NULL, /* get_bitmap */
     NULL, /* free_bitmap */

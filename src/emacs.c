@@ -1560,6 +1560,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #ifdef HAVE_SERVICE_ONLY_GUI
       syms_of_soterm();
       syms_of_sofns();
+      syms_of_fontset ();
 #endif
 
 #ifdef HAVE_NTGUI

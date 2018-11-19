@@ -70,13 +70,12 @@ x_focus_frame (struct frame *f, bool noactivate) {
 
 Lisp_Object
 x_new_font (struct frame *f, Lisp_Object font_object, int fontset) {
-  fprintf(stderr, "%d\n", __LINE__);
-
   struct font *font = XFONT_OBJECT (font_object);
   int unit, font_ascent, font_descent;
 
   if (fontset < 0)
     fontset = fontset_from_font (font_object);
+
   FRAME_FONTSET (f) = fontset;
   if (FRAME_FONT (f) == font)
     /* This font is already set in frame F.  There's nothing more to
@@ -112,8 +111,6 @@ x_new_font (struct frame *f, Lisp_Object font_object, int fontset) {
 			   FRAME_LINES (f) * FRAME_LINE_HEIGHT (f), 3,
 			   false, Qfont);
     }
-
-  /* X version sets font of input methods here also.  */
 
   return font_object;
 }
@@ -155,14 +152,12 @@ so_defined_color (struct frame *f, const char *color, XColor *color_def,
   return 0;
 }
 
-void syms_of_soterm (void) {
-}
-
 static int so_initialized = 0;
 static void
 so_initialize (void) {
 }
 
+static
 void
 so_initialize_display_info (Lisp_Object display_name)
 {
@@ -427,4 +422,8 @@ void x_make_frame_visible (struct frame *f) {
 void
 x_set_window_size (struct frame *f, bool change_gravity,
 		   int width, int height, bool pixelwise) {
+}
+
+void syms_of_soterm (void) {
+  Fprovide (QServiceOnlyGui, Qnil);
 }

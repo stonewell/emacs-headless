@@ -458,10 +458,15 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 		   RES_TYPE_NUMBER);
   if (FIXNUMP (tem))
     store_frame_param (f, Qmin_width, tem);
+  else
+    store_frame_param (f, Qmin_width, make_fixnum(1));
   tem = x_get_arg (dpyinfo, parameters, Qmin_height, NULL, NULL,
 		   RES_TYPE_NUMBER);
   if (FIXNUMP (tem))
     store_frame_param (f, Qmin_height, tem);
+  else
+    store_frame_param (f, Qmin_height, make_fixnum(1));
+
   adjust_frame_size (f, FRAME_COLS (f) * FRAME_COLUMN_WIDTH (f),
 		     FRAME_LINES (f) * FRAME_LINE_HEIGHT (f), 5, true,
 		     Qx_create_frame_1);
@@ -874,5 +879,5 @@ void syms_of_sofns (void) {
   defsubr (&Sx_display_list);
   defsubr (&Sx_synchronize);
   defsubr (&Sset_message_beep);
-
+  defsubr (&Sx_display_grayscale_p);
 }

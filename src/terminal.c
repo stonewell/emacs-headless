@@ -447,6 +447,8 @@ possible return values.  */)
       return Qpc;
     case output_ns:
       return Qns;
+    case output_service_only:
+      return QServiceOnlyGui;
     default:
       emacs_abort ();
     }
