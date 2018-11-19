@@ -246,6 +246,12 @@ so_make_rdb (char *xrm_option)
   return buffer;
 }
 
+static
+void x_draw_glyph_string (struct glyph_string *s) {
+  fprintf(stderr, "soterm draw:%s\n", s->char2b);
+}
+
+
 extern frame_parm_handler so_frame_parm_handlers[];
 static void
 x_delete_terminal (struct terminal *terminal);
@@ -269,7 +275,7 @@ static struct redisplay_interface so_redisplay_interface =
   0, //w32_define_fringe_bitmap,
   0, //w32_destroy_fringe_bitmap,
   0, //w32_compute_glyph_string_overhangs,
-  0, //x_draw_glyph_string,
+  x_draw_glyph_string,
   0, //w32_define_frame_cursor,
   0, //w32_clear_frame_area,
   0, //w32_draw_window_cursor,
