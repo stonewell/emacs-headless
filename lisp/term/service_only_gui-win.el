@@ -2,13 +2,12 @@
 ;;; Commentary:
 ;;; Code:
 
-(declare-function x-handle-args "common-win" (args))
-
-(cl-defmethod handle-args-function (args &context (window-system service_only_gui))
-  (x-handle-args args))
-
-(cl-defmethod frame-creation-function (params &context (window-system service_only_gui))
-  (x-create-frame-with-faces params))
+(eval-when-compile (require 'cl-lib))
+(require 'frame)
+(require 'mouse)
+(require 'faces)
+(require 'select)
+(require 'menu-bar)
 
 ;;; multi-tty support
 (defvar service_only_gui-initialized nil
@@ -26,6 +25,15 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 (declare-function x-open-connection "service_only_fns.c"
                   (display &optional xrm-string must-succeed))
 (declare-function set-message-beep "service_only_fns.c")
+(declare-function create-default-fontset "fontset" ())
+(declare-function create-fontset-from-fontset-spec "fontset"
+                  (fontset-spec &optional style-variant noerror))
+(declare-function create-fontset-from-x-resource "fontset" ())
+(declare-function x-get-resource "frame.c"
+                  (attribute class &optional component subclass))
+(declare-function x-handle-args "common-win" (args))
+(declare-function x-parse-geometry "frame.c" (string))
+(defvar x-command-line-resources)
 
 (cl-defmethod window-system-initialization (&context (window-system service_only_gui)
                                             &optional _display)
@@ -114,6 +122,13 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
   (setq service_only_gui-initialized t))
 
 (add-to-list 'display-format-alist '("\\`service_only_gui\\'" . service_only_gui))
+
+(cl-defmethod handle-args-function (args &context (window-system service_only_gui))
+  (x-handle-args args))
+
+(cl-defmethod frame-creation-function (params &context (window-system service_only_gui))
+  (x-create-frame-with-faces params))
+
 
 (provide 'service_only_gui-win)
 (provide 'term/service_only_gui-win)
