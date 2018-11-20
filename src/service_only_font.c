@@ -31,7 +31,7 @@ int
 sofont_draw (struct glyph_string *s, int from, int to,
 	      int x, int y, bool with_background)
 {
-  fprintf(stderr, "sofont draw:%s\n", s->char2b);
+  fprintf(stderr, "sofont draw:%ls\n", s->char2b);
   return 0;
 }
 
@@ -124,7 +124,7 @@ sofont_open (struct frame *f, Lisp_Object font_entity, int pixel_size)
   font->vertical_centering = 0;
   font->baseline_offset = 0;
   font->relative_compose = 0;
-  font->default_ascent = 0.1;
+  font->default_ascent = pixel_size;
   font->pixel_size = pixel_size;
   font->driver = &sofont_driver;
   font->encoding_charset = -1;

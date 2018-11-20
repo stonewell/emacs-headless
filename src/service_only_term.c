@@ -248,7 +248,7 @@ so_make_rdb (char *xrm_option)
 
 static
 void x_draw_glyph_string (struct glyph_string *s) {
-  fprintf(stderr, "soterm draw:%s\n", s->char2b);
+  fprintf(stderr, "soterm draw:%ls\n", s->char2b);
 }
 
 
