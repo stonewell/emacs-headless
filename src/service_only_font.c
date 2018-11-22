@@ -109,6 +109,7 @@ sofont_match (struct frame *f, Lisp_Object font_spec) {
 static Lisp_Object
 sofont_open (struct frame *f, Lisp_Object font_entity, int pixel_size)
 {
+  pixel_size = 16;
   Lisp_Object font_object
     = font_make_object (VECSIZE (struct sofont_info),
                         font_entity, pixel_size);
@@ -132,7 +133,7 @@ sofont_open (struct frame *f, Lisp_Object font_entity, int pixel_size)
   font->min_width = font->space_width;
   font->ascent = pixel_size;
   font->descent = 1;
-  font->height = pixel_size;
+  font->height = pixel_size + 2;
 
   font->props[FONT_NAME_INDEX] = Ffont_xlfd_name (font_object, Qnil);
   return font_object;

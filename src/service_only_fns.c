@@ -580,15 +580,15 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 	= x_get_arg (dpyinfo, parameters, Qvisibility, 0, 0, RES_TYPE_SYMBOL);
 
       if (EQ (visibility, Qicon)) {
-	/* x_iconify_frame (f); */
+	x_iconify_frame (f);
       }
       else
 	{
 	  if (EQ (visibility, Qunbound))
 	    visibility = Qt;
 
-	  /* if (!NILP (visibility)) */
-	  /*   x_make_frame_visible (f); */
+	  if (!NILP (visibility))
+	    x_make_frame_visible (f);
 	}
 
       store_frame_param (f, Qvisibility, visibility);
