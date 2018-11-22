@@ -157,7 +157,6 @@ x_query_colors (struct frame *f, XColor *colors, int ncolors) {
 int
 so_defined_color (struct frame *f, const char *color, XColor *color_def,
                   bool alloc_p) {
-  fprintf(stderr, "%s %d\n", __FUNCTION__, __LINE__);
   return 0;
 }
 
@@ -258,13 +257,7 @@ so_make_rdb (char *xrm_option)
 
 static
 void x_draw_glyph_string (struct glyph_string *s) {
-  fprintf(stderr, "soterm draw:%ls\n", s->char2b);
-
-  struct glyph_string *next;
-
-  for (next = s->next; next; next = next->next) {
-    fprintf(stderr, "soterm draw next:%ls\n", next->char2b);
-  }
+  fprintf(stderr, "soterm draw:%.*ls\n", s->nchars, s->char2b);
 }
 
 static void
