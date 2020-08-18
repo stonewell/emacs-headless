@@ -1,6 +1,6 @@
 ;;; em-ls.el --- implementation of ls in Lisp  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2018 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -29,7 +29,8 @@
 (require 'cl-lib)
 (require 'esh-util)
 (require 'esh-opt)
-(eval-when-compile (require 'eshell))
+(require 'esh-proc)
+(require 'esh-cmd)
 
 ;;;###autoload
 (progn
@@ -238,7 +239,6 @@ scope during the evaluation of TEST-SEXP."
 (defvar show-recursive)
 (defvar show-size)
 (defvar sort-method)
-(defvar ange-cache)
 (defvar dired-flag)
 
 ;;; Functions:
@@ -346,7 +346,7 @@ instead."
    "ls" (if eshell-ls-initial-args
 	    (list eshell-ls-initial-args args)
 	  args)
-   `((?a "all" nil show-all
+   '((?a "all" nil show-all
 	 "do not ignore entries starting with .")
      (?A "almost-all" nil show-almost-all
 	 "do not list implied . and ..")
@@ -405,7 +405,7 @@ Sort entries alphabetically across.")
      (setq listing-style 'by-columns))
    (unless args
      (setq args (list ".")))
-   (let ((eshell-ls-exclude-regexp eshell-ls-exclude-regexp) ange-cache)
+   (let ((eshell-ls-exclude-regexp eshell-ls-exclude-regexp))
      (when ignore-pattern
        (unless (eshell-using-module 'eshell-glob)
 	 (error (concat "-I option requires that `eshell-glob'"
@@ -524,12 +524,14 @@ whose cdr is the list of file attributes."
 		" " (format-time-string
 		     (concat
 		      eshell-ls-date-format " "
-		      (if (= (nth 5 (decode-time))
-			     (nth 5 (decode-time
-				     (nth (cond
-					   ((eq sort-method 'by-atime) 4)
-					   ((eq sort-method 'by-ctime) 6)
-					   (t 5)) attrs))))
+		      (if (= (decoded-time-year (decode-time))
+			     (decoded-time-year
+                              (decode-time
+			       (nth (cond
+				     ((eq sort-method 'by-atime) 4)
+				     ((eq sort-method 'by-ctime) 6)
+				     (t 5))
+                                    attrs))))
 			  "%H:%M"
 			" %Y")) (nth (cond
 			((eq sort-method 'by-atime) 4)

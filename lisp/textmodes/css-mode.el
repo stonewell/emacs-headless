@@ -1,6 +1,6 @@
 ;;; css-mode.el --- Major mode to edit CSS files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2018 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2020 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Maintainer: Simen Heggestøyl <simenheg@gmail.com>
@@ -67,7 +67,7 @@
 
 (defconst scss-at-ids
   '("at-root" "content" "debug" "each" "else" "else if" "error" "extend"
-    "for" "function" "if" "import" "include" "mixin" "return" "warn"
+    "for" "function" "if" "import" "include" "mixin" "return" "use" "warn"
     "while")
   "Additional identifiers that appear in the form @foo in SCSS.")
 
@@ -119,7 +119,6 @@
     ("cue" cue-before cue-after)
     ("cue-after" uri "none")
     ("cue-before" uri "none")
-    ("direction" "ltr" "rtl")
     ("display" "inline" "block" "list-item" "inline-block" "table"
      "inline-table" "table-row-group" "table-header-group"
      "table-footer-group" "table-row" "table-column-group"
@@ -180,7 +179,6 @@
     ("stress" number)
     ("table-layout" "auto" "fixed")
     ("top" length percentage "auto")
-    ("unicode-bidi" "normal" "embed" "bidi-override")
     ("vertical-align" "baseline" "sub" "super" "top" "text-top"
      "middle" "bottom" "text-bottom" percentage length)
     ("visibility" "visible" "hidden" "collapse")
@@ -277,6 +275,10 @@
     ;; (http://www.w3.org/TR/css3-color/#property)
     ("color" color)
     ("opacity" alphavalue)
+
+    ;; CSS Containment Module Level 1
+    ;; (https://www.w3.org/TR/css-contain-1/#property-index)
+    ("contain" "none" "strict" "content" "size" "layout" "paint")
 
     ;; CSS Grid Layout Module Level 1
     ;; (https://www.w3.org/TR/css-grid-1/#property-index)
@@ -489,6 +491,16 @@
     ;; CSS Will Change Module Level 1
     ;; (https://www.w3.org/TR/css-will-change-1/#property-index)
     ("will-change" "auto" animateable-feature)
+
+    ;; CSS Writing Modes Level 3
+    ;; (https://www.w3.org/TR/css-writing-modes-3/#property-index)
+    ;; "glyph-orientation-vertical" is obsolete and left out.
+    ("direction" "ltr" "rtl")
+    ("text-combine-upright" "none" "all")
+    ("text-orientation" "mixed" "upright" "sideways")
+    ("unicode-bidi" "normal" "embed" "isolate" "bidi-override"
+     "isolate-override" "plaintext")
+    ("writing-mode" "horizontal-tb" "vertical-rl" "vertical-lr")
 
     ;; Filter Effects Module Level 1
     ;; (http://www.w3.org/TR/filter-effects/#property-index)
@@ -844,7 +856,21 @@ cannot be completed sensibly: `custom-ident',
 (defvar css-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map [remap info-lookup-symbol] 'css-lookup-symbol)
+    ;; `info-complete-symbol' is not used.
+    (define-key map [remap complete-symbol] 'completion-at-point)
     (define-key map "\C-c\C-f" 'css-cycle-color-format)
+    (easy-menu-define css-menu map "CSS mode menu"
+      '("CSS"
+        :help "CSS-specific features"
+        ["Reformat block" fill-paragraph
+         :help "Reformat declaration block or fill comment at point"]
+        ["Cycle color format" css-cycle-color-format
+         :help "Cycle color at point between different formats"]
+        "-"
+        ["Describe symbol" css-lookup-symbol
+         :help "Display documentation for a CSS symbol"]
+        ["Complete symbol" completion-at-point
+         :help "Complete symbol before point"]))
     map)
   "Keymap used in `css-mode'.")
 
@@ -859,8 +885,8 @@ cannot be completed sensibly: `custom-ident',
    (css--uri-re (1 "|") (2 "|"))))
 
 (defconst css-escapes-re
-  "\\\\\\(?:[^\000-\037\177]\\|[0-9a-fA-F]+[ \n\t\r\f]?\\)")
-(defconst css-nmchar-re (concat "\\(?:[-[:alnum:]]\\|" css-escapes-re "\\)"))
+  "\\\\\\(?:[^\000-\037\177]\\|[[:xdigit:]]+[ \n\t\r\f]?\\)")
+(defconst css-nmchar-re (concat "\\(?:[-_[:alnum:]]\\|" css-escapes-re "\\)"))
 (defconst css-nmstart-re (concat "\\(?:[[:alpha:]]\\|" css-escapes-re "\\)"))
 (defconst css-ident-re ;; (concat css-nmstart-re css-nmchar-re "*")
   ;; Apparently, "at rules" names can start with a dash, e.g. @-moz-keyframes.
@@ -892,7 +918,7 @@ cannot be completed sensibly: `custom-ident',
     (,(concat "@" css-ident-re) (0 font-lock-builtin-face))
     ;; Selectors.
     ;; Allow plain ":root" as a selector.
-    ("^[ \t]*\\(:root\\)\\(?:[\n \t]*\\)*{" (1 'css-selector keep))
+    ("^[ \t]*\\(:root\\)[\n \t]*{" (1 'css-selector keep))
     ;; FIXME: attribute selectors don't work well because they may contain
     ;; strings which have already been highlighted as f-l-string-face and
     ;; thus prevent this highlighting from being applied (actually now that
@@ -915,7 +941,7 @@ cannot be completed sensibly: `custom-ident',
        "\\(?:\\(:" (regexp-opt (append css-pseudo-class-ids
                                        css-pseudo-element-ids)
                                t)
-       "\\|\\::" (regexp-opt css-pseudo-element-ids t) "\\)"
+       "\\|::" (regexp-opt css-pseudo-element-ids t) "\\)"
        "\\(?:([^)]+)\\)?"
        (if (not sassy)
            "[^:{}()\n]*"
@@ -1065,10 +1091,10 @@ This recognizes CSS-color-4 extensions."
    (regexp-opt (mapcar #'car css--color-map) 'symbols)
    "\\|"
    ;; Short hex.  css-color-4 adds alpha.
-   "\\(#[0-9a-fA-F]\\{3,4\\}\\b\\)"
+   "\\(#[[:xdigit:]]\\{3,4\\}\\b\\)"
    "\\|"
    ;; Long hex.  css-color-4 adds alpha.
-   "\\(#\\(?:[0-9a-fA-F][0-9a-fA-F]\\)\\{3,4\\}\\b\\)"
+   "\\(#\\(?:[[:xdigit:]][[:xdigit:]]\\)\\{3,4\\}\\b\\)"
    "\\|"
    ;; RGB.
    "\\(\\_<rgba?(\\)"
@@ -1123,17 +1149,6 @@ returns, point will be at the end of the recognized color."
    ;; Evaluate to the color if the name is found.
    ((css--named-color start-point match))))
 
-(defun css--contrasty-color (name)
-  "Return a color that contrasts with NAME.
-NAME is of any form accepted by `color-distance'.
-The returned color will be usable by Emacs and will contrast
-with NAME; in particular so that if NAME is used as a background
-color, the returned color can be used as the foreground and still
-be readable."
-  ;; See bug#25525 for a discussion of this.
-  (if (> (color-distance name "black") 292485)
-      "black" "white"))
-
 (defcustom css-fontify-colors t
   "Whether CSS colors should be fontified using the color as the background.
 When non-`nil', a text representing CSS color will be fontified
@@ -1173,7 +1188,8 @@ START and END are buffer positions."
 		    (add-text-properties
 		     start (point)
 		     (list 'face (list :background color
-				       :foreground (css--contrasty-color color)
+				       :foreground (readable-foreground-color
+                                                    color)
 				       :box '(:line-width -1))))))))))))
     extended-region))
 
@@ -1250,20 +1266,20 @@ for determining whether point is within a selector."
 
 (defun css-smie-rules (kind token)
   (pcase (cons kind token)
-    (`(:elem . basic) css-indent-offset)
-    (`(:elem . arg) 0)
+    ('(:elem . basic) css-indent-offset)
+    ('(:elem . arg) 0)
     ;; "" stands for BOB (bug#15467).
     (`(:list-intro . ,(or ";" "" ":-property")) t)
-    (`(:before . "{")
+    ('(:before . "{")
      (when (or (smie-rule-hanging-p) (smie-rule-bolp))
        (smie-backward-sexp ";")
        (unless (eq (char-after) ?\{)
          (smie-indent-virtual))))
-    (`(:before . "(")
+    ('(:before . "(")
      (cond
       ((smie-rule-hanging-p) (smie-rule-parent 0))
       ((not (smie-rule-bolp)) 0)))
-    (`(:after . ":-property")
+    ('(:after . ":-property")
      (when (smie-rule-hanging-p)
        css-indent-offset))))
 
@@ -1557,7 +1573,7 @@ rgb()/rgba()."
         (prev nil))
     (dolist (sel selectors)
       (cond
-       ((seq-contains sel ?&)
+       ((seq-contains-p sel ?&)
         (setq sel (replace-regexp-in-string "&" prev sel))
         (pop processed))
        ;; Unless this is the first selector, separate this one and the
@@ -1607,7 +1623,7 @@ rgb()/rgba()."
 This mode provides syntax highlighting, indentation, completion,
 and documentation lookup for CSS.
 
-Use `\\[complete-symbol]' to complete CSS properties, property values,
+Use `\\[completion-at-point]' to complete CSS properties, property values,
 pseudo-elements, pseudo-classes, at-rules, bang-rules, and HTML
 tags, classes and IDs.  Completion candidates for HTML class
 names and IDs are found by looking through open HTML mode

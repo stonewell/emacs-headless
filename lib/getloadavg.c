@@ -1,6 +1,6 @@
 /* Get the system load averages.
 
-   Copyright (C) 1985-1989, 1991-1995, 1997, 1999-2000, 2003-2018 Free Software
+   Copyright (C) 1985-1989, 1991-1995, 1997, 1999-2000, 2003-2020 Free Software
    Foundation, Inc.
 
    NOTE: The canonical source of this file is maintained with gnulib.
@@ -47,8 +47,8 @@
    N_NAME_POINTER               The nlist n_name element is a pointer,
                                 not an array.
    HAVE_STRUCT_NLIST_N_UN_N_NAME 'n_un.n_name' is member of 'struct nlist'.
-   LINUX_LDAV_FILE              [__linux__, __CYGWIN__]: File containing
-                                load averages.
+   LINUX_LDAV_FILE              [__linux__, __ANDROID__, __CYGWIN__]: File
+                                containing load averages.
 
    Specific system predefines this file uses, aside from setting
    default values if not emacs:
@@ -65,7 +65,7 @@
    UMAX4_3
    VMS
    _WIN32                       Native Windows (possibly also defined on Cygwin)
-   __linux__                    Linux: assumes /proc file system mounted.
+   __linux__, __ANDROID__       Linux: assumes /proc file system mounted.
                                 Support from Michael K. Johnson.
    __CYGWIN__                   Cygwin emulates linux /proc/loadavg.
    __NetBSD__                   NetBSD: assumes /kern file system mounted.
@@ -263,7 +263,7 @@
 # ifdef LOAD_AVE_TYPE
 
 #  ifndef __VMS
-#   ifndef __linux__
+#   if !(defined __linux__ || defined __ANDROID__)
 #    ifndef NLIST_STRUCT
 #     include <a.out.h>
 #    else /* NLIST_STRUCT */
@@ -286,7 +286,7 @@
 #    ifndef LDAV_SYMBOL
 #     define LDAV_SYMBOL "_avenrun"
 #    endif /* LDAV_SYMBOL */
-#   endif /* __linux__ */
+#   endif /* __linux__ || __ANDROID__ */
 
 #  else /* __VMS */
 
@@ -359,7 +359,8 @@
 #  include <sys/dg_sys_info.h>
 # endif
 
-# if (defined __linux__ || defined __CYGWIN__ || defined SUNOS_5        \
+# if (defined __linux__ || defined __ANDROID__ \
+      || defined __CYGWIN__ || defined SUNOS_5 \
       || (defined LOAD_AVE_TYPE && ! defined __VMS))
 #  include <fcntl.h>
 # endif
@@ -388,7 +389,7 @@ static bool getloadavg_initialized;
 /* Offset in kmem to seek to read load average, or 0 means invalid.  */
 static long offset;
 
-#  if ! defined __VMS && ! defined sgi && ! defined __linux__
+#  if ! defined __VMS && ! defined sgi && ! (defined __linux__ || defined __ANDROID__)
 static struct nlist name_list[2];
 #  endif
 
@@ -423,17 +424,17 @@ getloadavg (double loadavg[], int nelem)
   int saved_errno;
 
   kc = kstat_open ();
-  if (kc == 0)
+  if (kc == NULL)
     return -1;
   ksp = kstat_lookup (kc, "unix", 0, "system_misc");
-  if (ksp == 0)
+  if (ksp == NULL)
     return -1;
   if (kstat_read (kc, ksp, 0) == -1)
     return -1;
 
 
   kn = kstat_data_lookup (ksp, "avenrun_1min");
-  if (kn == 0)
+  if (kn == NULL)
     {
       /* Return -1 if no load average information is available.  */
       nelem = 0;
@@ -446,14 +447,14 @@ getloadavg (double loadavg[], int nelem)
   if (nelem >= 2)
     {
       kn = kstat_data_lookup (ksp, "avenrun_5min");
-      if (kn != 0)
+      if (kn != NULL)
         {
           loadavg[elem++] = (double) kn->value.ul / FSCALE;
 
           if (nelem >= 3)
             {
               kn = kstat_data_lookup (ksp, "avenrun_15min");
-              if (kn != 0)
+              if (kn != NULL)
                 loadavg[elem++] = (double) kn->value.ul / FSCALE;
             }
         }
@@ -498,8 +499,8 @@ getloadavg (double loadavg[], int nelem)
   }
 # endif
 
-# if !defined (LDAV_DONE) && (defined (__linux__) || defined (__CYGWIN__))
-                                              /* Linux without glibc, Cygwin */
+# if !defined (LDAV_DONE) && (defined __linux__ || defined __ANDROID__ || defined __CYGWIN__)
+                                      /* Linux without glibc, Android, Cygwin */
 #  define LDAV_DONE
 #  undef LOAD_AVE_TYPE
 
@@ -511,7 +512,7 @@ getloadavg (double loadavg[], int nelem)
   char const *ptr = ldavgbuf;
   int fd, count, saved_errno;
 
-  fd = open (LINUX_LDAV_FILE, O_RDONLY);
+  fd = open (LINUX_LDAV_FILE, O_RDONLY | O_CLOEXEC);
   if (fd == -1)
     return -1;
   count = read (fd, ldavgbuf, sizeof ldavgbuf - 1);
@@ -549,12 +550,12 @@ getloadavg (double loadavg[], int nelem)
         for (ptr++; '0' <= *ptr && *ptr <= '9'; ptr++)
           numerator = 10 * numerator + (*ptr - '0'), denominator *= 10;
 
-      loadavg[elem++] = numerator / denominator;
+      loadavg[elem] = numerator / denominator;
     }
 
   return elem;
 
-# endif /* __linux__ || __CYGWIN__ */
+# endif /* __linux__ || __ANDROID__ || __CYGWIN__ */
 
 # if !defined (LDAV_DONE) && defined (__NetBSD__)          /* NetBSD < 0.9 */
 #  define LDAV_DONE
@@ -566,15 +567,22 @@ getloadavg (double loadavg[], int nelem)
 
   unsigned long int load_ave[3], scale;
   int count;
-  FILE *fp;
-
-  fp = fopen (NETBSD_LDAV_FILE, "r");
-  if (fp == NULL)
-    return -1;
-  count = fscanf (fp, "%lu %lu %lu %lu\n",
+  char readbuf[4 * INT_BUFSIZE_BOUND (unsigned long int) + 1];
+  int fd = open (NETBSD_LDAV_FILE, O_RDONLY | O_CLOEXEC);
+  if (fd < 0)
+    return fd;
+  int nread = read (fd, readbuf, sizeof readbuf - 1);
+  int err = errno;
+  close (fd);
+  if (nread < 0)
+    {
+      errno = err;
+      return -1;
+    }
+  readbuf[nread] = '\0';
+  count = sscanf (readbuf, "%lu %lu %lu %lu\n",
                   &load_ave[0], &load_ave[1], &load_ave[2],
                   &scale);
-  (void) fclose (fp);
   if (count != 4)
     {
       errno = ENOTSUP;
@@ -868,33 +876,17 @@ getloadavg (double loadavg[], int nelem)
   if (!getloadavg_initialized)
     {
 #  ifndef SUNOS_5
-      /* Set the channel to close on exec, so it does not
-         litter any child's descriptor table.  */
-#   ifndef O_CLOEXEC
-#    define O_CLOEXEC 0
-#   endif
       int fd = open ("/dev/kmem", O_RDONLY | O_CLOEXEC);
       if (0 <= fd)
         {
-#   if F_DUPFD_CLOEXEC
-          if (fd <= STDERR_FILENO)
-            {
-              int fd1 = fcntl (fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
-              close (fd);
-              fd = fd1;
-            }
-#   endif
-          if (0 <= fd)
-            {
-              channel = fd;
-              getloadavg_initialized = true;
-            }
+          channel = fd;
+          getloadavg_initialized = true;
         }
 #  else /* SUNOS_5 */
       /* We pass 0 for the kernel, corefile, and swapfile names
          to use the currently running kernel.  */
       kd = kvm_open (0, 0, 0, O_RDONLY, 0);
-      if (kd != 0)
+      if (kd != NULL)
         {
           /* nlist the currently running kernel.  */
           kvm_nlist (kd, name_list);

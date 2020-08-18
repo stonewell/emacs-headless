@@ -1,4 +1,6 @@
-;; Copyright (C) 2018 Free Software Foundation, Inc.
+;;; ccl-tests.el --- unit tests for ccl.el  -*- lexical-binding:t -*-
+
+;; Copyright (C) 2018-2020 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -93,6 +95,9 @@ At EOF:
   (with-temp-buffer
     (ccl-dump prog-pgg-code)
     (should (equal (buffer-string) prog-pgg-dump))))
+
+(defvar pgg-parse-crc24)
+(declare-function pgg-parse-crc24-string "pgg-parse" (string))
 
 (ert-deftest pgg-parse-crc24 ()
   ;; Compiler

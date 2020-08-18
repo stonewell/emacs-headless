@@ -1,9 +1,9 @@
-;;; gravatar.el --- Get Gravatars
+;;; gravatar.el --- Get Gravatars -*- lexical-binding: t -*-
 
-;; Copyright (C) 2010-2018 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2020 Free Software Foundation, Inc.
 
 ;; Author: Julien Danjou <julien@danjou.info>
-;; Keywords: news
+;; Keywords: comm, multimedia
 
 ;; This file is part of GNU Emacs.
 
@@ -26,10 +26,12 @@
 
 (require 'url)
 (require 'url-cache)
-(require 'image)
+(require 'dns)
+(eval-when-compile
+  (require 'subr-x))
 
 (defgroup gravatar nil
-  "Gravatar."
+  "Gravatars."
   :version "24.1"
   :group 'comm)
 
@@ -38,115 +40,213 @@
   :type 'boolean
   :group 'gravatar)
 
-;; FIXME a time value is not the nicest format for a custom variable.
-(defcustom gravatar-cache-ttl (days-to-time 30)
-  "Time to live for gravatar cache entries."
-  :type '(repeat integer)
+(defcustom gravatar-cache-ttl 2592000
+  "Time to live in seconds for gravatar cache entries.
+If a requested gravatar has been cached for longer than this, it
+is retrieved anew.  The default value is 30 days."
+  :type 'integer
+  ;; Restricted :type to number of seconds.
+  :version "27.1"
   :group 'gravatar)
 
-;; FIXME Doc is tautological.  What are the options?
 (defcustom gravatar-rating "g"
-  "Default rating for gravatar."
-  :type 'string
+  "Most explicit Gravatar rating level to allow.
+Some gravatars are rated according to how suitable they are for
+different audiences.  The supported rating levels are, in order
+of increasing explicitness, the following:
+
+\"g\"  - Suitable for any audience.
+\"pg\" - May contain rude gestures, provocatively dressed
+       individuals, mild profanity, or mild violence.
+\"r\"  - May contain harsh profanity, intense violence, nudity,
+       or hard drug use.
+\"x\"  - May contain hardcore sexual imagery or extremely
+       disturbing violence.
+
+Each level covers itself as well as all less explicit levels.
+For example, setting this variable to \"pg\" will allow gravatars
+rated either \"g\" or \"pg\"."
+  :type '(choice (const :tag "General Audience" "g")
+                 (const :tag "Parental Guidance" "pg")
+                 (const :tag "Restricted" "r")
+                 (const :tag "Explicit" "x"))
+  ;; Restricted :type to ratings recognized by Gravatar.
+  :version "27.1"
   :group 'gravatar)
 
 (defcustom gravatar-size 32
-  "Default size in pixels for gravatars."
-  :type 'integer
+  "Gravatar size in pixels to request.
+Valid sizes range from 1 to 2048 inclusive.  If nil, use the
+Gravatar default (usually 80)."
+  :type '(choice (const :tag "Gravatar default" nil)
+                 (integer :tag "Pixels"))
+  :version "27.1"
   :group 'gravatar)
 
-(defconst gravatar-base-url
-  "http://www.gravatar.com/avatar"
-  "Base URL for getting gravatars.")
+(defcustom gravatar-default-image "404"
+  "Default gravatar to use when none match the request.
+This happens when no gravatar satisfying `gravatar-rating' exists
+for a given email address.  The following options are supported:
+
+nil         - Default placeholder.
+\"404\"       - No placeholder.
+\"mp\"        - Mystery Person: generic avatar outline.
+\"identicon\" - Geometric pattern based on email address.
+\"monsterid\" - Generated \"monster\" with different colors, faces, etc.
+\"wavatar\"   - Generated faces with different features and backgrounds.
+\"retro\"     - Generated 8-bit arcade-style pixelated faces.
+\"robohash\"  - Generated robot with different colors, faces, etc.
+\"blank\"     - Transparent PNG image.
+URL         - Custom image URL."
+  :type '(choice (const :tag "Default" nil)
+                 (const :tag "None" "404")
+                 (const :tag "Mystery person" "mp")
+                 (const :tag "Geometric patterns" "identicon")
+                 (const :tag "Monsters" "monsterid")
+                 (const :tag "Faces" "wavatar")
+                 (const :tag "Retro" "retro")
+                 (const :tag "Robots" "robohash")
+                 (const :tag "Blank" "blank")
+                 (string :tag "Custom URL"))
+  :version "27.1"
+  :group 'gravatar)
+
+(defcustom gravatar-force-default nil
+  "Whether to force use of `gravatar-default-image'.
+Non-nil means use `gravatar-default-image' even when there exists
+a gravatar for a given email address."
+  :type 'boolean
+  :version "27.1"
+  :group 'gravatar)
+
+(defconst gravatar-service-alist
+  `((gravatar . ,(lambda (_addr callback)
+                   (funcall callback "https://www.gravatar.com/avatar")))
+    (unicornify . ,(lambda (_addr callback)
+                     (funcall callback "https://unicornify.pictures/avatar/")))
+    (libravatar . ,#'gravatar--service-libravatar))
+  "Alist of supported gravatar services.")
+
+(defcustom gravatar-service 'gravatar
+  "Symbol denoting gravatar-like service to use.
+Note that certain services might ignore other options, such as
+`gravatar-default-image' or certain values as with
+`gravatar-rating'.
+
+Note that `'libravatar' has security implications: It can be used
+to track whether you're reading a specific mail."
+  :type `(choice ,@(mapcar (lambda (s) `(const ,(car s)))
+                           gravatar-service-alist))
+  :version "28.1"
+  :link '(url-link "https://www.libravatar.org/")
+  :link '(url-link "https://unicornify.pictures/")
+  :link '(url-link "https://gravatar.com/")
+  :group 'gravatar)
+
+(defun gravatar--service-libravatar (addr callback)
+  "Find domain that hosts avatars for email address ADDR."
+  ;; implements https://wiki.libravatar.org/api/
+  (save-match-data
+    (if (not (string-match ".+@\\(.+\\)" addr))
+        (funcall callback "https://seccdn.libravatar.org/avatar")
+      (let ((domain (match-string 1 addr))
+            (records '(("_avatars-sec" . "https")
+                       ("_avatars" . "http")))
+            func)
+        (setq func
+              (lambda (result)
+                (cond
+                 (result
+                  (funcall callback (format "%s://%s/avatar"
+                                            (cdar records) result)))
+                 ((> (length records) 1)
+                  (pop records)
+                  (dns-query-asynchronous
+                   (concat (caar records) "._tcp." domain)
+                   func 'SRV))
+                 (t
+                  (funcall callback "https://seccdn.libravatar.org/avatar")))))
+        (dns-query-asynchronous
+         (concat (caar records) "._tcp." domain) func 'SRV)))))
 
 (defun gravatar-hash (mail-address)
-  "Create a hash from MAIL-ADDRESS."
-  (md5 (downcase mail-address)))
+  "Return the Gravatar hash for MAIL-ADDRESS."
+  ;; https://gravatar.com/site/implement/hash/
+  (md5 (downcase (string-trim mail-address))))
 
-(defun gravatar-build-url (mail-address)
-  "Return a URL to retrieve MAIL-ADDRESS gravatar."
-  (format "%s/%s?d=404&r=%s&s=%d"
-          gravatar-base-url
-          (gravatar-hash mail-address)
-          gravatar-rating
-          gravatar-size))
+(defun gravatar--query-string ()
+  "Return URI-encoded query string for Gravatar."
+  (url-build-query-string
+   `((r ,gravatar-rating)
+     ,@(and gravatar-default-image
+            `((d ,gravatar-default-image)))
+     ,@(and gravatar-force-default
+            '((f y)))
+     ,@(and gravatar-size
+            `((s ,gravatar-size))))))
 
-(defun gravatar-cache-expired (url)
-  "Check if URL is cached for more than `gravatar-cache-ttl'."
-  (cond (url-standalone-mode
-         (not (file-exists-p (url-cache-create-filename url))))
-        (t (let ((cache-time (url-is-cached url)))
-             (if cache-time
-                 (time-less-p (time-add cache-time gravatar-cache-ttl) nil)
-               t)))))
+(defun gravatar-build-url (mail-address callback)
+  "Find the URL of a gravatar for MAIL-ADDRESS and call CALLBACK with it."
+  ;; https://gravatar.com/site/implement/images/
+  (let ((query-string (gravatar--query-string)))
+    (funcall (alist-get gravatar-service gravatar-service-alist)
+             mail-address
+             (lambda (url)
+               (funcall callback
+                        (format "%s/%s?%s"
+                                url
+                                (gravatar-hash mail-address)
+                                query-string))))))
 
 (defun gravatar-get-data ()
-  "Get data from current buffer."
+  "Return body of current URL buffer, or nil on failure."
   (save-excursion
     (goto-char (point-min))
-    (when (re-search-forward "^HTTP/.+ 200 OK$" nil (line-end-position))
-      (when (search-forward "\n\n" nil t)
-        (buffer-substring (point) (point-max))))))
-
-(defun gravatar-data->image ()
-  "Get data of current buffer and return an image.
-If no image available, return 'error."
-  (let ((data (gravatar-get-data)))
-    (if data
-	(create-image data nil t)
-      'error)))
-
-(autoload 'help-function-arglist "help-fns")
+    (and (re-search-forward "^HTTP/.+ 200 OK$" nil (line-end-position))
+         (search-forward "\n\n" nil t)
+         (buffer-substring (point) (point-max)))))
 
 ;;;###autoload
-(defun gravatar-retrieve (mail-address cb &optional cbargs)
-  "Retrieve MAIL-ADDRESS gravatar and call CB on retrieval.
-You can provide a list of argument to pass to CB in CBARGS."
-  (let ((url (gravatar-build-url mail-address)))
-    (if (gravatar-cache-expired url)
-	(let ((args (list url
-			  'gravatar-retrieved
-			  (list cb (when cbargs cbargs)))))
-	  (when (> (length (if (featurep 'xemacs)
-			       (cdr (split-string (function-arglist 'url-retrieve)))
-			     (help-function-arglist 'url-retrieve)))
-		   4)
-	    (setq args (nconc args (list t))))
-	  (apply #'url-retrieve args))
-      (apply cb
-               (with-temp-buffer
-                 (set-buffer-multibyte nil)
-                 (url-cache-extract (url-cache-create-filename url))
-                 (gravatar-data->image))
-               cbargs))))
+(defun gravatar-retrieve (mail-address callback &optional cbargs)
+  "Asynchronously retrieve a gravatar for MAIL-ADDRESS.
+When finished, call CALLBACK as (apply CALLBACK GRAVATAR CBARGS),
+where GRAVATAR is either an image descriptor, or the symbol
+`error' if the retrieval failed."
+  (gravatar-build-url
+   mail-address
+   (lambda (url)
+     (if (url-cache-expired url gravatar-cache-ttl)
+         (url-retrieve url #'gravatar-retrieved (list callback cbargs) t)
+       (with-current-buffer (url-fetch-from-cache url)
+         (gravatar-retrieved () callback cbargs))))))
 
 ;;;###autoload
 (defun gravatar-retrieve-synchronously (mail-address)
-  "Retrieve MAIL-ADDRESS gravatar and returns it."
-  (let ((url (gravatar-build-url mail-address)))
-    (if (gravatar-cache-expired url)
-        (with-current-buffer (url-retrieve-synchronously url)
-	  (when gravatar-automatic-caching
-            (url-store-in-cache (current-buffer)))
-          (let ((data (gravatar-data->image)))
-            (kill-buffer (current-buffer))
-            data))
-      (with-temp-buffer
-        (set-buffer-multibyte nil)
-        (url-cache-extract (url-cache-create-filename url))
-        (gravatar-data->image)))))
-
+  "Synchronously retrieve a gravatar for MAIL-ADDRESS.
+Value is either an image descriptor, or the symbol `error' if the
+retrieval failed."
+  (let ((url nil))
+    (gravatar-build-url mail-address (lambda (u) (setq url u)))
+    (while (not url)
+      (sleep-for 0.01))
+    (with-current-buffer (if (url-cache-expired url gravatar-cache-ttl)
+                             (url-retrieve-synchronously url t)
+                           (url-fetch-from-cache url))
+      (gravatar-retrieved () #'identity))))
 
 (defun gravatar-retrieved (status cb &optional cbargs)
-  "Callback function used by `gravatar-retrieve'."
-  ;; Store gravatar?
-  (when gravatar-automatic-caching
-    (url-store-in-cache (current-buffer)))
-  (if (plist-get status :error)
-      ;; Error happened.
-      (apply cb 'error cbargs)
-    (apply cb (gravatar-data->image) cbargs))
-  (kill-buffer (current-buffer)))
+  "Handle Gravatar response data in current buffer.
+Return the result of (apply CB DATA CBARGS), where DATA is either
+an image descriptor, or the symbol `error' on failure.
+This function is intended as a callback for `url-retrieve'."
+  (let ((data (unless (plist-get status :error)
+                (gravatar-get-data))))
+    (and data                      ; Only cache on success.
+         url-current-object        ; Only cache if not already cached.
+         gravatar-automatic-caching
+         (url-store-in-cache))
+    (prog1 (apply cb (if data (create-image data nil t) 'error) cbargs)
+      (kill-buffer))))
 
 (provide 'gravatar)
 

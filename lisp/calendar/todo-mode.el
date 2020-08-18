@@ -1,6 +1,6 @@
 ;;; todo-mode.el --- facilities for making and maintaining todo lists  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997, 1999, 2001-2018 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 1999, 2001-2020 Free Software Foundation, Inc.
 
 ;; Author: Oliver Seidel <privat@os10000.net>
 ;;	Stephen Berman <stephen.berman@gmx.net>
@@ -707,7 +707,7 @@ and done items are always shown on visiting a category."
 				    shortf todo-show-first)))
 		     (when (eq todo-show-first 'regexp)
 		       (let ((rxfiles (directory-files todo-directory t
-						       ".*\\.todr$" t)))
+						       "\\.todr\\'" t)))
 			 (when (and rxfiles (> (length rxfiles) 1))
 			   (let ((rxf (mapcar #'todo-short-file-name rxfiles)))
 			     (setq fi-file (todo-absolute-file-name
@@ -874,6 +874,7 @@ category."
   (todo-forward-category t))
 
 (defvar todo-categories-buffer)
+(declare-function hl-line-highlight "hl-line" ())
 
 (defun todo-jump-to-category (&optional file where)
   "Prompt for a category in a todo file and jump to it.
@@ -1931,7 +1932,7 @@ their associated keys and their effects."
 			     (calendar-current-date) t t))))
 	     (time-string (or (and time (todo-read-time))
 			      (and todo-always-add-time-string
-				   (substring (current-time-string) 11 16)))))
+				   (format-time-string "%H:%M")))))
 	(setq todo-date-from-calendar nil)
 	(find-file-noselect file 'nowarn)
 	(set-window-buffer (selected-window)
@@ -2881,8 +2882,7 @@ visible."
              (not marked))
       (let* ((date-string (calendar-date-string (calendar-current-date) t t))
 	     (time-string (if todo-always-add-time-string
-			      (concat " " (substring (current-time-string)
-						     11 16))
+			      (format-time-string " %H:%M")
 			    ""))
 	     (done-prefix (concat "[" todo-done-string date-string time-string
 				  "] "))
@@ -4054,7 +4054,7 @@ regexp items."
 (defun todo-find-filtered-items-file ()
   "Choose a filtered items file and visit it."
   (interactive)
-  (let ((files (directory-files todo-directory t "\\.tod[rty]$" t))
+  (let ((files (directory-files todo-directory t "\\.tod[rty]\\'" t))
 	falist file)
     (dolist (f files)
       (let ((sf-name (todo-short-file-name f))
@@ -4187,7 +4187,7 @@ multifile commands for further details."
 				(regexp ".todr")))))
 	 (multi (> (length flist) 1))
 	 (rxfiles (when regexp
-		    (directory-files todo-directory t ".*\\.todr$" t)))
+		    (directory-files todo-directory t "\\.todr\\'" t)))
 	 (file-exists (or (file-exists-p fname) rxfiles))
 	 bufname)
     (cond ((and top new (natnump new))
@@ -6091,7 +6091,7 @@ the empty string (i.e., no time string)."
     (while (not valid)
       (setq answer (read-string "Enter a clock time: " nil nil
 				(when todo-always-add-time-string
-				  (substring (current-time-string) 11 16))))
+				  (format-time-string "%H:%M"))))
       (when (or (string= "" answer)
 		(string-match diary-time-regexp answer))
 	(setq valid t)))
@@ -6154,7 +6154,7 @@ the empty string (i.e., no time string)."
   "The :set function for user option `todo-nondiary-marker'."
   (let* ((oldvalue (symbol-value symbol))
 	 (files (append todo-files todo-archives
-			(directory-files todo-directory t "\\.tod[rty]$" t))))
+			(directory-files todo-directory t "\\.tod[rty]\\'" t))))
     (custom-set-default symbol value)
     ;; Need to reset these to get font-locking right.
     (setq todo-nondiary-start (nth 0 todo-nondiary-marker)
@@ -6207,7 +6207,7 @@ the empty string (i.e., no time string)."
   "The :set function for user option `todo-done-string'."
   (let ((oldvalue (symbol-value symbol))
 	(files (append todo-files todo-archives
-		       (directory-files todo-directory t "\\.todr$" t))))
+		       (directory-files todo-directory t "\\.todr\\'" t))))
     (custom-set-default symbol value)
     ;; Need to reset this to get font-locking right.
     (setq todo-done-string-start
@@ -6236,7 +6236,7 @@ the empty string (i.e., no time string)."
   "The :set function for user option `todo-comment-string'."
   (let ((oldvalue (symbol-value symbol))
   	(files (append todo-files todo-archives
-		       (directory-files todo-directory t "\\.todr$" t))))
+		       (directory-files todo-directory t "\\.todr\\'" t))))
     (custom-set-default symbol value)
     (when (not (equal value oldvalue))
       (dolist (f files)
@@ -6262,7 +6262,7 @@ the empty string (i.e., no time string)."
   "The :set function for user option `todo-highlight-item'."
   (let ((oldvalue (symbol-value symbol))
 	(files (append todo-files todo-archives
-		       (directory-files todo-directory t "\\.tod[rty]$" t))))
+		       (directory-files todo-directory t "\\.tod[rty]\\'" t))))
     (custom-set-default symbol value)
     (when (not (equal value oldvalue))
       (dolist (f files)
@@ -6389,8 +6389,7 @@ Filtered Items mode following todo (not done) items."
 ;; -----------------------------------------------------------------------------
 
 (defvar todo-key-bindings-t
-  `(
-    ("Af"	     todo-find-archive)
+  '(("Af"	     todo-find-archive)
     ("Ac"	     todo-choose-archive)
     ("Ad"	     todo-archive-done-item)
     ("Cv"	     todo-toggle-view-done-items)
@@ -6421,13 +6420,11 @@ Filtered Items mode following todo (not done) items."
     ("k"	     todo-delete-item)
     ("m"	     todo-move-item)
     ("u"	     todo-item-undone)
-    ([remap newline] newline-and-indent)
-   )
+    ([remap newline] newline-and-indent))
   "List of key bindings for Todo mode only.")
 
 (defvar todo-key-bindings-t+a+f
-  `(
-    ("C*" todo-mark-category)
+  '(("C*" todo-mark-category)
     ("Cu" todo-unmark-category)
     ("Fh" todo-toggle-item-header)
     ("h"  todo-toggle-item-header)
@@ -6444,27 +6441,22 @@ Filtered Items mode following todo (not done) items."
     ("p"  todo-previous-item)
     ("q"  todo-quit)
     ("s"  todo-save)
-    ("t"  todo-show)
-   )
+    ("t"  todo-show))
   "List of key bindings for Todo, Archive, and Filtered Items modes.")
 
 (defvar todo-key-bindings-t+a
-  `(
-    ("Fc" todo-show-categories-table)
+  '(("Fc" todo-show-categories-table)
     ("S"  todo-search)
     ("X"  todo-clear-matches)
     ("b"  todo-backward-category)
     ("f"  todo-forward-category)
-    ("*"  todo-toggle-mark-item)
-   )
+    ("*"  todo-toggle-mark-item))
   "List of key bindings for Todo and Todo Archive modes.")
 
 (defvar todo-key-bindings-t+f
-  `(
-    ("l" todo-lower-item-priority)
+  '(("l" todo-lower-item-priority)
     ("r" todo-raise-item-priority)
-    ("#" todo-set-item-priority)
-   )
+    ("#" todo-set-item-priority))
   "List of key bindings for Todo and Todo Filtered Items modes.")
 
 (defvar todo-mode-map

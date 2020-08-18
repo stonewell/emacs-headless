@@ -1,6 +1,6 @@
 ;;; emacsbug.el --- command to report Emacs bugs to appropriate mailing list
 
-;; Copyright (C) 1985, 1994, 1997-1998, 2000-2018 Free Software
+;; Copyright (C) 1985, 1994, 1997-1998, 2000-2020 Free Software
 ;; Foundation, Inc.
 
 ;; Author: K. Shane Hartman
@@ -208,7 +208,11 @@ This requires either the macOS \"open\" command, or the freedesktop
 ;;;###autoload
 (defun report-emacs-bug (topic &optional unused)
   "Report a bug in GNU Emacs.
-Prompts for bug subject.  Leaves you in a mail buffer."
+Prompts for bug subject.  Leaves you in a mail buffer.
+
+Already submitted bugs can be found in the Emacs bug tracker:
+
+  https://debbugs.gnu.org/cgi/pkgreport.cgi?package=emacs;max-bugs=100;base-order=1;bug-rev=1"
   (declare (advertised-calling-convention (topic) "24.5"))
   (interactive "sBug Subject: ")
   ;; The syntax `version;' is preferred to `[version]' because the
@@ -239,8 +243,8 @@ Prompts for bug subject.  Leaves you in a mail buffer."
       ;; Stop message-mode stealing the properties we will add.
       (set (make-local-variable 'message-strip-special-text-properties) nil)
       ;; Make sure we default to the From: address as envelope when sending
-      ;; through sendmail.
-      (when (and (not message-sendmail-envelope-from)
+      ;; through sendmail.  FIXME: Why?
+      (when (and (not (message--sendmail-envelope-from))
 		 (message-bogus-recipient-p (message-make-address)))
 	(set (make-local-variable 'message-sendmail-envelope-from) 'header)))
     (rfc822-goto-eoh)
@@ -270,7 +274,7 @@ Prompts for bug subject.  Leaves you in a mail buffer."
 	 'face 'link
 	 'help-echo (concat "mouse-2, RET: Follow this link")
 	 'action (lambda (button)
-		   (browse-url "https://debbugs.gnu.org/"))
+		   (browse-url "https://debbugs.gnu.org/cgi/pkgreport.cgi?package=emacs;max-bugs=100;base-order=1;bug-rev=1"))
 	 'follow-link t)
 
 	(insert ".  Please check that
@@ -430,14 +434,10 @@ usually do not have translators for other languages.\n\n")))
                        report-emacs-bug-orig-text)
          (error "No text entered in bug report"))
     ;; Warning for novice users.
-    (unless (or report-emacs-bug-no-confirmation
-		(yes-or-no-p
-		 "Send this bug report to the Emacs maintainers? "))
-      (goto-char (point-min))
-      (if (search-forward "To: ")
-          (delete-region (point) (line-end-position)))
-      (if report-emacs-bug-send-hook
-          (kill-local-variable report-emacs-bug-send-hook))
+    (when (and (string-match "bug-gnu-emacs@gnu\\.org" (mail-fetch-field "to"))
+               (not report-emacs-bug-no-confirmation)
+	       (not (yes-or-no-p
+		     "Send this bug report to the Emacs maintainers? ")))
       (with-output-to-temp-buffer "*Bug Help*"
 	(princ (substitute-command-keys
                 (format "\
@@ -481,7 +481,11 @@ and send the mail again%s."
 	       (not (yes-or-no-p
 		     (format-message "Is `%s' really your email address? "
                                      from)))
-	       (error "Please edit the From address and try again"))))))
+	       (error "Please edit the From address and try again"))))
+    ;; Bury the help buffer (if it's shown).
+    (when-let ((help (get-buffer "*Bug Help*")))
+      (when (get-buffer-window help)
+        (quit-window nil (get-buffer-window help))))))
 
 
 (provide 'emacsbug)

@@ -1,9 +1,8 @@
 ;;; vc-cvs.el --- non-resident support for CVS version-control  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995, 1998-2018 Free Software Foundation, Inc.
+;; Copyright (C) 1995, 1998-2020 Free Software Foundation, Inc.
 
-;; Author:      FSF (see vc.el for full credits)
-;; Maintainer:  emacs-devel@gnu.org
+;; Author: FSF (see vc.el for full credits)
 ;; Package: vc
 
 ;; This file is part of GNU Emacs.
@@ -441,7 +440,7 @@ REV is the revision to check out."
     (if vc-cvs-use-edit
         (vc-cvs-command nil 0 file "unedit")
       ;; Make the file read-only by switching off all w-bits
-      (set-file-modes file (logand (file-modes file) 3950)))))
+      (set-file-modes file (logand (file-modes file) #o7555)))))
 
 (defun vc-cvs-merge-file (file)
   "Accept a file merge request, prompting for revisions."
@@ -650,7 +649,7 @@ Optional arg REVISION is a revision to annotate from."
   "Return the current time, based at midnight of the current day, and
 encoded as fractional days."
   (vc-annotate-convert-time
-   (apply 'encode-time 0 0 0 (nthcdr 3 (decode-time)))))
+   (apply #'encode-time 0 0 0 (nthcdr 3 (decode-time)))))
 
 (defun vc-cvs-annotate-time ()
   "Return the time of the next annotation (as fraction of days)
@@ -910,7 +909,7 @@ essential information. Note that this can never set the `ignored'
 state."
   (let (file status missing)
     (goto-char (point-min))
-    (while (looking-at "? \\(.*\\)")
+    (while (looking-at "\\? \\(.*\\)")
       (setq file (expand-file-name (match-string 1)))
       (vc-file-setprop file 'vc-state 'unregistered)
       (forward-line 1))
@@ -1087,7 +1086,7 @@ CVS/Entries should only be accessed through this function."
   ;; an uppercase or lowercase letter and can contain uppercase and
   ;; lowercase letters, digits, `-', and `_'.
   (and (string-match "^[a-zA-Z]" tag)
-       (not (string-match "[^a-z0-9A-Z-_]" tag))))
+       (not (string-match "[^a-z0-9A-Z_-]" tag))))
 
 (defun vc-cvs-valid-revision-number-p (tag)
   "Return non-nil if TAG is a valid revision number."
@@ -1181,12 +1180,11 @@ is non-nil."
            (parsed-time (progn (require 'parse-time)
                                (parse-time-string (concat time " +0000")))))
       (cond ((and (not (string-match "\\+" time))
-                  (car parsed-time)
+                  (decoded-time-second parsed-time)
                   ;; Compare just the seconds part of the file time,
                   ;; since CVS file time stamp resolution is just 1 second.
-                  (let ((ptime (apply 'encode-time parsed-time)))
-                    (and (eq (car mtime) (car ptime))
-                         (eq (cadr mtime) (cadr ptime)))))
+		  (= (time-convert mtime 'integer)
+		     (time-convert (encode-time parsed-time) 'integer)))
              (vc-file-setprop file 'vc-checkout-time mtime)
              (if set-state (vc-file-setprop file 'vc-state 'up-to-date)))
             (t
@@ -1222,14 +1220,34 @@ is non-nil."
   "Return the administrative directory of FILE."
   (vc-find-root file "CVS"))
 
-(defun vc-cvs-ignore (file &optional _directory _remove)
-  "Ignore FILE under CVS."
-  (vc-cvs-append-to-ignore (file-name-directory file) file))
+(defun vc-cvs-ignore (file &optional directory _remove)
+  "Ignore FILE under CVS.
+FILE is either absolute or relative to DIRECTORY.  The non-directory
+part of FILE is written unmodified into the ignore file and is
+therefore evaluated by CVS as an ignore pattern which follows
+glob(7) syntax.  If the pattern should match any of the special
+characters `?*[\\' literally, they must be escaped with a
+backslash.
 
-(defun vc-cvs-append-to-ignore (dir str &optional old-dir)
+CVS processes one ignore file for each subdirectory.  Patterns
+are separated by whitespace and only match files in the same
+directory.  Since FILE can be a relative filename with leading
+directories, FILE is expanded against DIRECTORY to determine the
+correct absolute filename.  The directory part of the resulting name
+is then used to determine the location of the ignore file.  The
+non-directory part of the name is used as pattern for the ignore file.
+
+Since patterns are whitespace-separated, filenames containing spaces
+cannot be represented directly.  A work-around is to replace such
+spaces with question marks."
+  (setq file (directory-file-name (expand-file-name file directory)))
+  (vc-cvs-append-to-ignore (file-name-directory file) (file-name-nondirectory file)))
+
+(defun vc-cvs-append-to-ignore (dir str &optional old-dir sort)
   "In DIR, add STR to the .cvsignore file.
 If OLD-DIR is non-nil, then this is a directory that we don't want
-to hear about anymore."
+to hear about anymore.  If SORT is non-nil, sort the lines of the
+ignore file."
   (with-current-buffer
       (find-file-noselect (expand-file-name ".cvsignore" dir))
     (when (ignore-errors
@@ -1238,13 +1256,13 @@ to hear about anymore."
 		 (not (vc-editable-p buffer-file-name))))
       ;; CVSREAD=on special case
       (vc-checkout buffer-file-name t))
-    (goto-char (point-max))
-    (unless (bolp) (insert "\n"))
-    (insert str (if old-dir "/\n" "\n"))
-    ;; FIXME this is a pcvs variable.
-    (if (bound-and-true-p cvs-sort-ignore-file)
-        (sort-lines nil (point-min) (point-max)))
-    (save-buffer)))
+    (goto-char (point-min))
+    (save-match-data
+      (unless (re-search-forward (concat "^" (regexp-quote str) "$") nil 'move)
+        (unless (bolp) (insert "\n"))
+        (insert str (if old-dir "/\n" "\n"))
+        (if sort (sort-lines nil (point-min) (point-max)))
+        (save-buffer)))))
 
 (provide 'vc-cvs)
 

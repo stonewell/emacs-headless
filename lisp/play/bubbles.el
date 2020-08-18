@@ -1,6 +1,6 @@
 ;;; bubbles.el --- Puzzle game for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2007-2018 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2020 Free Software Foundation, Inc.
 
 ;; Author:      Ulf Jasper <ulf.jasper@web.de>
 ;; URL:         http://ulf.epplejasper.de/
@@ -80,6 +80,7 @@
 ;;; Code:
 
 (defconst bubbles-version "0.5" "Version number of bubbles.el.")
+(make-obsolete-variable 'bubbles-version nil "28.1")
 
 (require 'gamegrid)
 
@@ -712,57 +713,57 @@ static char * dot3d_xpm[] = {
 (defsubst bubbles--grid-width ()
   "Return the grid width for the current game theme."
   (car (pcase bubbles-game-theme
-         (`easy
+         ('easy
           bubbles--grid-small)
-         (`medium
+         ('medium
           bubbles--grid-medium)
-         (`difficult
+         ('difficult
           bubbles--grid-large)
-         (`hard
+         ('hard
           bubbles--grid-huge)
-         (`user-defined
+         ('user-defined
           bubbles-grid-size))))
 
 (defsubst bubbles--grid-height ()
   "Return the grid height for the current game theme."
   (cdr (pcase bubbles-game-theme
-         (`easy
+         ('easy
           bubbles--grid-small)
-         (`medium
+         ('medium
           bubbles--grid-medium)
-         (`difficult
+         ('difficult
           bubbles--grid-large)
-         (`hard
+         ('hard
           bubbles--grid-huge)
-         (`user-defined
+         ('user-defined
           bubbles-grid-size))))
 
 (defsubst bubbles--colors ()
   "Return the color list for the current game theme."
   (pcase bubbles-game-theme
-    (`easy
+    ('easy
      bubbles--colors-2)
-    (`medium
+    ('medium
      bubbles--colors-3)
-    (`difficult
+    ('difficult
      bubbles--colors-4)
-    (`hard
+    ('hard
      bubbles--colors-5)
-    (`user-defined
+    ('user-defined
      bubbles-colors)))
 
 (defsubst bubbles--shift-mode ()
   "Return the shift mode for the current game theme."
   (pcase bubbles-game-theme
-    (`easy
+    ('easy
      'default)
-    (`medium
+    ('medium
      'default)
-    (`difficult
+    ('difficult
      'always)
-    (`hard
+    ('hard
      'always)
-    (`user-defined
+    ('user-defined
      bubbles-shift-mode)))
 
 (defun bubbles-save-settings ()
@@ -975,16 +976,14 @@ Set `bubbles--col-offset' and `bubbles--row-offset'."
                        (* image-vert-size (bubbles--grid-height)))
                     2)))))
 
-(defun bubbles--remove-overlays ()
-  "Remove all overlays."
-  (if (fboundp 'remove-overlays)
-      (remove-overlays)))
+(define-obsolete-function-alias 'bubbles--remove-overlays
+  'remove-overlays "28.1")
 
 (defun bubbles--initialize ()
   "Initialize Bubbles game."
   (bubbles--initialize-faces)
   (bubbles--initialize-images)
-  (bubbles--remove-overlays)
+  (remove-overlays)
 
   (switch-to-buffer (get-buffer-create "*bubbles*"))
   (bubbles--compute-offsets)
@@ -1328,11 +1327,11 @@ Return t if new char is non-empty."
   (when (and (display-images-p)
              (not (eq bubbles-graphics-theme 'ascii)))
     (let ((template (pcase bubbles-graphics-theme
-                      (`circles bubbles--image-template-circle)
-                      (`balls bubbles--image-template-ball)
-                      (`squares bubbles--image-template-square)
-                      (`diamonds bubbles--image-template-diamond)
-                      (`emacs bubbles--image-template-emacs))))
+                      ('circles bubbles--image-template-circle)
+                      ('balls bubbles--image-template-ball)
+                      ('squares bubbles--image-template-square)
+                      ('diamonds bubbles--image-template-diamond)
+                      ('emacs bubbles--image-template-emacs))))
       (setq bubbles--empty-image
             (create-image (replace-regexp-in-string
                            "^\"\\(.*\\)\t.*c .*\",$"
@@ -1408,7 +1407,7 @@ Return t if new char is non-empty."
 
 (defun bubbles--show-images ()
   "Update images in the bubbles buffer."
-  (bubbles--remove-overlays)
+  (remove-overlays)
   (if (and (display-images-p)
            bubbles--images-ok
            (not (eq bubbles-graphics-theme 'ascii)))
