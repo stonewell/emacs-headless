@@ -592,6 +592,7 @@ struct frame
     struct ns_output *ns;       /* From nsterm.h.  */
     struct pgtk_output *pgtk; /* From pgtkterm.h. */
     struct haiku_output *haiku; /* From haikuterm.h. */
+    struct headless_output *headless; /* From headlessterm.h. */
   }
   output_data;
 

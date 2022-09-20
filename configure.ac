@@ -478,6 +478,7 @@ AC_ARG_WITH([ns],[AS_HELP_STRING([--with-ns],
 On by default on macOS.])],[],[with_ns=maybe])
 OPTION_DEFAULT_OFF([w32], [use native MS Windows GUI in a Cygwin build])
 OPTION_DEFAULT_OFF([pgtk], [use GTK to support window systems other than X])
+OPTION_DEFAULT_OFF([headless], [use headless window systems, running emacs in headless server mode])
 
 OPTION_DEFAULT_ON([gpm],[don't use -lgpm for mouse support on a GNU/Linux console])
 OPTION_DEFAULT_ON([dbus],[don't compile with D-Bus support])
@@ -2357,6 +2358,20 @@ AC_SUBST([HAIKU_OBJ])
 AC_SUBST([HAIKU_CXX_OBJ])
 AC_SUBST([HAIKU_CFLAGS])
 
+if test "${with_headless}" = "yes"; then
+   window_system=headless
+
+   AC_DEFINE([HAVE_HEADLESS], [1],
+       [Defne if Emacs built in headless mode])
+   HEADLESS_LIBS=""
+   HEADLESS_OBJ=""
+   HEADLESS_CXX_OBJ=""
+fi
+
+AC_SUBST([HEADLESS_LIBS])
+AC_SUBST([HEADLESS_OBJ])
+AC_SUBST([HEADLESS_CXX_OBJ])
+
 ## $window_system is now set to the window system we will
 ## ultimately use.
 
@@ -2403,6 +2418,9 @@ dnl use the toolkit if we have gtk, or X11R5 or newer.
     USE_X_TOOLKIT=none
     HAVE_PGTK=yes
     AC_DEFINE([HAVE_PGTK], [1], [Define to 1 if you have pure Gtk+-3.])
+  ;;
+  headless )
+    term_header=headlessterm.h
   ;;
   haiku )
     term_header=haikuterm.h

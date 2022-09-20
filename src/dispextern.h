@@ -144,6 +144,13 @@ typedef Emacs_Pixmap Emacs_Pix_Container;
 typedef Emacs_Pixmap Emacs_Pix_Context;
 #endif
 
+#ifdef HAVE_HEADLESS
+#include "headlessgui.h"
+typedef struct headless_display_info Display_Info;
+typedef Emacs_Pixmap Emacs_Pix_Container;
+typedef Emacs_Pixmap Emacs_Pix_Context;
+#endif
+
 #ifdef HAVE_WINDOW_SYSTEM
 # include <time.h>
 # include "fontset.h"
@@ -3555,7 +3562,7 @@ void prepare_image_for_display (struct frame *, struct image *);
 ptrdiff_t lookup_image (struct frame *, Lisp_Object, int);
 
 #if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_NS \
-  || defined HAVE_HAIKU
+  || defined HAVE_HAIKU || defined HAVE_HEADLESS
 #define RGB_PIXEL_COLOR unsigned long
 #endif
 

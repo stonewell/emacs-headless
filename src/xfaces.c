@@ -254,6 +254,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef HAVE_HAIKU
 #define GCGraphicsExposures 0
 #endif /* HAVE_HAIKU */
+
+#ifdef HAVE_HEADLESS
+#define GCGraphicsExposures 0
+#endif /* HAVE_HEADLESS */
 #endif /* HAVE_WINDOW_SYSTEM */
 
 #include "buffer.h"
