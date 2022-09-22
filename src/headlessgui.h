@@ -95,4 +95,21 @@ typedef headless Drawable;
 typedef headless Window;
 typedef int Display;
 
+typedef struct headless_bitmap_record Bitmap_Record;
+
+#define GET_PIXEL(ximg, x, y) headless_get_pixel (ximg, x, y)
+#define PUT_PIXEL headless_put_pixel
+#define NO_PIXMAP 0
+
+#define PIX_MASK_RETAIN	0
+#define PIX_MASK_DRAW	1
+
+#define RGB_TO_ULONG(r, g, b) (((r) << 16) | ((g) << 8) | (b))
+#define RED_FROM_ULONG(color)	(((color) >> 16) & 0xff)
+#define GREEN_FROM_ULONG(color)	(((color) >> 8) & 0xff)
+#define BLUE_FROM_ULONG(color)	((color) & 0xff)
+#define RED16_FROM_ULONG(color)		(RED_FROM_ULONG (color) * 0x101)
+#define GREEN16_FROM_ULONG(color)	(GREEN_FROM_ULONG (color) * 0x101)
+#define BLUE16_FROM_ULONG(color)	(BLUE_FROM_ULONG (color) * 0x101)
+
 #endif /* _HEADLESS_GUI_H_ */

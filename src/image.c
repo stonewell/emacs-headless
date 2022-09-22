@@ -6143,7 +6143,7 @@ image_to_emacs_colors (struct frame *f, struct image *img, bool rgb_p)
   p = colors;
   for (y = 0; y < img->height; ++y)
     {
-#if !defined USE_CAIRO && !defined HAVE_NS && !defined HAVE_HAIKU
+#if !defined USE_CAIRO && !defined HAVE_NS && !defined HAVE_HAIKU && !defined HAVE_HEADLESS
       Emacs_Color *row = p;
       for (x = 0; x < img->width; ++x, ++p)
 	p->pixel = GET_PIXEL (ximg, x, y);
@@ -6387,7 +6387,7 @@ image_edge_detection (struct frame *f, struct image *img,
 }
 
 
-#if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_HAIKU
+#if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_HAIKU || defined HAVE_HEADLESS
 static void
 image_pixmap_draw_cross (struct frame *f, Emacs_Pixmap pixmap,
 			 int x, int y, unsigned int width, unsigned int height,
@@ -6423,6 +6423,8 @@ image_pixmap_draw_cross (struct frame *f, Emacs_Pixmap pixmap,
   XFreeGC (dpy, gc);
 #elif HAVE_HAIKU
   be_draw_cross_on_pixmap (pixmap, x, y, width, height, color);
+#elif HAVE_HEADLESS
+  headless_draw_cross_on_pixmap (pixmap, x, y, width, height, color);
 #endif
 }
 #endif	/* HAVE_X_WINDOWS || USE_CAIRO || HAVE_HAIKU */
@@ -6468,7 +6470,7 @@ image_disable_image (struct frame *f, struct image *img)
 #ifndef HAVE_NTGUI
 #ifndef HAVE_NS  /* TODO: NS support, however this not needed for toolbars */
 
-#if !defined USE_CAIRO && !defined HAVE_HAIKU
+#if !defined USE_CAIRO && !defined HAVE_HAIKU && !defined HAVE_HEADLESS
 #define CrossForeground(f) BLACK_PIX_DEFAULT (f)
 #define MaskForeground(f)  WHITE_PIX_DEFAULT (f)
 #else  /* USE_CAIRO || HAVE_HAIKU */
@@ -6476,7 +6478,7 @@ image_disable_image (struct frame *f, struct image *img)
 #define MaskForeground(f)  PIX_MASK_DRAW
 #endif	/* USE_CAIRO || HAVE_HAIKU */
 
-#if !defined USE_CAIRO && !defined HAVE_HAIKU
+#if !defined USE_CAIRO && !defined HAVE_HAIKU && !defined HAVE_HEADLESS
       image_sync_to_pixmaps (f, img);
 #endif	/* !USE_CAIRO && !HAVE_HAIKU */
       image_pixmap_draw_cross (f, img->pixmap, 0, 0, img->width, img->height,
