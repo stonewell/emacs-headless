@@ -37,3 +37,24 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* The single Headless display (if any).  */
 struct headless_display_info *x_display_list;
+
+char *
+get_keysym_name (int keysym)
+{
+  static char value[16];
+  sprintf (value, "%d", keysym);
+  return value;
+}
+
+struct headless_display_info *
+headless_term_init (void)
+{
+  struct headless_display_info *dpyinfo;
+
+  block_input ();
+
+  Fset_input_interrupt_mode (Qt);
+  dpyinfo = xzalloc (sizeof *dpyinfo);
+
+  return dpyinfo;
+}

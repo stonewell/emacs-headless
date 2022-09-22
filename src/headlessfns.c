@@ -38,6 +38,40 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <stdlib.h>
 
+#define RGB_TO_ULONG(r, g, b) \
+  (((r) << 16) | ((g) << 8) | (b));
+#define RED_FROM_ULONG(color)	(((color) >> 16) & 0xff)
+#define GREEN_FROM_ULONG(color)	(((color) >> 8) & 0xff)
+#define BLUE_FROM_ULONG(color)	((color) & 0xff)
+
+/* The frame of the currently visible tooltip.  */
+Lisp_Object tip_frame;
+
+/* The X and Y deltas of the last call to `x-show-tip'.  */
+Lisp_Object tip_dx, tip_dy;
+
+/* The window-system window corresponding to the frame of the
+   currently visible tooltip.  */
+static Window tip_window;
+
+/* A timer that hides or deletes the currently visible tooltip when it
+   fires.  */
+static Lisp_Object tip_timer;
+
+/* STRING argument of last `x-show-tip' call.  */
+static Lisp_Object tip_last_string;
+
+/* Normalized FRAME argument of last `x-show-tip' call.  */
+static Lisp_Object tip_last_frame;
+
+/* PARMS argument of last `x-show-tip' call.  */
+static Lisp_Object tip_last_parms;
+
+static void headless_explicitly_set_name (struct frame *, Lisp_Object, Lisp_Object);
+static void headless_set_title (struct frame *, Lisp_Object, Lisp_Object);
+
+/* The number of references to an image cache.  */
+static ptrdiff_t image_cache_refcount;
 
 static Display_Info *
 check_headless_display_info (Lisp_Object object)
@@ -51,13 +85,166 @@ check_x_display_info (Lisp_Object object)
   return check_headless_display_info(object);
 }
 
+static void
+headless_set_title_bar_text (struct frame *f, Lisp_Object text)
+{
+}
+
+static void
+headless_set_title (struct frame *f, Lisp_Object name, Lisp_Object old_name)
+{
+}
+
+static void
+headless_set_child_frame_border_width (struct frame *f,
+				    Lisp_Object arg, Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_parent_frame (struct frame *f, Lisp_Object new_value,
+			Lisp_Object old_value)
+{
+}
+
+static void
+headless_set_z_group (struct frame *f, Lisp_Object new_value,
+		   Lisp_Object old_value)
+{
+}
+
+static void
+headless_explicitly_set_name (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_no_accept_focus (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
+{
+}
+
+static void
+headless_set_foreground_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+}
+
+static Lisp_Object
+headless_create_frame (Lisp_Object parms)
+{
+  return NULL;
+}
+
+static unsigned long
+headless_decode_color (struct frame *f, Lisp_Object color_name)
+{
+  Emacs_Color cdef;
+
+  CHECK_STRING (color_name);
+
+  if (!headless_get_color (SSDATA (color_name), &cdef))
+    return cdef.pixel;
+
+  signal_error ("Undefined color", color_name);
+}
+
+static Lisp_Object
+headless_create_tip_frame (Lisp_Object parms)
+{
+  return NULL;
+}
+
+static void
+headless_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_undecorated (struct frame *f, Lisp_Object new_value,
+		       Lisp_Object old_value)
+{
+}
+
+static void
+headless_set_override_redirect (struct frame *f, Lisp_Object new_value,
+			     Lisp_Object old_value)
+{
+}
+
+int
+headless_get_color (const char *name, Emacs_Color *color)
+{
+  return 0;
+}
+
+void
+headless_set_internal_border_width (struct frame *f, Lisp_Object arg,
+				 Lisp_Object oldval)
+{
+}
+
+void
+headless_set_background_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+}
+
+void
+headless_set_cursor_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+}
+
+void
+headless_set_cursor_type (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+
+}
+
+static void
+headless_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_use_frame_synchronization (struct frame *f, Lisp_Object arg,
+				     Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_sticky (struct frame *f, Lisp_Object new_value,
+		  Lisp_Object old_value)
+{
+}
+
+static void
+headless_set_inhibit_double_buffering (struct frame *f,
+				    Lisp_Object new_value,
+				    Lisp_Object old_value)
+{
+}
+
+static void
+headless_set_no_focus_on_map (struct frame *f, Lisp_Object value,
+			   Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_tool_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
+{
+}
+
+static void
+headless_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
+{
+}
+
 DEFUN ("xw-display-color-p", Fxw_display_color_p, Sxw_display_color_p, 0, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
      (Lisp_Object terminal)
 {
   check_headless_display_info (terminal);
 
-  return be_is_display_grayscale () ? Qnil : Qt;
+  return Qt;
 }
 
 DEFUN ("xw-color-defined-p", Fxw_color_defined_p, Sxw_color_defined_p, 1, 2, 0,
@@ -99,7 +286,7 @@ DEFUN ("x-display-grayscale-p", Fx_display_grayscale_p, Sx_display_grayscale_p,
 {
   check_headless_display_info (terminal);
 
-  return be_is_display_grayscale () ? Qt : Qnil;
+  return Qnil;
 }
 
 DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
@@ -137,7 +324,6 @@ DEFUN ("x-display-pixel-width", Fx_display_pixel_width, Sx_display_pixel_width,
   int width, height;
   check_headless_display_info (terminal);
 
-  be_get_screen_dimensions (&width, &height);
   return make_fixnum (width);
 }
 
@@ -150,7 +336,6 @@ DEFUN ("x-display-pixel-height", Fx_display_pixel_height, Sx_display_pixel_heigh
   int width, height;
   check_headless_display_info (terminal);
 
-  be_get_screen_dimensions (&width, &height);
   return make_fixnum (height);
 }
 
@@ -161,7 +346,6 @@ DEFUN ("x-display-mm-height", Fx_display_mm_height, Sx_display_mm_height, 0, 1, 
   struct headless_display_info *dpyinfo = check_headless_display_info (terminal);
   int width, height;
 
-  be_get_screen_dimensions (&width, &height);
   return make_fixnum (height / (dpyinfo->resy / 25.4));
 }
 
@@ -173,7 +357,6 @@ DEFUN ("x-display-mm-width", Fx_display_mm_width, Sx_display_mm_width, 0, 1, 0,
   struct headless_display_info *dpyinfo = check_headless_display_info (terminal);
   int width, height;
 
-  be_get_screen_dimensions (&width, &height);
   return make_fixnum (width / (dpyinfo->resx / 25.4));
 }
 
@@ -190,18 +373,7 @@ DEFUN ("x-display-visual-class", Fx_display_visual_class,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
-  int planes;
-  bool grayscale_p;
-
   check_headless_display_info (terminal);
-
-  grayscale_p = be_is_display_grayscale ();
-  if (grayscale_p)
-    return Qstatic_gray;
-
-  planes = be_get_display_planes ();
-  if (planes == 8)
-    return Qstatic_color;
 
   return Qtrue_color;
 }
@@ -211,320 +383,14 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   (Lisp_Object string, Lisp_Object frame, Lisp_Object parms,
    Lisp_Object timeout, Lisp_Object dx, Lisp_Object dy)
 {
-  struct frame *f, *tip_f;
-  struct window *w;
-  int root_x, root_y;
-  struct buffer *old_buffer;
-  struct text_pos pos;
-  int width, height;
-  int old_windows_or_buffers_changed = windows_or_buffers_changed;
-  specpdl_ref count = SPECPDL_INDEX ();
-  Lisp_Object window, size, tip_buf;
-  bool displayed;
-#ifdef ENABLE_CHECKING
-  struct glyph_row *row, *end;
-#endif
-  AUTO_STRING (tip, " *tip*");
-
-  specbind (Qinhibit_redisplay, Qt);
-
-  CHECK_STRING (string);
-  if (SCHARS (string) == 0)
-    string = make_unibyte_string (" ", 1);
-
-  if (NILP (frame))
-    frame = selected_frame;
-  f = decode_window_system_frame (frame);
-
-  if (NILP (timeout))
-    timeout = Vx_show_tooltip_timeout;
-  CHECK_FIXNAT (timeout);
-
-  if (NILP (dx))
-    dx = make_fixnum (5);
-  else
-    CHECK_FIXNUM (dx);
-
-  if (NILP (dy))
-    dy = make_fixnum (-10);
-  else
-    CHECK_FIXNUM (dy);
-
-  tip_dx = dx;
-  tip_dy = dy;
-
-  if (use_system_tooltips)
-    {
-      int root_x, root_y;
-      CHECK_STRING (string);
-      if (STRING_MULTIBYTE (string))
-	string = ENCODE_UTF_8 (string);
-
-      if (NILP (frame))
-	frame = selected_frame;
-
-      struct frame *f = decode_window_system_frame (frame);
-      block_input ();
-
-      char *str = xstrdup (SSDATA (string));
-      int height = be_plain_font_height ();
-      int width;
-      char *tok = strtok (str, "\n");
-      width = be_string_width_with_plain_font (tok);
-
-      while ((tok = strtok (NULL, "\n")))
-	{
-	  height = be_plain_font_height ();
-	  int w = be_string_width_with_plain_font (tok);
-	  if (w > width)
-	    w = width;
-	}
-      free (str);
-
-      height += 16; /* Default margin.  */
-      width += 16; /* Ditto.  Unfortunately there isn't a more
-		      reliable way to get it.  */
-      compute_tip_xy (f, parms, dx, dy, width, height, &root_x, &root_y);
-      BView_convert_from_screen (FRAME_HEADLESS_VIEW (f), &root_x, &root_y);
-      be_show_sticky_tooltip (FRAME_HEADLESS_VIEW (f), SSDATA (string),
-			      root_x, root_y);
-      unblock_input ();
-      goto start_timer;
-    }
-
-  if (!NILP (tip_frame) && FRAME_LIVE_P (XFRAME (tip_frame)))
-    {
-      if (FRAME_VISIBLE_P (XFRAME (tip_frame))
-	  && !NILP (Fequal_including_properties (tip_last_string, string))
-	  && !NILP (Fequal (tip_last_parms, parms)))
-	{
-	  /* Only DX and DY have changed.  */
-	  tip_f = XFRAME (tip_frame);
-	  if (!NILP (tip_timer))
-	    {
-	      call1 (Qcancel_timer, tip_timer);
-	      tip_timer = Qnil;
-	    }
-
-	  block_input ();
-	  compute_tip_xy (tip_f, parms, dx, dy, FRAME_PIXEL_WIDTH (tip_f),
-			  FRAME_PIXEL_HEIGHT (tip_f), &root_x, &root_y);
-	  BWindow_set_offset (FRAME_HEADLESS_WINDOW (tip_f), root_x, root_y);
-	  unblock_input ();
-
-	  goto start_timer;
-	}
-      else if (tooltip_reuse_hidden_frame && EQ (frame, tip_last_frame))
-	{
-	  bool delete = false;
-	  Lisp_Object tail, elt, parm, last;
-
-	  /* Check if every parameter in PARMS has the same value in
-	     tip_last_parms.  This may destruct tip_last_parms which,
-	     however, will be recreated below.  */
-	  for (tail = parms; CONSP (tail); tail = XCDR (tail))
-	    {
-	      elt = XCAR (tail);
-	      parm = Fcar (elt);
-	      /* The left, top, right and bottom parameters are handled
-		 by compute_tip_xy so they can be ignored here.  */
-	      if (!EQ (parm, Qleft) && !EQ (parm, Qtop)
-		  && !EQ (parm, Qright) && !EQ (parm, Qbottom))
-		{
-		  last = Fassq (parm, tip_last_parms);
-		  if (NILP (Fequal (Fcdr (elt), Fcdr (last))))
-		    {
-		      /* We lost, delete the old tooltip.  */
-		      delete = true;
-		      break;
-		    }
-		  else
-		    tip_last_parms =
-		      call2 (Qassq_delete_all, parm, tip_last_parms);
-		}
-	      else
-		tip_last_parms =
-		  call2 (Qassq_delete_all, parm, tip_last_parms);
-	    }
-
-	  /* Now check if every parameter in what is left of
-	     tip_last_parms with a non-nil value has an association in
-	     PARMS.  */
-	  for (tail = tip_last_parms; CONSP (tail); tail = XCDR (tail))
-	    {
-	      elt = XCAR (tail);
-	      parm = Fcar (elt);
-	      if (!EQ (parm, Qleft) && !EQ (parm, Qtop) && !EQ (parm, Qright)
-		  && !EQ (parm, Qbottom) && !NILP (Fcdr (elt)))
-		{
-		  /* We lost, delete the old tooltip.  */
-		  delete = true;
-		  break;
-		}
-	    }
-
-	  headless_hide_tip (delete);
-	}
-      else
-	headless_hide_tip (true);
-    }
-  else
-    headless_hide_tip (true);
-
-  tip_last_frame = frame;
-  tip_last_string = string;
-  tip_last_parms = parms;
-
-  if (NILP (tip_frame) || !FRAME_LIVE_P (XFRAME (tip_frame)))
-    {
-      /* Add default values to frame parameters.  */
-      if (NILP (Fassq (Qname, parms)))
-	parms = Fcons (Fcons (Qname, build_string ("tooltip")), parms);
-      if (NILP (Fassq (Qinternal_border_width, parms)))
-	parms = Fcons (Fcons (Qinternal_border_width, make_fixnum (3)), parms);
-      if (NILP (Fassq (Qborder_width, parms)))
-	parms = Fcons (Fcons (Qborder_width, make_fixnum (1)), parms);
-      if (NILP (Fassq (Qborder_color, parms)))
-	parms = Fcons (Fcons (Qborder_color, build_string ("lightyellow")), parms);
-      if (NILP (Fassq (Qbackground_color, parms)))
-	parms = Fcons (Fcons (Qbackground_color, build_string ("lightyellow")),
-		       parms);
-
-      /* Create a frame for the tooltip, and record it in the global
-	 variable tip_frame.  */
-      if (NILP (tip_frame = headless_create_tip_frame (parms)))
-	/* Creating the tip frame failed.  */
-	return unbind_to (count, Qnil);
-    }
-
-  tip_f = XFRAME (tip_frame);
-  window = FRAME_ROOT_WINDOW (tip_f);
-  tip_buf = Fget_buffer_create (tip, Qnil);
-  /* We will mark the tip window a "pseudo-window" below, and such
-     windows cannot have display margins.  */
-  bset_left_margin_cols (XBUFFER (tip_buf), make_fixnum (0));
-  bset_right_margin_cols (XBUFFER (tip_buf), make_fixnum (0));
-  set_window_buffer (window, tip_buf, false, false);
-  w = XWINDOW (window);
-  w->pseudo_window_p = true;
-  /* Try to avoid that `other-window' select us (Bug#47207).  */
-  Fset_window_parameter (window, Qno_other_window, Qt);
-
-  /* Set up the frame's root window.  Note: The following code does not
-     try to size the window or its frame correctly.  Its only purpose is
-     to make the subsequent text size calculations work.  The right
-     sizes should get installed when the toolkit gets back to us.  */
-  w->left_col = 0;
-  w->top_line = 0;
-  w->pixel_left = 0;
-  w->pixel_top = 0;
-
-  if (CONSP (Vx_max_tooltip_size)
-      && RANGED_FIXNUMP (1, XCAR (Vx_max_tooltip_size), INT_MAX)
-      && RANGED_FIXNUMP (1, XCDR (Vx_max_tooltip_size), INT_MAX))
-    {
-      w->total_cols = XFIXNAT (XCAR (Vx_max_tooltip_size));
-      w->total_lines = XFIXNAT (XCDR (Vx_max_tooltip_size));
-    }
-  else
-    {
-      w->total_cols = 80;
-      w->total_lines = 40;
-    }
-
-  w->pixel_width = w->total_cols * FRAME_COLUMN_WIDTH (tip_f);
-  w->pixel_height = w->total_lines * FRAME_LINE_HEIGHT (tip_f);
-  FRAME_TOTAL_COLS (tip_f) = w->total_cols;
-  adjust_frame_glyphs (tip_f);
-
-  /* Insert STRING into root window's buffer and fit the frame to the
-     buffer.  */
-  specpdl_ref count_1 = SPECPDL_INDEX ();
-  old_buffer = current_buffer;
-  set_buffer_internal_1 (XBUFFER (w->contents));
-  bset_truncate_lines (current_buffer, Qnil);
-  specbind (Qinhibit_read_only, Qt);
-  specbind (Qinhibit_modification_hooks, Qt);
-  specbind (Qinhibit_point_motion_hooks, Qt);
-  Ferase_buffer ();
-  Finsert (1, &string);
-  clear_glyph_matrix (w->desired_matrix);
-  clear_glyph_matrix (w->current_matrix);
-  SET_TEXT_POS (pos, BEGV, BEGV_BYTE);
-  displayed = try_window (window, pos, TRY_WINDOW_IGNORE_FONTS_CHANGE);
-
-  if (!displayed && NILP (Vx_max_tooltip_size))
-    {
-#ifdef ENABLE_CHECKING
-      row = w->desired_matrix->rows;
-      end = w->desired_matrix->rows + w->desired_matrix->nrows;
-
-      while (row < end)
-	{
-	  if (!row->displays_text_p
-	      || row->ends_at_zv_p)
-	    break;
-	  ++row;
-	}
-
-      eassert (row < end && row->ends_at_zv_p);
-#endif
-    }
-
-  /* Calculate size of tooltip window.  */
-  size = Fwindow_text_pixel_size (window, Qnil, Qnil, Qnil,
-				  make_fixnum (w->pixel_height), Qnil,
-				  Qnil);
-  /* Add the frame's internal border to calculated size.  */
-  width = XFIXNUM (Fcar (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
-  height = XFIXNUM (Fcdr (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
-
-  /* Calculate position of tooltip frame.  */
-  compute_tip_xy (tip_f, parms, dx, dy, width, height, &root_x, &root_y);
-
-  /* Show tooltip frame.  */
-  block_input ();
-  void *wnd = FRAME_HEADLESS_WINDOW (tip_f);
-  BWindow_resize (wnd, width, height);
-  /* The window decorator might cause the actual width and height to
-     be larger than WIDTH and HEIGHT, so use the actual sizes.  */
-  BWindow_dimensions (wnd, &width, &height);
-  BView_resize_to (FRAME_HEADLESS_VIEW (tip_f), width, height);
-  BView_set_view_cursor (FRAME_HEADLESS_VIEW (tip_f),
-			 FRAME_OUTPUT_DATA (f)->current_cursor);
-  BWindow_set_offset (wnd, root_x, root_y);
-  BWindow_set_visible (wnd, true);
-  SET_FRAME_VISIBLE (tip_f, true);
-  FRAME_PIXEL_WIDTH (tip_f) = width;
-  FRAME_PIXEL_HEIGHT (tip_f) = height;
-  BWindow_sync (wnd);
-
-  /* This is needed because the app server resets the cursor whenever
-     a new window is mapped, so we won't see the cursor set on the
-     tooltip if the mouse pointer isn't actually over it.  */
-  BView_set_view_cursor (FRAME_HEADLESS_VIEW (f),
-			 FRAME_OUTPUT_DATA (f)->current_cursor);
-  unblock_input ();
-
-  w->must_be_updated_p = true;
-  update_single_window (w);
-  flush_frame (tip_f);
-  set_buffer_internal_1 (old_buffer);
-  unbind_to (count_1, Qnil);
-  windows_or_buffers_changed = old_windows_or_buffers_changed;
-
- start_timer:
-  /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
-
-  return unbind_to (count, Qnil);
+  return Qnil;
 }
 
 DEFUN ("x-hide-tip", Fx_hide_tip, Sx_hide_tip, 0, 0, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
   (void)
 {
-  return headless_hide_tip (!tooltip_reuse_hidden_frame);
+  return Qnil;
 }
 
 DEFUN ("x-close-connection", Fx_close_connection, Sx_close_connection, 1, 1, 0,
@@ -568,7 +434,7 @@ DEFUN ("x-display-screens", Fx_display_screens, Sx_display_screens, 0, 1, 0,
   (Lisp_Object terminal)
 {
   check_headless_display_info (terminal);
-  return make_fixnum (be_get_display_screens ());
+  return make_fixnum (1);
 }
 
 DEFUN ("headless-get-version-string", Fheadless_get_version_string,
@@ -576,10 +442,7 @@ DEFUN ("headless-get-version-string", Fheadless_get_version_string,
        doc: /* Return a string describing the current Headless version.  */)
   (void)
 {
-  char buf[1024];
-
-  be_get_version_string ((char *) &buf, sizeof buf);
-  return build_string (buf);
+  return build_string ("version 1.0");
 }
 
 DEFUN ("x-display-color-cells", Fx_display_color_cells, Sx_display_color_cells,
@@ -589,7 +452,7 @@ DEFUN ("x-display-color-cells", Fx_display_color_cells, Sx_display_color_cells,
 {
   check_headless_display_info (terminal);
 
-  return make_fixnum (be_get_display_color_cells ());
+  return make_fixnum (1);
 }
 
 DEFUN ("x-display-planes", Fx_display_planes, Sx_display_planes,
@@ -599,7 +462,7 @@ DEFUN ("x-display-planes", Fx_display_planes, Sx_display_planes,
 {
   check_headless_display_info (terminal);
 
-  return make_fixnum (be_get_display_planes ());
+  return make_fixnum (1);
 }
 
 DEFUN ("x-double-buffered-p", Fx_double_buffered_p, Sx_double_buffered_p,
@@ -607,9 +470,187 @@ DEFUN ("x-double-buffered-p", Fx_double_buffered_p, Sx_double_buffered_p,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object frame)
 {
-  struct frame *f = decode_window_system_frame (frame);
+  return Qnil;
+}
 
-  return EmacsView_double_buffered_p (FRAME_HEADLESS_VIEW (f)) ? Qt : Qnil;
+DEFUN ("headless-set-mouse-absolute-pixel-position",
+       Fheadless_set_mouse_absolute_pixel_position,
+       Sheadless_set_mouse_absolute_pixel_position, 2, 2, 0,
+       doc: /* Move mouse pointer to a pixel position at (X, Y).  The
+coordinates X and Y are interpreted to start from the top-left
+corner of the screen.  */)
+  (Lisp_Object x, Lisp_Object y)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-mouse-absolute-pixel-position", Fheadless_mouse_absolute_pixel_position,
+       Sheadless_mouse_absolute_pixel_position, 0, 0, 0,
+       doc: /* Return absolute position of mouse cursor in pixels.
+The position is returned as a cons cell (X . Y) of the coordinates of
+the mouse cursor position in pixels relative to a position (0, 0) of the
+selected frame's display.  */)
+  (void)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-frame-geometry", Fheadless_frame_geometry, Sheadless_frame_geometry, 0, 1, 0,
+       doc: /* Return geometric attributes of FRAME.
+FRAME must be a live frame and defaults to the selected one.  The return
+value is an association list of the attributes listed below.  All height
+and width values are in pixels.
+
+`outer-position' is a cons of the outer left and top edges of FRAME
+  relative to the origin - the position (0, 0) - of FRAME's display.
+
+`outer-size' is a cons of the outer width and height of FRAME.  The
+  outer size includes the title bar and the external borders as well as
+  any menu and/or tool bar of frame.
+
+`external-border-size' is a cons of the horizontal and vertical width of
+  FRAME's external borders as supplied by the window manager.
+
+`title-bar-size' is a cons of the width and height of the title bar of
+  FRAME as supplied by the window manager.  If both of them are zero,
+  FRAME has no title bar.  If only the width is zero, Emacs was not
+  able to retrieve the width information.
+
+`menu-bar-external', if non-nil, means the menu bar is external (never
+  included in the inner edges of FRAME).
+
+`menu-bar-size' is a cons of the width and height of the menu bar of
+  FRAME.
+
+`tool-bar-external', if non-nil, means the tool bar is external (never
+  included in the inner edges of FRAME).
+
+`tool-bar-position' tells on which side the tool bar on FRAME is and can
+  be one of `left', `top', `right' or `bottom'.  If this is nil, FRAME
+  has no tool bar.
+
+`tool-bar-size' is a cons of the width and height of the tool bar of
+  FRAME.
+
+`internal-border-width' is the width of the internal border of
+  FRAME.  */)
+  (Lisp_Object frame)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-frame-edges", Fheadless_frame_edges, Sheadless_frame_edges, 0, 2, 0,
+       doc: /* Return edge coordinates of FRAME.
+FRAME must be a live frame and defaults to the selected one.  The return
+value is a list of the form (LEFT, TOP, RIGHT, BOTTOM).  All values are
+in pixels relative to the origin - the position (0, 0) - of FRAME's
+display.
+
+If optional argument TYPE is the symbol `outer-edges', return the outer
+edges of FRAME.  The outer edges comprise the decorations of the window
+manager (like the title bar or external borders) as well as any external
+menu or tool bar of FRAME.  If optional argument TYPE is the symbol
+`native-edges' or nil, return the native edges of FRAME.  The native
+edges exclude the decorations of the window manager and any external
+menu or tool bar of FRAME.  If TYPE is the symbol `inner-edges', return
+the inner edges of FRAME.  These edges exclude title bar, any borders,
+menu bar or tool bar of FRAME.  */)
+  (Lisp_Object frame, Lisp_Object type)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-read-file-name", Fheadless_read_file_name, Sheadless_read_file_name, 1, 6, 0,
+       doc: /* Use a graphical panel to read a file name, using prompt PROMPT.
+Optional arg FRAME specifies a frame on which to display the file panel.
+If it is nil, the current frame is used instead.
+The frame being used will be brought to the front of
+the display after the file panel is closed.
+Optional arg DIR, if non-nil, supplies a default directory.
+Optional arg MUSTMATCH, if non-nil, means the returned file or
+directory must exist.
+Optional arg DIR_ONLY_P, if non-nil, means choose only directories.
+Optional arg SAVE_TEXT, if non-nil, specifies some text to show in the entry field.  */)
+  (Lisp_Object prompt, Lisp_Object frame, Lisp_Object dir,
+   Lisp_Object mustmatch, Lisp_Object dir_only_p, Lisp_Object save_text)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-put-resource", Fheadless_put_resource, Sheadless_put_resource,
+       2, 2, 0, doc: /* Place STRING by the key RESOURCE in the resource database.
+It can later be retrieved with `x-get-resource'.  */)
+  (Lisp_Object resource, Lisp_Object string)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-frame-list-z-order", Fheadless_frame_list_z_order,
+       Sheadless_frame_list_z_order, 0, 1, 0,
+       doc: /* Return list of Emacs' frames, in Z (stacking) order.
+If TERMINAL is non-nil and specifies a live frame, return the child
+frames of that frame in Z (stacking) order.
+
+As it is impossible to reliably determine the frame stacking order on
+Headless, the selected frame is always the first element of the returned
+list, while the rest are not guaranteed to be in any particular order.
+
+Frames are listed from topmost (first) to bottommost (last).  */)
+  (Lisp_Object terminal)
+{
+  return Qnil;
+}
+
+DEFUN ("x-display-save-under", Fx_display_save_under,
+       Sx_display_save_under, 0, 1, 0,
+       doc: /* SKIP: real doc in xfns.c.  */)
+  (Lisp_Object terminal)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-frame-restack", Fheadless_frame_restack, Sheadless_frame_restack, 2, 3, 0,
+       doc: /* Restack FRAME1 below FRAME2.
+This means that if both frames are visible and the display areas of
+these frames overlap, FRAME2 (partially) obscures FRAME1.  If optional
+third argument ABOVE is non-nil, restack FRAME1 above FRAME2.  This
+means that if both frames are visible and the display areas of these
+frames overlap, FRAME1 (partially) obscures FRAME2.
+
+Some window managers may refuse to restack windows.  */)
+  (Lisp_Object frame1, Lisp_Object frame2, Lisp_Object above)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-save-session-reply", Fheadless_save_session_reply,
+       Sheadless_save_session_reply, 1, 1, 0,
+       doc: /* Reply to a `save-session' event.
+QUIT-REPLY means whether or not all files were saved and program
+termination should proceed.
+
+Calls to this function must be balanced by the amount of
+`save-session' events received.  This is done automatically, so do not
+call this function yourself.  */)
+  (Lisp_Object quit_reply)
+{
+  return Qnil;
+}
+
+DEFUN ("headless-display-monitor-attributes-list",
+       Fheadless_display_monitor_attributes_list,
+       Sheadless_display_monitor_attributes_list,
+       0, 1, 0,
+       doc: /* Return a list of physical monitor attributes on the display TERMINAL.
+
+The optional argument TERMINAL specifies which display to ask about.
+TERMINAL should be a terminal object, a frame or a display name (a string).
+If omitted or nil, that stands for the selected frame's display.
+
+Internal use only, use `display-monitor-attributes-list' instead.  */)
+  (Lisp_Object terminal)
+{
+  return Qnil;
 }
 
 DEFUN ("x-display-backing-store", Fx_display_backing_store, Sx_display_backing_store,

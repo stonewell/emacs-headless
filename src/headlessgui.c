@@ -53,3 +53,8 @@ headless_draw_cross_on_pixmap (Emacs_Pixmap pixmap,
   (void)height;
   (void)color;
 }
+
+void
+headless_put_pixel (headless bitmap, int x, int y, unsigned long pixel)
+{
+}
