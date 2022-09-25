@@ -58,3 +58,31 @@ headless_term_init (void)
 
   return dpyinfo;
 }
+
+unsigned long
+headless_get_pixel (headless img, int x, int y)
+{
+  (void)img;
+  (void)x;
+  (void)y;
+
+  return 0;
+}
+
+void
+headless_draw_cross_on_pixmap (Emacs_Pixmap pixmap,
+			 int x, int y, unsigned int width, unsigned int height,
+			 unsigned long color)
+{
+  (void)pixmap;
+  (void)x;
+  (void)y;
+  (void)width;
+  (void)height;
+  (void)color;
+}
+
+void
+headless_put_pixel (headless bitmap, int x, int y, unsigned long pixel)
+{
+}
