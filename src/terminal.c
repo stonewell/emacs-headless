@@ -451,6 +451,8 @@ return values.  */)
       return Qpgtk;
     case output_haiku:
       return Qhaiku;
+    case output_headless:
+      return Qheadless;
     default:
       emacs_abort ();
     }

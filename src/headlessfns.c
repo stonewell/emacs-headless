@@ -238,6 +238,11 @@ headless_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldv
 {
 }
 
+void
+frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y)
+{
+}
+
 DEFUN ("xw-display-color-p", Fxw_display_color_p, Sxw_display_color_p, 0, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
      (Lisp_Object terminal)
@@ -297,7 +302,7 @@ DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
 
   if (NILP (Fstring_equal (display, build_string ("be"))))
     {
-      if (!NILP (must_succeed))
+      if (!NILP (must_succeed) || true)
 	fatal ("Invalid display %s", SDATA (display));
       else
 	signal_error ("Invalid display", display);

@@ -250,6 +250,8 @@ See also `frame-live-p'.  */)
       return Qpgtk;
     case output_haiku:
       return Qhaiku;
+    case output_headless:
+      return Qheadless;
     default:
       emacs_abort ();
     }
@@ -1953,6 +1955,10 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
 #endif
 #ifdef HAVE_HAIKU
   else if (f == haiku_dnd_frame)
+    error ("Attempt to delete the drop source frame");
+#endif
+#ifdef HAVE_HEADLESS
+  else if (f == headless_dnd_frame)
     error ("Attempt to delete the drop source frame");
 #endif
 
@@ -6082,6 +6088,7 @@ syms_of_frame (void)
   DEFSYM (Qns, "ns");
   DEFSYM (Qpgtk, "pgtk");
   DEFSYM (Qhaiku, "haiku");
+  DEFSYM (Qheadless, "headless");
   DEFSYM (Qvisible, "visible");
   DEFSYM (Qbuffer_predicate, "buffer-predicate");
   DEFSYM (Qbuffer_list, "buffer-list");

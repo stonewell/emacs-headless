@@ -377,7 +377,7 @@ struct frame
   /* The output method says how the contents of this frame are
      displayed.  It could be using termcap, or using an X window.
      This must be the same as the terminal->type. */
-  ENUM_BF (output_method) output_method : 3;
+  ENUM_BF (output_method) output_method : 4;
 
 #ifdef HAVE_WINDOW_SYSTEM
   /* True if this frame is a tooltip frame.  */
@@ -895,6 +895,9 @@ default_pixels_per_inch_y (void)
 #endif
 #ifdef HAVE_HAIKU
 #define FRAME_WINDOW_P(f) FRAME_HAIKU_P (f)
+#endif
+#ifdef HAVE_HEADLESS
+#define FRAME_WINDOW_P(f) FRAME_HEADLESS_P (f)
 #endif
 #ifndef FRAME_WINDOW_P
 #define FRAME_WINDOW_P(f) ((void) (f), false)

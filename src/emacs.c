@@ -2364,6 +2364,15 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_fontset ();
 #endif /* HAVE_HAIKU */
 
+#ifdef HAVE_HEADLESS
+      syms_of_headlessterm ();
+      syms_of_headlessfns ();
+      //syms_of_headlessmenu ();
+      //syms_of_headlessfont ();
+      //syms_of_headlessselect ();
+      syms_of_fontset ();
+#endif /* HAVE_HEADLESS */
+
       syms_of_gnutls ();
 
 #ifdef HAVE_INOTIFY

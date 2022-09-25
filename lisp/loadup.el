@@ -306,6 +306,12 @@
       (load "term/common-win")
       (load "term/haiku-win")))
 
+(if (featurep 'headless)
+    (progn
+      (load "term/common-win")
+      (load "term/headless-win"))
+)
+
 (if (or (eq system-type 'windows-nt)
         (featurep 'w32))
     (progn

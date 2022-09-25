@@ -6198,6 +6198,10 @@ garbage_collect (void)
   mark_haiku_display ();
 #endif
 
+#ifdef HAVE_HEADLESS
+  mark_headless_display ();
+#endif
+
 #ifdef HAVE_WINDOW_SYSTEM
   mark_fringe_data ();
 #endif
