@@ -29,6 +29,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "systime.h"
 
 #define HAVE_CHAR_CACHE_MAX 65535
+#define TRACE_FUNC_CALL {  printf("%s(%d)\n", __FILE__, __LINE__); }
 
 struct headlessfont_info
 {

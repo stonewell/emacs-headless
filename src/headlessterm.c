@@ -58,6 +58,7 @@ static bool any_help_event_p;
 char *
 get_keysym_name (int keysym)
 {
+  TRACE_FUNC_CALL;
   static char value[16];
   sprintf (value, "%d", keysym);
   return value;
@@ -73,6 +74,7 @@ headless_term_init (void)
   Fset_input_interrupt_mode (Qt);
   dpyinfo = xzalloc (sizeof *dpyinfo);
 
+  TRACE_FUNC_CALL;
   return dpyinfo;
 }
 
@@ -83,6 +85,7 @@ headless_get_pixel (headless img, int x, int y)
   (void)x;
   (void)y;
 
+  TRACE_FUNC_CALL;
   return 0;
 }
 
@@ -97,16 +100,19 @@ headless_draw_cross_on_pixmap (Emacs_Pixmap pixmap,
   (void)width;
   (void)height;
   (void)color;
+  TRACE_FUNC_CALL;
 }
 
 void
 headless_put_pixel (headless bitmap, int x, int y, unsigned long pixel)
 {
+  TRACE_FUNC_CALL;
 }
 
 void
 mark_headless_display (void)
 {
+  TRACE_FUNC_CALL;
   if (x_display_list)
     {
       mark_object (x_display_list->color_map);
@@ -117,6 +123,7 @@ mark_headless_display (void)
 void
 syms_of_headlessterm (void)
 {
+  TRACE_FUNC_CALL;
   DEFVAR_BOOL ("headless-initialized", headless_initialized,
      doc: /* Non-nil if the Headless terminal backend has been initialized.  */);
 

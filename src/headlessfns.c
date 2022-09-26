@@ -76,61 +76,72 @@ static ptrdiff_t image_cache_refcount;
 static Display_Info *
 check_headless_display_info (Lisp_Object object)
 {
+  TRACE_FUNC_CALL;
   return NULL;
 }
 
 Display_Info *
 check_x_display_info (Lisp_Object object)
 {
+  TRACE_FUNC_CALL;
   return check_headless_display_info(object);
 }
 
 static void
 headless_set_title_bar_text (struct frame *f, Lisp_Object text)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_title (struct frame *f, Lisp_Object name, Lisp_Object old_name)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_child_frame_border_width (struct frame *f,
 				    Lisp_Object arg, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_parent_frame (struct frame *f, Lisp_Object new_value,
 			Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_z_group (struct frame *f, Lisp_Object new_value,
 		   Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_explicitly_set_name (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_no_accept_focus (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_foreground_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static Lisp_Object
 headless_create_frame (Lisp_Object parms)
 {
+  TRACE_FUNC_CALL;
   return NULL;
 }
 
@@ -141,6 +152,7 @@ headless_decode_color (struct frame *f, Lisp_Object color_name)
 
   CHECK_STRING (color_name);
 
+  TRACE_FUNC_CALL;
   if (!headless_get_color (SSDATA (color_name), &cdef))
     return cdef.pixel;
 
@@ -150,29 +162,34 @@ headless_decode_color (struct frame *f, Lisp_Object color_name)
 static Lisp_Object
 headless_create_tip_frame (Lisp_Object parms)
 {
+  TRACE_FUNC_CALL;
   return NULL;
 }
 
 static void
 headless_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_undecorated (struct frame *f, Lisp_Object new_value,
 		       Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_override_redirect (struct frame *f, Lisp_Object new_value,
 			     Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 int
 headless_get_color (const char *name, Emacs_Color *color)
 {
+  TRACE_FUNC_CALL;
   return 0;
 }
 
@@ -180,39 +197,45 @@ void
 headless_set_internal_border_width (struct frame *f, Lisp_Object arg,
 				 Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 void
 headless_set_background_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 void
 headless_set_cursor_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 void
 headless_set_cursor_type (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_use_frame_synchronization (struct frame *f, Lisp_Object arg,
 				     Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_sticky (struct frame *f, Lisp_Object new_value,
 		  Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
@@ -220,27 +243,32 @@ headless_set_inhibit_double_buffering (struct frame *f,
 				    Lisp_Object new_value,
 				    Lisp_Object old_value)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_no_focus_on_map (struct frame *f, Lisp_Object value,
 			   Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_tool_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 static void
 headless_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 {
+  TRACE_FUNC_CALL;
 }
 
 void
 frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y)
 {
+  TRACE_FUNC_CALL;
 }
 
 DEFUN ("xw-display-color-p", Fxw_display_color_p, Sxw_display_color_p, 0, 1, 0,
@@ -249,6 +277,7 @@ DEFUN ("xw-display-color-p", Fxw_display_color_p, Sxw_display_color_p, 0, 1, 0,
 {
   check_headless_display_info (terminal);
 
+  TRACE_FUNC_CALL;
   return Qt;
 }
 
@@ -261,6 +290,7 @@ DEFUN ("xw-color-defined-p", Fxw_color_defined_p, Sxw_color_defined_p, 1, 2, 0,
   CHECK_STRING (color);
   decode_window_system_frame (frame);
 
+  TRACE_FUNC_CALL;
   return headless_get_color (SSDATA (color), &col) ? Qnil : Qt;
 }
 
@@ -278,6 +308,7 @@ DEFUN ("xw-color-values", Fxw_color_values, Sxw_color_values, 1, 2, 0,
   rc = headless_get_color (SSDATA (color), &col);
   unblock_input ();
 
+  TRACE_FUNC_CALL;
   if (rc)
     return Qnil;
 
@@ -290,6 +321,7 @@ DEFUN ("x-display-grayscale-p", Fx_display_grayscale_p, Sx_display_grayscale_p,
   (Lisp_Object terminal)
 {
   check_headless_display_info (terminal);
+  TRACE_FUNC_CALL;
 
   return Qnil;
 }
@@ -299,6 +331,7 @@ DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
      (Lisp_Object display, Lisp_Object resource_string, Lisp_Object must_succeed)
 {
   CHECK_STRING (display);
+  TRACE_FUNC_CALL;
 
   if (NILP (Fstring_equal (display, build_string ("be"))))
     {
@@ -328,6 +361,7 @@ DEFUN ("x-display-pixel-width", Fx_display_pixel_width, Sx_display_pixel_width,
 {
   int width, height;
   check_headless_display_info (terminal);
+  TRACE_FUNC_CALL;
 
   return make_fixnum (width);
 }
@@ -340,6 +374,7 @@ DEFUN ("x-display-pixel-height", Fx_display_pixel_height, Sx_display_pixel_heigh
 {
   int width, height;
   check_headless_display_info (terminal);
+  TRACE_FUNC_CALL;
 
   return make_fixnum (height);
 }
@@ -350,6 +385,7 @@ DEFUN ("x-display-mm-height", Fx_display_mm_height, Sx_display_mm_height, 0, 1, 
 {
   struct headless_display_info *dpyinfo = check_headless_display_info (terminal);
   int width, height;
+  TRACE_FUNC_CALL;
 
   return make_fixnum (height / (dpyinfo->resy / 25.4));
 }
@@ -362,6 +398,7 @@ DEFUN ("x-display-mm-width", Fx_display_mm_width, Sx_display_mm_width, 0, 1, 0,
   struct headless_display_info *dpyinfo = check_headless_display_info (terminal);
   int width, height;
 
+  TRACE_FUNC_CALL;
   return make_fixnum (width / (dpyinfo->resx / 25.4));
 }
 
@@ -370,6 +407,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
        doc: /* SKIP: real doc in xfns.c.  */)
      (Lisp_Object parms)
 {
+  TRACE_FUNC_CALL;
   return headless_create_frame (parms);
 }
 
@@ -378,6 +416,7 @@ DEFUN ("x-display-visual-class", Fx_display_visual_class,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   check_headless_display_info (terminal);
 
   return Qtrue_color;
@@ -388,6 +427,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   (Lisp_Object string, Lisp_Object frame, Lisp_Object parms,
    Lisp_Object timeout, Lisp_Object dx, Lisp_Object dy)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -395,6 +435,7 @@ DEFUN ("x-hide-tip", Fx_hide_tip, Sx_hide_tip, 0, 0, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
   (void)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -404,6 +445,7 @@ DEFUN ("x-close-connection", Fx_close_connection, Sx_close_connection, 1, 1, 0,
   (Lisp_Object terminal)
 {
   check_headless_display_info (terminal);
+  TRACE_FUNC_CALL;
 
   error ("Cannot close Headless displays");
 }
@@ -412,6 +454,7 @@ DEFUN ("x-display-list", Fx_display_list, Sx_display_list, 0, 0, 0,
        doc: /* SKIP: real doc in xfns.c. */)
   (void)
 {
+  TRACE_FUNC_CALL;
   if (!x_display_list)
     return Qnil;
 
@@ -422,6 +465,7 @@ DEFUN ("x-server-vendor", Fx_server_vendor, Sx_server_vendor, 0, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   check_headless_display_info (terminal);
   return build_string ("Headless, Inc.");
 }
@@ -430,6 +474,7 @@ DEFUN ("x-server-version", Fx_server_version, Sx_server_version, 0, 1, 0,
        doc: /* SKIP: real doc in xfns.c. */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   check_headless_display_info (terminal);
   return list3i (5, 1, 1);
 }
@@ -438,6 +483,7 @@ DEFUN ("x-display-screens", Fx_display_screens, Sx_display_screens, 0, 1, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   check_headless_display_info (terminal);
   return make_fixnum (1);
 }
@@ -447,6 +493,7 @@ DEFUN ("headless-get-version-string", Fheadless_get_version_string,
        doc: /* Return a string describing the current Headless version.  */)
   (void)
 {
+  TRACE_FUNC_CALL;
   return build_string ("version 1.0");
 }
 
@@ -465,6 +512,7 @@ DEFUN ("x-display-planes", Fx_display_planes, Sx_display_planes,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   check_headless_display_info (terminal);
 
   return make_fixnum (1);
@@ -475,6 +523,7 @@ DEFUN ("x-double-buffered-p", Fx_double_buffered_p, Sx_double_buffered_p,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object frame)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -486,6 +535,7 @@ coordinates X and Y are interpreted to start from the top-left
 corner of the screen.  */)
   (Lisp_Object x, Lisp_Object y)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -497,6 +547,7 @@ the mouse cursor position in pixels relative to a position (0, 0) of the
 selected frame's display.  */)
   (void)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -541,6 +592,7 @@ and width values are in pixels.
   FRAME.  */)
   (Lisp_Object frame)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -562,6 +614,7 @@ the inner edges of FRAME.  These edges exclude title bar, any borders,
 menu bar or tool bar of FRAME.  */)
   (Lisp_Object frame, Lisp_Object type)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -579,6 +632,7 @@ Optional arg SAVE_TEXT, if non-nil, specifies some text to show in the entry fie
   (Lisp_Object prompt, Lisp_Object frame, Lisp_Object dir,
    Lisp_Object mustmatch, Lisp_Object dir_only_p, Lisp_Object save_text)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -587,6 +641,7 @@ DEFUN ("headless-put-resource", Fheadless_put_resource, Sheadless_put_resource,
 It can later be retrieved with `x-get-resource'.  */)
   (Lisp_Object resource, Lisp_Object string)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -603,6 +658,7 @@ list, while the rest are not guaranteed to be in any particular order.
 Frames are listed from topmost (first) to bottommost (last).  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -611,6 +667,7 @@ DEFUN ("x-display-save-under", Fx_display_save_under,
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -625,6 +682,7 @@ frames overlap, FRAME1 (partially) obscures FRAME2.
 Some window managers may refuse to restack windows.  */)
   (Lisp_Object frame1, Lisp_Object frame2, Lisp_Object above)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -639,6 +697,7 @@ Calls to this function must be balanced by the amount of
 call this function yourself.  */)
   (Lisp_Object quit_reply)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -655,6 +714,7 @@ If omitted or nil, that stands for the selected frame's display.
 Internal use only, use `display-monitor-attributes-list' instead.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   return Qnil;
 }
 
@@ -663,6 +723,7 @@ DEFUN ("x-display-backing-store", Fx_display_backing_store, Sx_display_backing_s
        doc: /* SKIP: real doc in xfns.c.  */)
   (Lisp_Object terminal)
 {
+  TRACE_FUNC_CALL;
   return Qnot_useful;
 }
 
@@ -723,6 +784,7 @@ frame_parm_handler headless_frame_parm_handlers[] =
 void
 syms_of_headlessfns (void)
 {
+  TRACE_FUNC_CALL;
   DEFSYM (Qfont_parameter, "font-parameter");
   DEFSYM (Qcancel_timer, "cancel-timer");
   DEFSYM (Qassq_delete_all, "assq-delete-all");
