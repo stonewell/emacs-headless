@@ -19,7 +19,7 @@
 
 ;;; Commentary:
 
-;; Support for using Headless's BeOS derived windowing system.
+;; Support for using Headless derived windowing system.
 
 ;;; Code:
 
@@ -227,7 +227,7 @@ DISPLAY may be set to the name of a display that will be initialized."
   (when x-command-line-resources
     (headless--handle-x-command-line-resources
      (split-string x-command-line-resources "\n")))
-  (x-open-connection (or display "be") x-command-line-resources t)
+  (x-open-connection (or display "headless") x-command-line-resources t)
   (setq headless-initialized t))
 
 (cl-defmethod frame-creation-function (params &context (window-system headless))
