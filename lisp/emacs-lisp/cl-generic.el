@@ -94,11 +94,6 @@
 ;; This second one is closely related to what we do here (and that's
 ;; the name "generalizer" comes from).
 
-;; The autoloads.el mechanism which adds package--builtin-versions
-;; maintenance to loaddefs.el doesn't work for preloaded packages (such
-;; as this one), so we have to do it by hand!
-(push (purecopy '(cl-generic 1 0)) package--builtin-versions)
-
 ;; Note: For generic functions that dispatch on several arguments (i.e. those
 ;; which use the multiple-dispatch feature), we always use the same "tagcodes"
 ;; and the same set of arguments on which to dispatch.  This works, but is
@@ -655,13 +650,17 @@ The set of acceptable TYPEs (also called \"specializers\") is defined
                                      (cl--generic-name generic)
                                      qualifiers specializers))
                   current-load-list :test #'equal)
-      (let (;; Prevent `defalias' from recording this as the definition site of
+      (let ((old-adv-cc (get-advertised-calling-convention
+                         (symbol-function sym)))
+            ;; Prevent `defalias' from recording this as the definition site of
             ;; the generic function.
             current-load-list
             ;; BEWARE!  Don't purify this function definition, since that leads
             ;; to memory corruption if the hash-tables it holds are modified
             ;; (the GC doesn't trace those pointers).
             (purify-flag nil))
+        (when (listp old-adv-cc)
+          (set-advertised-calling-convention gfun old-adv-cc nil))
         ;; But do use `defalias', so that it interacts properly with nadvice,
         ;; e.g. for tracing/debug-on-entry.
         (defalias sym gfun)))))

@@ -445,16 +445,17 @@ The return value is the last VAL in the list.
                             ,v))))))))))
 
 (gv-define-expander plist-get
-  (lambda (do plist prop)
+  (lambda (do plist prop &optional predicate)
     (macroexp-let2 macroexp-copyable-p key prop
       (gv-letplace (getter setter) plist
-        (macroexp-let2 nil p `(cdr (plist-member ,getter ,key))
+        (macroexp-let2 nil p `(cdr (plist-member ,getter ,key ,predicate))
           (funcall do
                    `(car ,p)
                    (lambda (val)
                      `(if ,p
                           (setcar ,p ,val)
-                        ,(funcall setter `(cons ,key (cons ,val ,getter)))))))))))
+                        ,(funcall setter
+                                  `(cons ,key (cons ,val ,getter)))))))))))
 
 ;;; Some occasionally handy extensions.
 
@@ -540,8 +541,10 @@ The return value is the last VAL in the list.
   "Special place described by its setter and getter.
 GETTER and SETTER (typically obtained via `gv-letplace') get and
 set that place.  I.e. this function allows you to do the
-\"reverse\" of what `gv-letplace' does.  This function only makes
-sense when used in a place."
+\"reverse\" of what `gv-letplace' does.
+
+This function is only useful when used in conjunction with
+generalized variables in place forms."
   (declare (gv-expander funcall) (compiler-macro (lambda (_) getter)))
   (ignore setter)
   getter)
@@ -810,6 +813,7 @@ REF must have been previously obtained with `gv-ref'."
                    `(cond
                      (,v ,(funcall setter val))
                      ((eq ,getter ,val) ,(funcall setter `(not ,val))))))))))
+(make-obsolete-generalized-variable 'eq nil "29.1")
 
 (gv-define-expander substring
   (lambda (do place from &optional to)

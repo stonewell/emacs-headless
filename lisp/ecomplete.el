@@ -70,9 +70,9 @@
   :type '(symbol :tag "Coding system"))
 
 (defcustom ecomplete-sort-predicate #'ecomplete-decay
-  "Predicate to use when sorting matched.
-The predicate is called with two parameters that represent the
-completion.  Each parameter is a list where the first element is
+  "Predicate to use when sorting matched ecomplete candidates.
+The predicate is called with two arguments that represent the
+completion.  Each argument is a list where the first element is
 the times the completion has been used, the second is the
 timestamp of the most recent usage, and the third item is the
 string that was matched."
@@ -84,6 +84,12 @@ string that was matched."
 (defcustom ecomplete-auto-select nil
   "Whether `ecomplete-display-matches' should automatically select a sole option."
   :type 'boolean
+  :version "29.1")
+
+(defcustom ecomplete-filter-regexp nil
+  "Regular expression of addresses that should not be stored by ecomplete."
+  :type '(choice (const :tag "None" nil)
+                 (regexp :tag "Regexp"))
   :version "29.1")
 
 ;;; Internal variables.
@@ -99,21 +105,39 @@ string that was matched."
 	(insert-file-contents ecomplete-database-file)
 	(setq ecomplete-database (read (current-buffer)))))))
 
-(defun ecomplete-add-item (type key text)
-  "Add item TEXT of TYPE to the database, using KEY as the identifier."
+(defun ecomplete-add-item (type key text &optional force)
+  "Add item TEXT of TYPE to the database, using KEY as the identifier.
+By default, the longest version of TEXT will be preserved, but if
+FORCE is non-nil, use TEXT exactly as is."
   (unless ecomplete-database (ecomplete-setup))
-  (let ((elems (assq type ecomplete-database))
-	(now (time-convert nil 'integer))
-	entry)
+  (unless (and ecomplete-filter-regexp
+               (string-match-p ecomplete-filter-regexp key))
+    (let ((elems (assq type ecomplete-database))
+          (now (time-convert nil 'integer))
+          entry)
+      (unless elems
+        (push (setq elems (list type)) ecomplete-database))
+      (if (setq entry (assoc key (cdr elems)))
+          (pcase-let ((`(,_key ,count ,_time ,oldtext) entry))
+            (setcdr entry (list (1+ count) now
+                                ;; Preserve the "more complete" text.
+                                (if (or force
+                                        (>= (length text) (length oldtext)))
+                                    text
+                                  oldtext))))
+        (nconc elems (list (list key 1 now text)))))))
+
+(defun ecomplete--remove-item (type key)
+  "Remove the element of TYPE and KEY from the ecomplete database."
+  (unless ecomplete-database
+    (ecomplete-setup))
+  (let ((elems (assq type ecomplete-database)))
     (unless elems
-      (push (setq elems (list type)) ecomplete-database))
-    (if (setq entry (assoc key (cdr elems)))
-	(pcase-let ((`(,_key ,count ,_time ,oldtext) entry))
-	  (setcdr entry (list (1+ count) now
-	                      ;; Preserve the "more complete" text.
-	                      (if (>= (length text) (length oldtext))
-	                          text oldtext))))
-      (nconc elems (list (list key 1 now text))))))
+      (user-error "No elements of type %s" type))
+    (let ((entry (assoc key elems)))
+      (unless entry
+        (user-error "No entry with key %s" key))
+      (setcdr elems (delq entry (cdr elems))))))
 
 (defun ecomplete-get-item (type key)
   "Return the text for the item identified by KEY of the required TYPE."
@@ -166,7 +190,7 @@ string that was matched."
 If CHOOSE, allow the user to choose interactively between the
 matches.
 
-Auto-select when `ecomplete-message-display-abbrev-auto-select' is
+Auto-select when `ecomplete-auto-select' is
 non-nil and there is only a single completion option available."
   (let* ((matches (ecomplete-get-matches type word))
          (match-list (and matches (split-string matches "\n")))
@@ -262,6 +286,54 @@ non-nil and there is only a single completion option available."
 		                 collect (cdr x))
                         ecomplete-sort-predicate))))
          (complete-with-action action candidates string pred))))))
+
+(defun ecomplete--prompt-type ()
+  (unless ecomplete-database
+    (ecomplete-setup))
+  (if (length= ecomplete-database 1)
+      (caar ecomplete-database)
+    (completing-read "Item type to edit: "
+                     (mapcar #'car ecomplete-database)
+                     nil t)))
+
+(defun ecomplete-edit ()
+  "Prompt for an ecomplete item and allow editing it."
+  (interactive)
+  (let* ((type (ecomplete--prompt-type))
+         (data (cdr (assq type ecomplete-database)))
+         (key (completing-read "Key to edit: " data nil t))
+         (new (read-string "New value (empty to remove): "
+                           (nth 3 (assoc key data)))))
+    (if (zerop (length new))
+        (progn
+          (ecomplete--remove-item type key)
+          (message "Removed %s" key))
+      (ecomplete-add-item type key new t)
+      (message "Updated %s to %s" key new))
+    (ecomplete-save)))
+
+(defun ecomplete-remove ()
+  "Remove from the ecomplete database the entries matching a regexp.
+Prompt for the regexp to match the database entries to be removed."
+  (interactive)
+  (let* ((type (ecomplete--prompt-type))
+         (data (cdr (assq type ecomplete-database)))
+         (match (read-regexp (format "Remove %s keys matching (regexp): "
+                                     type)))
+         (elems (seq-filter (lambda (elem)
+                              (string-match-p match (car elem)))
+                            data)))
+    (if (length= elems 0)
+        (message "No matching entries for %s" match)
+      (when (yes-or-no-p (format "Delete %s matching ecomplete %s? "
+                                 (length elems)
+                                 (if (length= elems 1)
+                                     "entry"
+                                   "entries")))
+        (dolist (elem elems)
+          (ecomplete--remove-item type (car elem)))
+        (ecomplete-save)
+        (message "Deleted entries")))))
 
 (provide 'ecomplete)
 

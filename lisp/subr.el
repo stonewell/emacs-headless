@@ -344,7 +344,7 @@ in compilation warnings about unused variables.
              ;; FIXME: This let often leads to "unused var" warnings.
              `((let ((,var ,counter)) ,@(cddr spec)))))))
 
-(defmacro declare (&rest _specs)
+(defmacro declare (&rest specs)
   "Do not evaluate any arguments, and return nil.
 If a `declare' form appears as the first form in the body of a
 `defun' or `defmacro' form, SPECS specifies various additional
@@ -355,8 +355,16 @@ The possible values of SPECS are specified by
 `defun-declarations-alist' and `macro-declarations-alist'.
 
 For more information, see info node `(elisp)Declare Form'."
-  ;; FIXME: edebug spec should pay attention to defun-declarations-alist.
-  nil)
+  ;; `declare' is handled directly by `defun/defmacro' rather than here.
+  ;; If we get here, it's because there's a `declare' somewhere not attached
+  ;; to a `defun/defmacro', i.e. a `declare' which doesn't do what it's
+  ;; intended to do.
+  (let ((form `(declare . ,specs)))  ;; FIXME: WIBNI we had &whole?
+    (macroexp-warn-and-return
+     (format-message "Stray `declare' form: %S" form)
+     ;; Make a "unique" harmless form to circumvent
+     ;; the cache in `macroexp-warn-and-return'.
+     `(progn ',form nil) nil 'compile-only)))
 
 (defmacro ignore-errors (&rest body)
   "Execute BODY; if an error occurs, return nil.
@@ -1209,7 +1217,7 @@ Subkeymaps may be modified but are not canonicalized."
 
 (defun keyboard-translate (from to)
   "Translate character FROM to TO on the current terminal.
-This is a legacy function; see `keymap-translate' for the
+This is a legacy function; see `key-translate' for the
 recommended function to use instead.
 
 This function creates a `keyboard-translate-table' if necessary
@@ -1288,7 +1296,7 @@ KEY is a string or vector representing a sequence of keystrokes."
 
 (defun local-key-binding (keys &optional accept-default)
   "Return the binding for command KEYS in current local keymap only.
-This is a legacy function; see `keymap-local-binding' for the
+This is a legacy function; see `keymap-local-lookup' for the
 recommended function to use instead.
 
 KEYS is a string or vector, a sequence of keystrokes.
@@ -1302,7 +1310,7 @@ about this."
 
 (defun global-key-binding (keys &optional accept-default)
   "Return the binding for command KEYS in current global keymap only.
-This is a legacy function; see `keymap-global-binding' for the
+This is a legacy function; see `keymap-global-lookup' for the
 recommended function to use instead.
 
 KEYS is a string or vector, a sequence of keystrokes.
@@ -1562,6 +1570,21 @@ in the current Emacs session, then this function may return nil."
   ;; is this really correct? maybe remove mouse-movement?
   (memq (event-basic-type object) '(mouse-1 mouse-2 mouse-3 mouse-movement)))
 
+(defun event--posn-at-point ()
+  ;; Use `window-point' for the case when the current buffer
+  ;; is temporarily switched to some other buffer (bug#50256)
+  (let* ((pos (window-point))
+         (posn (posn-at-point pos)))
+    (if (null posn) ;; `pos' is "out of sight".
+        (list (selected-window) pos '(0 . 0) 0)
+      ;; If `pos' is inside a chunk of text hidden by an `invisible'
+      ;; or `display' property, `posn-at-point' returns the position
+      ;; that *is* visible, whereas `event--posn-at-point' is used
+      ;; when we have a keyboard event, whose position is `point' even
+      ;; if that position is invisible.
+      (setf (nth 5 posn) pos)
+      posn)))
+
 (defun event-start (event)
   "Return the starting position of EVENT.
 EVENT should be a mouse click, drag, or key press event.  If
@@ -1588,10 +1611,7 @@ nil or (STRING . POSITION)'.
 
 For more information, see Info node `(elisp)Click Events'."
   (or (and (consp event) (nth 1 event))
-      ;; Use `window-point' for the case when the current buffer
-      ;; is temporarily switched to some other buffer (bug#50256)
-      (posn-at-point (window-point))
-      (list (selected-window) (window-point) '(0 . 0) 0)))
+      (event--posn-at-point)))
 
 (defun event-end (event)
   "Return the ending position of EVENT.
@@ -1599,10 +1619,7 @@ EVENT should be a click, drag, or key press event.
 
 See `event-start' for a description of the value returned."
   (or (and (consp event) (nth (if (consp (nth 2 event)) 2 1) event))
-      ;; Use `window-point' for the case when the current buffer
-      ;; is temporarily switched to some other buffer (bug#50256)
-      (posn-at-point (window-point))
-      (list (selected-window) (window-point) '(0 . 0) 0)))
+      (event--posn-at-point)))
 
 (defsubst event-click-count (event)
   "Return the multi-click count of EVENT, a click or drag event.
@@ -1828,7 +1845,12 @@ be a list of the form returned by `event-start' and `event-end'."
 (set-advertised-calling-convention 'time-convert '(time form) "29.1")
 
 ;;;; Obsolescence declarations for variables, and aliases.
-
+(make-obsolete-variable
+ 'inhibit-point-motion-hooks
+ "use `cursor-intangible-mode' or `cursor-sensor-mode' instead"
+ ;; It's been announced as obsolete in NEWS and in the docstring since Emacs-25,
+ ;; but it's only been marked for compilation warnings since Emacs-29.
+ "25.1")
 (make-obsolete-variable 'redisplay-dont-pause nil "24.5")
 (make-obsolete-variable 'operating-system-release nil "28.1")
 (make-obsolete-variable 'inhibit-changing-match-data 'save-match-data "29.1")
@@ -1866,6 +1888,9 @@ among other things, holds dynamic variable bindings and `unwind-protect'
 activations.  To prevent runaway recursion, use `max-lisp-eval-depth'
 instead; it will indirectly limit the specpdl stack size as well.")
 (make-obsolete-variable 'max-specpdl-size nil "29.1")
+
+(make-obsolete-variable 'native-comp-deferred-compilation
+                        'inhibit-automatic-native-compilation "29.1")
 
 
 ;;;; Alternate names for functions - these are not being phased out.
@@ -2505,7 +2530,20 @@ The variable list SPEC is the same as in `if-let'."
   (declare (indent 1) (debug if-let))
   (list 'if-let spec (macroexp-progn body)))
 
+(defmacro while-let (spec &rest body)
+  "Bind variables according to SPEC and conditionally evaluate BODY.
+Evaluate each binding in turn, stopping if a binding value is nil.
+If all bindings are non-nil, eval BODY and repeat.
 
+The variable list SPEC is the same as in `if-let'."
+  (declare (indent 1) (debug if-let))
+  (let ((done (gensym "done")))
+    `(catch ',done
+       (while t
+         (if-let* ,spec
+             (progn
+               ,@body)
+           (throw ',done nil))))))
 
 ;; PUBLIC: find if the current mode derives from another.
 
@@ -3232,7 +3270,14 @@ An obsolete, but still supported form is
 where the optional arg MILLISECONDS specifies an additional wait period,
 in milliseconds; this was useful when Emacs was built without
 floating point support."
-  (declare (advertised-calling-convention (seconds &optional nodisp) "22.1"))
+  (declare (advertised-calling-convention (seconds &optional nodisp) "22.1")
+           (compiler-macro
+            (lambda (form)
+              (if (not (or (numberp nodisp) obsolete)) form
+                (macroexp-warn-and-return
+                 "Obsolete calling convention for 'sit-for'"
+                 `(,(car form) (+ ,seconds (/ (or ,nodisp 0) 1000.0)) ,obsolete)
+                 '(obsolete sit-for))))))
   ;; This used to be implemented in C until the following discussion:
   ;; https://lists.gnu.org/r/emacs-devel/2006-07/msg00401.html
   ;; Then it was moved here using an implementation based on an idle timer,
@@ -3522,11 +3567,12 @@ like) while `y-or-n-p' is running)."
 			    (if (or (zerop l) (eq ?\s (aref prompt (1- l))))
 				"" " ")
 			    (if dialog ""
-                              (if help-form
-                                  (format "(y, n or %s) "
-		                          (key-description
-                                           (vector help-char)))
-                                "(y or n) "))))))
+                              (substitute-command-keys
+                               (if help-form
+                                   (format "(\\`y', \\`n' or \\`%s') "
+                                           (key-description
+                                            (vector help-char)))
+                                 "(\\`y' or \\`n') ")))))))
         ;; Preserve the actual command that eventually called
         ;; `y-or-n-p' (otherwise `repeat' will be repeating
         ;; `exit-minibuffer').

@@ -152,7 +152,7 @@
       '((latin ?A ?Z ?a ?z #x00C0 #x0100 #x0180 #x1e00)
 	(phonetic #x250 #x283)
 	(greek #x3A9)
-	(coptic #x3E2)
+	(coptic #x3E2 #x2C80 #x2CAE)
 	(cyrillic #x42F)
 	(armenian #x531)
 	(hebrew #x5D0)
@@ -221,6 +221,7 @@
 	(lycian #x10280)
 	(carian #x102A0)
 	(old-italic #x10300)
+        (gothic #x10330 #x10348)
 	(ugaritic #x10380)
 	(old-permic #x10350)
 	(old-persian #x103A0)
@@ -291,16 +292,17 @@
 	(tai-xuan-jing-symbol #x1D300)
 	(counting-rod-numeral #x1D360)
 	(nyiakeng-puachue-hmong #x1e100)
-	(toto #x1E290)
-	(wancho #x1e2c0)
+	(toto #x1E290 #x1E295 #x1E2AD)
+	(wancho #x1E2C0 #x1E2E8 #x1E2EF)
         (nag-mundari #x1E4D0 #x1E4EB #x1E4F0)
-	(mende-kikakui #x1E810)
-	(adlam #x1E900)
-	(indic-siyaq-number #x1ec71)
-	(ottoman-siyaq-number #x1ed01)
+	(mende-kikakui #x1E810 #x1E8A6)
+	(adlam #x1E900 #x1E943)
+	(indic-siyaq-number #x1EC71 #x1EC9F)
+	(ottoman-siyaq-number #x1ED01 #x1ED27)
 	(mahjong-tile #x1F000)
 	(domino-tile #x1F030)
-        (emoji #x1F300 #x1F600)))
+        (emoji #x1F300 #x1F600)
+        (chess-symbol . [#x1FA00 #x1FA67])))
 
 (defvar otf-script-alist)
 
@@ -777,6 +779,7 @@
                     lepcha
 		    symbol
 		    braille
+                    coptic
 		    yi
                     syloti-nagri
                     rejang
@@ -790,6 +793,7 @@
 		    lycian
 		    carian
 		    old-italic
+                    gothic
 		    ugaritic
 		    old-persian
 		    deseret
@@ -831,12 +835,17 @@
 		    tai-xuan-jing-symbol
 		    counting-rod-numeral
                     toto
+                    wancho
                     nag-mundari
+                    mende-kikakui
 		    adlam
                     tai-tham
+                    indic-siyaq-number
+                    ottoman-siyaq-number
 		    mahjong-tile
 		    domino-tile
-                    emoji))
+                    emoji
+                    chess-symbol))
     (set-fontset-font "fontset-default"
 		      script (font-spec :registry "iso10646-1" :script script)
 		      nil 'append))
@@ -982,7 +991,11 @@
     (set-fontset-font "fontset-default" symbol-subgroup
                       "-*-fixed-medium-*-*-*-*-*-*-*-*-*-iso10646-1"
                       nil 'prepend))
-  ;; This sets up the Emoji codepoints to use prettier fonts.
+  ;; This sets up the Emoji codepoints to use prettier fonts:
+  ;;  this is fallback, if they don't have color Emoji capabilities...
+  (set-fontset-font "fontset-default" 'emoji
+                    '("Noto Emoji" . "iso10646-1") nil 'prepend)
+  ;;  ...and this is if they do
   (set-fontset-font "fontset-default" 'emoji
                     '("Noto Color Emoji" . "iso10646-1") nil 'prepend)
 

@@ -205,9 +205,9 @@ pair of the form (KEY VALUE).  The following KEYs are defined:
     MUST be a Bourne-like shell.  It is normally not necessary to
     set this to any value other than \"/bin/sh\": Tramp wants to
     use a shell which groks tilde expansion, but it can search
-    for it.  Also note that \"/bin/sh\" exists on all Unixen,
-    this might not be true for the value that you decide to use.
-    You Have Been Warned.
+    for it.  Also note that \"/bin/sh\" exists on all Unixen
+    except Andtoid, this might not be true for the value that you
+    decide to use.  You Have Been Warned.
 
   * `tramp-remote-shell-login'
     This specifies the arguments to let `tramp-remote-shell' run
@@ -278,7 +278,15 @@ pair of the form (KEY VALUE).  The following KEYs are defined:
 
   * `tramp-direct-async'
     Whether the method supports direct asynchronous processes.
-    Until now, just \"ssh\"-based and \"adb\"-based methods do.
+    Until now, just \"ssh\"-based, \"sshfs\"-based and
+    \"adb\"-based methods do.
+
+  * `tramp-config-check'
+    A function to be called with one argument, VEC.  It should
+    return a string which is used to check, whether the
+    configuration of the remote host has been changed (which
+    would require to flush the cache data).  This string is kept
+    as connection property \"config-check-data\".
 
   * `tramp-copy-program'
     This specifies the name of the program to use for remotely copying
@@ -1197,7 +1205,8 @@ The `ftp' syntax does not support methods.")
      ;; "/ssh:host:~/path" becomes "c:/ssh:host:~/path".  See also
      ;; `tramp-drop-volume-letter'.
      (? (regexp tramp-volume-letter-regexp))
-     (regexp tramp-prefix-regexp)
+     ;; We cannot use `tramp-prefix-regexp', because it starts with `bol'.
+     (literal tramp-prefix-format)
 
      ;; Optional multi hops.
      (* (regexp tramp-remote-file-name-spec-regexp)
@@ -1524,7 +1533,8 @@ same connection.  Make a copy in order to avoid side effects."
 
 ;; Comparison of file names is performed by `tramp-equal-remote'.
 (defun tramp-file-name-equal-p (vec1 vec2)
-  "Check, whether VEC1 and VEC2 denote the same `tramp-file-name'."
+  "Check, whether VEC1 and VEC2 denote the same `tramp-file-name'.
+LOCALNAME and HOP do not count."
   (and (tramp-file-name-p vec1) (tramp-file-name-p vec2)
        (equal (tramp-file-name-unify vec1)
 	      (tramp-file-name-unify vec2))))
@@ -1845,7 +1855,8 @@ the form (METHOD USER DOMAIN HOST PORT LOCALNAME &optional HOP)."
     tramp-prefix-regexp ""
     (replace-regexp-in-string
      (tramp-compat-rx
-      (regexp tramp-postfix-host-regexp) eos) tramp-postfix-hop-format
+      (regexp tramp-postfix-host-regexp) eos)
+     tramp-postfix-hop-format
      (tramp-make-tramp-file-name vec 'noloc)))))
 
 (defun tramp-completion-make-tramp-file-name (method user host localname)
@@ -2860,6 +2871,7 @@ remote file names."
   (put #'tramp-completion-file-name-handler 'operations
        (mapcar #'car tramp-completion-file-name-handler-alist))
 
+  ;; Integrated in Emacs 27.
   (when (bound-and-true-p tramp-archive-enabled)
     (add-to-list 'file-name-handler-alist
 	         (cons tramp-archive-file-name-regexp
@@ -3658,7 +3670,7 @@ Let-bind it when necessary.")
 
 ;; `directory-abbrev-apply' and `directory-abbrev-make-regexp' exists
 ;; since Emacs 29.1.  Since this handler isn't called for older
-;; Emacsen, it is save to invoke them via `tramp-compat-funcall'.
+;; Emacs, it is save to invoke them via `tramp-compat-funcall'.
 (defun tramp-handle-abbreviate-file-name (filename)
   "Like `abbreviate-file-name' for Tramp files."
   (let* ((case-fold-search (file-name-case-insensitive-p filename))
@@ -3904,9 +3916,7 @@ Let-bind it when necessary.")
 	      (with-tramp-progress-reporter v 5 "Checking case-insensitive"
 		;; The idea is to compare a file with lower case
 		;; letters with the same file with upper case letters.
-		(let ((candidate
-		       (tramp-compat-file-name-unquote
-			(directory-file-name filename)))
+		(let ((candidate (directory-file-name filename))
 		      case-fold-search
 		      tmpfile)
 		  ;; Check, whether we find an existing file with
@@ -5471,7 +5481,7 @@ performed successfully.  Any other value means an error."
 Mostly useful to protect BODY from being interrupted by timers."
   (declare (indent 1) (debug t))
   `(if (tramp-get-connection-property ,proc "locked")
-       ;; Be kind for older Emacsen.
+       ;; Be kind for old versions of Emacs.
        (if (member 'remote-file-error debug-ignored-errors)
 	   (throw 'non-essential 'non-essential)
 	 (tramp-error

@@ -283,14 +283,24 @@ expression, in which case we want to handle forms differently."
            ,@(when-let ((safe (plist-get props :safe)))
                `((put ',varname 'safe-local-variable ,safe))))))
 
+     ;; Extract theme properties.
+     ((eq car 'deftheme)
+      (let* ((name (car-safe (cdr-safe form)))
+	     (props (nthcdr 3 form)))
+	`(put ',name 'theme-properties (list ,@props))))
+
      ((eq car 'defgroup)
       ;; In Emacs this is normally handled separately by cus-dep.el, but for
       ;; third party packages, it can be convenient to explicitly autoload
       ;; a group.
-      (let ((groupname (nth 1 form)))
+      (let ((groupname (nth 1 form))
+            (parent (eval (plist-get form :group) t)))
         `(let ((loads (get ',groupname 'custom-loads)))
            (if (member ',file loads) nil
-             (put ',groupname 'custom-loads (cons ',file loads))))))
+             (put ',groupname 'custom-loads (cons ',file loads))
+             ,@(when parent
+               `((put ',parent 'custom-loads
+                      (cons ',groupname (get ',parent 'custom-loads)))))))))
 
      ;; When processing a macro expansion, any expression
      ;; before a :autoload-end should be included.  These are typically (put
@@ -628,7 +638,7 @@ instead of just updating them with the new/changed autoloads."
                       ;; It's a new file; put the data at the end.
                       (progn
                         (goto-char (point-max))
-                        (search-backward "\f\n"))
+                        (search-backward "\f\n" nil t))
                     ;; Delete the old version of the section.
                     (delete-region (match-beginning 0)
                                    (and (search-forward "\n\f\n;;;")
@@ -726,7 +736,14 @@ rules for built-in packages and excluded files."
      ;; updated.
      (file-newer-than-file-p
       (expand-file-name "emacs-lisp/loaddefs-gen.el" lisp-directory)
-      output-file))))
+      output-file)))
+  (let ((lisp-mode-autoload-regexp
+         "^;;;###\\(\\(noexist\\)-\\)?\\(theme-autoload\\)"))
+      (loaddefs-generate
+       (expand-file-name "../etc/themes/" lisp-directory)
+       (expand-file-name "theme-loaddefs.el" lisp-directory))))
+
+;;;###autoload (load "theme-loaddefs.el" t)
 
 (provide 'loaddefs-gen)
 

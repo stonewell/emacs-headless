@@ -3354,22 +3354,30 @@ struct x_xim_text_conversion_data
 {
   struct coding_system *coding;
   char *source;
+  struct x_display_info *dpyinfo;
 };
 
 static Lisp_Object
-x_xim_text_to_utf8_unix_1 (ptrdiff_t nargs,
-			   Lisp_Object *args)
+x_xim_text_to_utf8_unix_1 (ptrdiff_t nargs, Lisp_Object *args)
 {
   struct x_xim_text_conversion_data *data;
   ptrdiff_t nbytes;
+  Lisp_Object coding_system;
 
   data = xmint_pointer (args[0]);
+
+  if (SYMBOLP (Vx_input_coding_system))
+    coding_system = Vx_input_coding_system;
+  else if (!NILP (data->dpyinfo->xim_coding))
+    coding_system = data->dpyinfo->xim_coding;
+  else
+    coding_system = Vlocale_coding_system;
+
   nbytes = strlen (data->source);
 
   data->coding->destination = NULL;
 
-  setup_coding_system (Vlocale_coding_system,
-		       data->coding);
+  setup_coding_system (coding_system, data->coding);
   data->coding->mode |= (CODING_MODE_LAST_BLOCK
 			 | CODING_MODE_SAFE_ENCODING);
   data->coding->source = (const unsigned char *) data->source;
@@ -3382,8 +3390,7 @@ x_xim_text_to_utf8_unix_1 (ptrdiff_t nargs,
 }
 
 static Lisp_Object
-x_xim_text_to_utf8_unix_2 (Lisp_Object val,
-			   ptrdiff_t nargs,
+x_xim_text_to_utf8_unix_2 (Lisp_Object val, ptrdiff_t nargs,
 			   Lisp_Object *args)
 {
   struct x_xim_text_conversion_data *data;
@@ -3400,7 +3407,8 @@ x_xim_text_to_utf8_unix_2 (Lisp_Object val,
 
 /* The string returned is not null-terminated.  */
 static char *
-x_xim_text_to_utf8_unix (XIMText *text, ptrdiff_t *length)
+x_xim_text_to_utf8_unix (struct x_display_info *dpyinfo,
+			 XIMText *text, ptrdiff_t *length)
 {
   unsigned char *wchar_buf;
   ptrdiff_t wchar_actual_length, i;
@@ -3424,6 +3432,7 @@ x_xim_text_to_utf8_unix (XIMText *text, ptrdiff_t *length)
 
   data.coding = &coding;
   data.source = text->string.multi_byte;
+  data.dpyinfo = dpyinfo;
 
   was_waiting_for_input_p = waiting_for_input;
   /* Otherwise Fsignal will crash.  */
@@ -3441,18 +3450,21 @@ static void
 xic_preedit_draw_callback (XIC xic, XPointer client_data,
 			   XIMPreeditDrawCallbackStruct *call_data)
 {
-  struct frame *f = x_xic_to_frame (xic);
+  struct frame *f;
   struct x_output *output;
-  ptrdiff_t text_length = 0;
+  ptrdiff_t text_length;
   ptrdiff_t charpos;
   ptrdiff_t original_size;
   char *text;
   char *chg_start, *chg_end;
   struct input_event ie;
+
+  f = x_xic_to_frame (xic);
   EVENT_INIT (ie);
 
   if (f)
     {
+      text_length = 0;
       output = FRAME_X_OUTPUT (f);
 
       if (!output->preedit_active)
@@ -3460,7 +3472,8 @@ xic_preedit_draw_callback (XIC xic, XPointer client_data,
 
       if (call_data->text)
 	{
-	  text = x_xim_text_to_utf8_unix (call_data->text, &text_length);
+	  text = x_xim_text_to_utf8_unix (FRAME_DISPLAY_INFO (f),
+					  call_data->text, &text_length);
 
 	  if (!text)
 	    /* Decoding the IM text failed.  */
@@ -4166,11 +4179,15 @@ x_window (struct frame *f)
 	{
 	  /* XIM server might require some X events. */
 	  unsigned long fevent = NoEventMask;
-	  XGetICValues (FRAME_XIC (f), XNFilterEvents, &fevent, NULL);
-	  attributes.event_mask |= fevent;
-	  attribute_mask = CWEventMask;
-	  XChangeWindowAttributes (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-				   attribute_mask, &attributes);
+
+	  if (fevent)
+	    {
+	      XGetICValues (FRAME_XIC (f), XNFilterEvents, &fevent, NULL);
+	      attributes.event_mask |= fevent;
+	      attribute_mask = CWEventMask;
+	      XChangeWindowAttributes (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
+				       attribute_mask, &attributes);
+	    }
 	}
     }
 #endif /* HAVE_X_I18N */
@@ -6244,8 +6261,8 @@ In addition to the standard attribute keys listed in
 the attributes:
 
  source -- String describing the source from which multi-monitor
-	   information is obtained, one of \"Gdk\", \"XRandr\",
-	   \"Xinerama\", or \"fallback\"
+	   information is obtained, one of \"Gdk\", \"XRandR 1.5\",
+	   \"XRandr\", \"Xinerama\", or \"fallback\"
 
 Internal use only, use `display-monitor-attributes-list' instead.  */)
   (Lisp_Object terminal)
@@ -7711,16 +7728,39 @@ DEFUN ("x-window-property", Fx_window_property, Sx_window_property,
        doc: /* Value is the value of window property PROP on FRAME.
 If FRAME is nil or omitted, use the selected frame.
 
-On X Windows, the following optional arguments are also accepted:
-If TYPE is nil or omitted, get the property as a string.
- Otherwise TYPE is the name of the atom that denotes the expected type.
+On X Windows, the following optional arguments are also accepted: If
+TYPE is nil or omitted, get the property as a string.  Otherwise TYPE
+is the name of the atom that denotes the expected type.
+
+If TYPE is the string "AnyPropertyType", decode and return the data
+regardless of what the type really is.
+
+The format of the data returned is the same as a selection conversion
+to the given type.  For example, if `x-get-selection-internal' returns
+an integer when the selection data is a given type,
+`x-window-property' will do the same for that type.
+
 If WINDOW-ID is non-nil, get the property of that window instead of
- FRAME's X window; the number 0 denotes the root window.  This argument
- is separate from FRAME because window IDs are not unique across X
- displays or screens on the same display, so FRAME provides context
- for the window ID.
+FRAME's X window; the number 0 denotes the root window.  This argument
+is separate from FRAME because window IDs are not unique across X
+displays, so FRAME provides context for the window ID.
+
 If DELETE-P is non-nil, delete the property after retrieving it.
 If VECTOR-RET-P is non-nil, return a vector of values instead of a string.
+
+X allows an arbitrary number of properties to be set on any window.
+However, properties are most often set by the window manager or other
+programs on the root window or FRAME's X window in order to
+communicate information to Emacs and other programs.  Most of these
+properties are specified as part of the Extended Window Manager Hints
+and the Inter-Client Communication Conventions Manual, which are
+located here:
+
+  https://specifications.freedesktop.org/wm-spec/wm-spec-latest.html
+
+and
+
+  https://x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
 
 Return value is nil if FRAME doesn't have a property with name PROP or
 if PROP has no value of TYPE (always a string in the MS Windows case). */)
@@ -7873,7 +7913,7 @@ Otherwise, the return value is a vector with the following fields:
 
 DEFUN ("x-translate-coordinates", Fx_translate_coordinates,
        Sx_translate_coordinates,
-       1, 5, 0, doc: /* Translate coordinates from FRAME.
+       1, 6, 0, doc: /* Translate coordinates from FRAME.
 Translate the given coordinates SOURCE-X and SOURCE-Y from
 SOURCE-WINDOW's coordinate space to that of DEST-WINDOW, on FRAME.
 
@@ -7889,16 +7929,21 @@ Return a list of (X Y CHILD) if the given coordinates are on the same
 screen, or nil otherwise, where X and Y are the coordinates in
 DEST-WINDOW's coordinate space, and CHILD is the window ID of any
 mapped child in DEST-WINDOW at those coordinates, or nil if there is
-no such window.  */)
+no such window.  If REQUIRE-CHILD is nil, avoid fetching CHILD if it
+would result in an avoidable request to the X server, thereby
+improving performance when the X connection is over a slow network.
+Otherwise, always obtain the mapped child window from the X
+server.  */)
   (Lisp_Object frame, Lisp_Object source_window,
    Lisp_Object dest_window, Lisp_Object source_x,
-   Lisp_Object source_y)
+   Lisp_Object source_y, Lisp_Object require_child)
 {
   struct x_display_info *dpyinfo;
   struct frame *source_frame;
   int dest_x, dest_y;
   Window child_return, src, dest;
   Bool rc;
+  Lisp_Object temp_result;
 
   dpyinfo = check_x_display_info (frame);
   dest_x = 0;
@@ -7916,12 +7961,25 @@ no such window.  */)
       dest_y = XFIXNUM (source_y);
     }
 
+  source_frame = NULL;
+
   if (!NILP (source_window))
     CONS_TO_INTEGER (source_window, Window, src);
   else
     {
       source_frame = decode_window_system_frame (frame);
       src = FRAME_X_WINDOW (source_frame);
+    }
+
+  /* If require_child is nil, try to avoid an avoidable roundtrip to
+     the X server.  */
+  if (NILP (require_child) && source_frame)
+    {
+      temp_result
+	= x_handle_translate_coordinates (source_frame, dest_window, dest_x,
+					  dest_y);
+      if (!NILP (temp_result))
+	return temp_result;
     }
 
   if (!src)
@@ -8403,7 +8461,17 @@ compute_tip_xy (struct frame *f, Lisp_Object parms, Lisp_Object dx,
       unblock_input ();
 
       XSETFRAME (frame, f);
-      attributes = Fx_display_monitor_attributes_list (frame);
+
+#if defined HAVE_XRANDR || defined USE_GTK
+      if (!NILP (FRAME_DISPLAY_INFO (f)->last_monitor_attributes_list))
+	/* Use cached values if available to avoid fetching the
+	   monitor list from the X server.  If XRandR is not
+	   available, then fetching the attributes will probably not
+	   sync anyway, and will thus be relatively harmless.  */
+	attributes = FRAME_DISPLAY_INFO (f)->last_monitor_attributes_list;
+      else
+#endif
+	attributes = Fx_display_monitor_attributes_list (frame);
 
       /* Try to determine the monitor where the mouse pointer is and
          its geometry.  See bug#22549.  */
@@ -8653,9 +8721,6 @@ Text larger than the specified size is clipped.  */)
   int old_windows_or_buffers_changed = windows_or_buffers_changed;
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object window, size, tip_buf;
-  Window child;
-  XWindowAttributes child_attrs;
-  int dest_x_return, dest_y_return;
   bool displayed;
 #ifdef ENABLE_CHECKING
   struct glyph_row *row, *end;
@@ -8906,41 +8971,6 @@ Text larger than the specified size is clipped.  */)
 
   /* Show tooltip frame.  */
   block_input ();
-  /* If the display is composited, then WM_TRANSIENT_FOR must be set
-     as well, or else the compositing manager won't display
-     decorations correctly, even though the tooltip window is override
-     redirect. See
-     https://specifications.freedesktop.org/wm-spec/1.4/ar01s08.html
-
-     Perhaps WM_TRANSIENT_FOR should be used in place of
-     override-redirect anyway.  The ICCCM only recommends
-     override-redirect if the pointer will be grabbed.  */
-
-  if (XTranslateCoordinates (FRAME_X_DISPLAY (f),
-			     FRAME_DISPLAY_INFO (f)->root_window,
-			     FRAME_DISPLAY_INFO (f)->root_window,
-			     root_x, root_y, &dest_x_return,
-			     &dest_y_return, &child)
-      && child != None)
-    {
-      /* But only if the child is not override-redirect, which can
-	 happen if the pointer is above a menu.  */
-
-      if (XGetWindowAttributes (FRAME_X_DISPLAY (f),
-				child, &child_attrs)
-	  || child_attrs.override_redirect)
-	XDeleteProperty (FRAME_X_DISPLAY (tip_f),
-			 FRAME_X_WINDOW (tip_f),
-			 FRAME_DISPLAY_INFO (tip_f)->Xatom_wm_transient_for);
-      else
-	XSetTransientForHint (FRAME_X_DISPLAY (tip_f),
-			      FRAME_X_WINDOW (tip_f), child);
-    }
-  else
-    XDeleteProperty (FRAME_X_DISPLAY (tip_f),
-		     FRAME_X_WINDOW (tip_f),
-		     FRAME_DISPLAY_INFO (tip_f)->Xatom_wm_transient_for);
-
 #ifndef USE_XCB
   XMoveResizeWindow (FRAME_X_DISPLAY (tip_f), FRAME_X_WINDOW (tip_f),
 		     root_x, root_y, width, height);
@@ -9412,13 +9442,21 @@ usual X keysyms.  Value is `lambda' if we cannot determine if both keys are
 present and mapped to the usual X keysyms.  */)
   (Lisp_Object frame)
 {
+#ifdef HAVE_XKB
+  XkbDescPtr kb;
+  struct frame *f;
+  Display *dpy;
+  Lisp_Object have_keys;
+  int delete_keycode, backspace_keycode, i;
+#endif
+
 #ifndef HAVE_XKB
   return Qlambda;
 #else
-  XkbDescPtr kb;
-  struct frame *f = decode_window_system_frame (frame);
-  Display *dpy = FRAME_X_DISPLAY (f);
-  Lisp_Object have_keys;
+  delete_keycode = 0;
+  backspace_keycode = 0;
+  f = decode_window_system_frame (frame);
+  dpy = FRAME_X_DISPLAY (f);
 
   if (!FRAME_DISPLAY_INFO (f)->supports_xkb)
     return Qlambda;
@@ -9434,50 +9472,39 @@ present and mapped to the usual X keysyms.  */)
      XK_Delete are mapped to any key.  But if any of those are mapped to
      some non-intuitive key combination (Meta-Shift-Ctrl-whatever) and the
      user doesn't know about it, it is better to return false here.
-     It is more obvious to the user what to do if she/he has two keys
+     It is more obvious to the user what to do if there are two keys
      clearly marked with names/symbols and one key does something not
-     expected (i.e. she/he then tries the other).
+     expected (and the user then tries the other).
      The cases where Backspace/Delete is mapped to some other key combination
      are rare, and in those cases, normal-erase-is-backspace can be turned on
      manually.  */
 
   have_keys = Qnil;
-  kb = XkbGetMap (dpy, XkbAllMapComponentsMask, XkbUseCoreKbd);
-  if (kb)
+  kb = FRAME_DISPLAY_INFO (f)->xkb_desc;
+  if (kb && kb->names)
     {
-      int delete_keycode = 0, backspace_keycode = 0, i;
-
-      if (XkbGetNames (dpy, XkbAllNamesMask, kb) == Success)
+      for (i = kb->min_key_code; (i < kb->max_key_code
+				  && (delete_keycode == 0
+				      || backspace_keycode == 0));
+	   ++i)
 	{
-	  for (i = kb->min_key_code;
-	       (i < kb->max_key_code
-		&& (delete_keycode == 0 || backspace_keycode == 0));
-	       ++i)
-	    {
-	      /* The XKB symbolic key names can be seen most easily in
-		 the PS file generated by `xkbprint -label name
-		 $DISPLAY'.  */
-	      if (memcmp ("DELE", kb->names->keys[i].name, 4) == 0)
-		delete_keycode = i;
-	      else if (memcmp ("BKSP", kb->names->keys[i].name, 4) == 0)
-		backspace_keycode = i;
-	    }
-
-	  XkbFreeNames (kb, 0, True);
+	  /* The XKB symbolic key names can be seen most easily in
+	     the PS file generated by `xkbprint -label name
+	     $DISPLAY'.  */
+	  if (!memcmp ("DELE", kb->names->keys[i].name, 4))
+	    delete_keycode = i;
+	  else if (!memcmp ("BKSP", kb->names->keys[i].name, 4))
+	    backspace_keycode = i;
 	}
 
-      /* As of libX11-1.6.2, XkbGetMap manual says that you should use
-	 XkbFreeClientMap to free the data returned by XkbGetMap.  But
-	 this function just frees the data referenced from KB and not
-	 KB itself.  To free KB as well, call XkbFreeKeyboard.  */
-      XkbFreeKeyboard (kb, XkbAllMapComponentsMask, True);
-
-      if (delete_keycode
-	  && backspace_keycode
+      if (delete_keycode && backspace_keycode
 	  && XKeysymToKeycode (dpy, XK_Delete) == delete_keycode
 	  && XKeysymToKeycode (dpy, XK_BackSpace) == backspace_keycode)
 	have_keys = Qt;
     }
+  else
+    /* The keyboard names couldn't be obtained for some reason.  */
+    have_keys = Qlambda;
   unblock_input ();
   return have_keys;
 #endif

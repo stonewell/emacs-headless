@@ -1810,8 +1810,11 @@ allocate_matrices_for_window_redisplay (struct window *w)
 	  if (w->desired_matrix == NULL)
 	    {
 	      w->desired_matrix = new_glyph_matrix (NULL);
-	      w->current_matrix = new_glyph_matrix (NULL);
+	      eassert (w->current_matrix == NULL);
 	    }
+
+	  if (w->current_matrix == NULL)
+	    w->current_matrix = new_glyph_matrix (NULL);
 
 	  dim.width = required_matrix_width (w);
 	  dim.height = required_matrix_height (w);
@@ -3149,10 +3152,19 @@ redraw_frame (struct frame *f)
   update_begin (f);
   if (FRAME_MSDOS_P (f))
     FRAME_TERMINAL (f)->set_terminal_modes_hook (FRAME_TERMINAL (f));
+
+  if (FRAME_WINDOW_P (f))
+    /* Garbage the frame now.  Otherwise, platforms that support
+       double buffering will display the blank contents of the frame
+       even though the frame should be redrawn at some point in the
+       future.  */
+    SET_FRAME_GARBAGED (f);
+
   clear_frame (f);
   clear_current_matrices (f);
   update_end (f);
   fset_redisplay (f);
+
   /* Mark all windows as inaccurate, so that every window will have
      its redisplay done.  */
   mark_window_display_accurate (FRAME_ROOT_WINDOW (f), 0);

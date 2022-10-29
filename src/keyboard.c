@@ -499,27 +499,18 @@ echo_add_key (Lisp_Object c)
 			STRING_MULTIBYTE (name), 1);
     }
 
+  Lisp_Object new_string = make_string (buffer, ptr - buffer);
   if ((NILP (echo_string) || SCHARS (echo_string) == 0)
       && help_char_p (c))
     {
-      static const char text[] = " (Type ? for further options)";
-      int len = sizeof text - 1;
-
-      if (size - (ptr - buffer) < len)
-	{
-	  ptrdiff_t offset = ptr - buffer;
-	  size += len;
-	  buffer = SAFE_ALLOCA (size);
-	  ptr = buffer + offset;
-	}
-
-      memcpy (ptr, text, len);
-      ptr += len;
+      AUTO_STRING (str, " (Type ? for further options)");
+      AUTO_LIST2 (props, Qface, Qhelp_key_binding);
+      Fadd_text_properties (make_fixnum (7), make_fixnum (8), props, str);
+      new_string = concat2 (new_string, str);
     }
 
-  kset_echo_string
-    (current_kboard,
-     concat2 (echo_string, make_string (buffer, ptr - buffer)));
+  kset_echo_string (current_kboard,
+		    concat2 (echo_string, new_string));
   SAFE_FREE ();
 }
 
@@ -1277,7 +1268,6 @@ command_loop_1 (void)
 {
   modiff_count prev_modiff = 0;
   struct buffer *prev_buffer = NULL;
-  bool already_adjusted = 0;
 
   kset_prefix_arg (current_kboard, Qnil);
   kset_last_prefix_arg (current_kboard, Qnil);
@@ -1467,8 +1457,6 @@ command_loop_1 (void)
       safe_run_hooks_maybe_narrowed (Qpre_command_hook,
 				     XWINDOW (selected_window));
 
-      already_adjusted = 0;
-
       if (NILP (Vthis_command))
 	/* nil means key is undefined.  */
 	call0 (Qundefined);
@@ -1624,9 +1612,8 @@ command_loop_1 (void)
 		   the automatic composition, we must update the
 		   display.  */
 		windows_or_buffers_changed = 21;
-	      if (!already_adjusted)
-		adjust_point_for_property (last_point_position,
-					   MODIFF != prev_modiff);
+	      adjust_point_for_property (last_point_position,
+					 MODIFF != prev_modiff);
 	    }
 	  else if (PT > BEGV && PT < ZV
 		   && (composition_adjust_point (last_point_position, PT)
@@ -1708,8 +1695,8 @@ adjust_point_for_property (ptrdiff_t last_pt, bool modified)
 	  && display_prop_intangible_p (val, overlay, PT, PT_BYTE)
 	  && (!OVERLAYP (overlay)
 	      ? get_property_and_range (PT, Qdisplay, &val, &beg, &end, Qnil)
-	      : (beg = OVERLAY_POSITION (OVERLAY_START (overlay)),
-		 end = OVERLAY_POSITION (OVERLAY_END (overlay))))
+	      : (beg = OVERLAY_START (overlay),
+		 end = OVERLAY_END (overlay)))
 	  && (beg < PT /* && end > PT   <- It's always the case.  */
 	      || (beg <= PT && STRINGP (val) && SCHARS (val) == 0)))
 	{
@@ -11797,6 +11784,9 @@ DEFUN ("posn-at-point", Fposn_at_point, Sposn_at_point, 0, 2, 0,
        doc: /* Return position information for buffer position POS in WINDOW.
 POS defaults to point in WINDOW; WINDOW defaults to the selected window.
 
+If POS is in invisible text or is hidden by `display' properties,
+this function may report on buffer positions before or after POS.
+
 Return nil if POS is not visible in WINDOW.  Otherwise,
 the return value is similar to that returned by `event-start' for
 a mouse click at the upper left corner of the glyph corresponding
@@ -12248,6 +12238,8 @@ syms_of_keyboard (void)
   DEFSYM (Qinput_method_use_echo_area, "input-method-use-echo-area");
 
   DEFSYM (Qhelp_form_show, "help-form-show");
+
+  DEFSYM (Qhelp_key_binding, "help-key-binding");
 
   DEFSYM (Qecho_keystrokes, "echo-keystrokes");
 

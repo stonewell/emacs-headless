@@ -1793,7 +1793,7 @@ of frames like calls to map a frame or change its visibility."
             (insert (format ", DS=%sx%s" (nth 0 item) (nth 1 item))))
           (insert "\n"))
          ((and (eq (nth 0 item) frame) (= (nth 1 item) 5))
-          ;; Length 5 is an `adjust-frame-size' item.
+          ;; Length 5 is an 'adjust_frame_size' item.
           (insert (format "%s (%s)" (nth 3 item) (nth 2 item)))
           (setq item (nth 0 (cdr entry)))
           (unless (and (= (nth 0 item) (nth 2 item))
@@ -2425,9 +2425,9 @@ It may be less than the total screen size, owing to space taken up
 by window manager features (docks, taskbars, etc.).  The precise
 details depend on the platform and environment.
 
-The `source' attribute describes the source from which the information
-was obtained.  On X, this may be one of: \"Gdk\", \"XRandr\", \"Xinerama\",
-or \"fallback\".
+The `source' attribute describes the source from which the
+information was obtained.  On X, this may be one of: \"Gdk\",
+\"XRandR 1.5\", \"XRandr\", \"Xinerama\", or \"fallback\".
 
 A frame is dominated by a physical monitor when either the
 largest area of the frame resides in the monitor, or the monitor
@@ -2516,6 +2516,7 @@ symbols."
           ((eq frame-type 'pgtk)
            (pgtk-device-class name))
           (t (cond
+              ((not name) nil)
               ((string= name "Virtual core pointer")
                'core-pointer)
               ((string= name "Virtual core keyboard")

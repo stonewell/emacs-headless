@@ -2880,6 +2880,10 @@ of `dired-dwim-target', which see.
 
 Also see `dired-do-revert-buffer'."
   (interactive "P")
+  (when (seq-find (lambda (file)
+                    (member (file-name-nondirectory file) '("." "..")))
+                  (dired-get-marked-files nil arg))
+    (user-error "Can't rename \".\" or \"..\" files"))
   (dired-do-create-files 'move #'dired-rename-file
 			 "Move" arg dired-keep-marker-rename "Rename"))
 
@@ -3474,7 +3478,7 @@ Use \\[dired-hide-all] to (un)hide all directories."
       (dired-next-subdir 1 t))))
 
 ;;;###autoload
-(defun dired-hide-all (&optional ignored)
+(defun dired-hide-all (&optional _ignored)
   "Hide all subdirectories, leaving only their header lines.
 If there is already something hidden, make everything visible again.
 Use \\[dired-hide-subdir] to (un)hide a particular subdirectory."

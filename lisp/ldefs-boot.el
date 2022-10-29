@@ -897,6 +897,15 @@ variable, and is meant to be used in `compilation-filter-hook'.")
 (register-definition-prefixes "ansi-color" '("ansi-color-"))
 
 
+;;; Generated autoloads from ansi-osc.el
+
+(autoload 'ansi-osc-compilation-filter "ansi-osc" "\
+Maybe collect OSC control sequences.
+This function depends on the variable `ansi-osc-for-compilation-buffer',
+and is meant to be used in `compilation-filter-hook'.")
+(register-definition-prefixes "ansi-osc" '("ansi-osc-"))
+
+
 ;;; Generated autoloads from progmodes/antlr-mode.el
 
 (push (purecopy '(antlr-mode 2 2 3)) package--builtin-versions)
@@ -4312,79 +4321,6 @@ it is disabled.
 ;;; Generated autoloads from emacs-lisp/cl-generic.el
 
 (push (purecopy '(cl-generic 1 0)) package--builtin-versions)
-(autoload 'cl-defgeneric "cl-generic" "\
-Create a generic function NAME.
-DOC-STRING is the base documentation for this class.  A generic
-function has no body, as its purpose is to decide which method body
-is appropriate to use.  Specific methods are defined with `cl-defmethod'.
-With this implementation the ARGS are currently ignored.
-OPTIONS-AND-METHODS currently understands:
-- (:documentation DOCSTRING)
-- (declare DECLARATIONS)
-- (:argument-precedence-order &rest ARGS)
-- (:method [QUALIFIERS...] ARGS &rest BODY)
-DEFAULT-BODY, if present, is used as the body of a default method.
-
-(fn NAME ARGS [DOC-STRING] [OPTIONS-AND-METHODS...] &rest DEFAULT-BODY)" nil t)
-(function-put 'cl-defgeneric 'lisp-indent-function 2)
-(function-put 'cl-defgeneric 'doc-string-elt 3)
-(autoload 'cl-generic-define "cl-generic" "\
-
-
-(fn NAME ARGS OPTIONS)")
-(autoload 'cl-defmethod "cl-generic" "\
-Define a new method for generic function NAME.
-This defines an implementation of NAME to use for invocations
-of specific types of arguments.
-
-ARGS is a list of dispatch arguments (see `cl-defun'), but where
-each variable element is either just a single variable name VAR,
-or a list on the form (VAR TYPE).
-
-For instance:
-
-  (cl-defmethod foo (bar (format-string string) &optional zot)
-    (format format-string bar))
-
-The dispatch arguments have to be among the mandatory arguments, and
-all methods of NAME have to use the same set of arguments for dispatch.
-Each dispatch argument and TYPE are specified in ARGS where the corresponding
-formal argument appears as (VAR TYPE) rather than just VAR.
-
-The optional EXTRA element, on the form `:extra STRING', allows
-you to add more methods for the same specializers and qualifiers.
-These are distinguished by STRING.
-
-The optional argument QUALIFIER is a specifier that modifies how
-the method is combined with other methods, including:
-   :before  - Method will be called before the primary
-   :after   - Method will be called after the primary
-   :around  - Method will be called around everything else
-The absence of QUALIFIER means this is a \"primary\" method.
-The set of acceptable qualifiers and their meaning is defined
-(and can be extended) by the methods of `cl-generic-combine-methods'.
-
-ARGS can also include so-called context specializers, introduced by
-`&context' (which should appear right after the mandatory arguments,
-before any &optional or &rest).  They have the form (EXPR TYPE) where
-EXPR is an Elisp expression whose value should match TYPE for the
-method to be applicable.
-
-The set of acceptable TYPEs (also called \"specializers\") is defined
-(and can be extended) by the various methods of `cl-generic-generalizers'.
-
-(fn NAME [EXTRA] [QUALIFIER] ARGS &rest [DOCSTRING] BODY)" nil t)
-(function-put 'cl-defmethod 'doc-string-elt 'cl--defmethod-doc-pos)
-(function-put 'cl-defmethod 'lisp-indent-function 'defun)
-(autoload 'cl-generic-define-method "cl-generic" "\
-
-
-(fn NAME QUALIFIERS ARGS CALL-CON FUNCTION)")
-(autoload 'cl-find-method "cl-generic" "\
-
-
-(fn GENERIC QUALIFIERS SPECIALIZERS)")
-(register-definition-prefixes "cl-generic" '("cl-"))
 
 
 ;;; Generated autoloads from emacs-lisp/cl-indent.el
@@ -4766,14 +4702,13 @@ Search happens in `native-comp-eln-load-path'.
 (autoload 'native-compile "comp" "\
 Compile FUNCTION-OR-FILE into native code.
 This is the synchronous entry-point for the Emacs Lisp native
-compiler.
-FUNCTION-OR-FILE is a function symbol, a form, or the filename of
-an Emacs Lisp source file.
-If OUTPUT is non-nil, use it as the filename for the compiled
-object.
-If FUNCTION-OR-FILE is a filename, return the filename of the
-compiled object.  If FUNCTION-OR-FILE is a function symbol or a
-form, return the compiled function.
+compiler.  FUNCTION-OR-FILE is a function symbol, a form, or the
+filename of an Emacs Lisp source file.  If OUTPUT is non-nil, use
+it as the filename for the compiled object.  If FUNCTION-OR-FILE
+is a filename, if the compilation was successful return the
+filename of the compiled object.  If FUNCTION-OR-FILE is a
+function symbol or a form, if the compilation was successful
+return the compiled function.
 
 (fn FUNCTION-OR-FILE &optional OUTPUT)")
 (autoload 'batch-native-compile "comp" "\
@@ -7869,7 +7804,7 @@ Document types are symbols like `dvi', `ps', `pdf', `epub',
 Major mode in DocView buffers.
 
 DocView Mode is an Emacs document viewer.  It displays PDF, PS
-and DVI files (as PNG images) in Emacs buffers.
+and DVI files (as PNG or SVG images) in Emacs buffers.
 
 You can use \\<doc-view-mode-map>\\[doc-view-toggle-display] to
 toggle between displaying the document or editing it as text.
@@ -9485,6 +9420,8 @@ Already submitted bugs can be found in the Emacs bug tracker:
 
 (fn TOPIC &optional UNUSED)" t)
 (set-advertised-calling-convention 'report-emacs-bug '(topic) '"24.5")
+(autoload 'emacs-build-description "emacsbug" "\
+Insert a description of the current Emacs build in the current buffer." t)
 (autoload 'submit-emacs-patch "emacsbug" "\
 Send an Emacs patch to the Emacs maintainers.
 Interactively, you will be prompted for SUBJECT and a patch FILE
@@ -9492,7 +9429,7 @@ name (which will be attached to the mail).  You will end up in a
 Message buffer where you can explain more about the patch.
 
 (fn SUBJECT FILE)" t)
-(register-definition-prefixes "emacsbug" '("emacs-bug--system-description" "report-emacs-bug-"))
+(register-definition-prefixes "emacsbug" '("report-emacs-bug-"))
 
 
 ;;; Generated autoloads from vc/emerge.el
@@ -11776,6 +11713,17 @@ VARIABLES list of the connection profile.  The list is processed
 in order.
 
 (fn PROFILE VARIABLES)")
+(autoload 'connection-local-update-profile-variables "files-x" "\
+Update the variable settings for PROFILE in-place.
+VARIABLES is a list that declares connection-local variables for
+the connection profile.  An element in VARIABLES is an alist
+whose elements are of the form (VAR . VALUE).
+
+Unlike `connection-local-set-profile-variables' (which see), this
+function preserves the values of any existing variable
+definitions that aren't listed in VARIABLES.
+
+(fn PROFILE VARIABLES)")
 (autoload 'hack-connection-local-variables-apply "files-x" "\
 Apply connection-local variables identified by CRITERIA.
 Other local variables, like file-local and dir-local variables,
@@ -11787,11 +11735,38 @@ Apply connection-local variables according to `default-directory'.
 Execute BODY, and unwind connection-local variables.
 
 (fn &rest BODY)" nil t)
+(autoload 'with-connection-local-application-variables "files-x" "\
+Apply connection-local variables for APPLICATION in `default-directory'.
+Execute BODY, and unwind connection-local variables.
+
+(fn APPLICATION &rest BODY)" nil t)
+(function-put 'with-connection-local-application-variables 'lisp-indent-function 1)
 (autoload 'with-connection-local-variables-1 "files-x" "\
 Apply connection-local variables according to `default-directory'.
 Call BODY-FUN with no args, and then unwind connection-local variables.
 
 (fn BODY-FUN)")
+(autoload 'setq-connection-local "files-x" "\
+Set each VARIABLE connection-locally to VALUE.
+
+When `connection-local-profile-name-for-setq' is set, assign each
+variable's value on that connection profile, and set that profile
+for `connection-local-criteria'.  You can use this in combination
+with `with-connection-local-variables', as in
+
+  (with-connection-local-variables
+    (setq-connection-local VARIABLE VALUE))
+
+If there's no connection-local profile to use, just set the
+variables normally, as with `setq'.
+
+The variables are literal symbols and should not be quoted.  The
+second VALUE is not computed until after the first VARIABLE is
+set, and so on; each VALUE can use the new value of variables set
+earlier in the `setq-connection-local'.  The return value of the
+`setq-connection-local' form is the value of the last VALUE.
+
+(fn [VARIABLE VALUE]...)" nil t)
 (autoload 'path-separator "files-x" "\
 The connection-local value of `path-separator'.")
 (autoload 'null-device "files-x" "\
@@ -12613,6 +12588,18 @@ For example, \"%<010b\" means \"substitute into the output the
 value associated with ?b in SPECIFICATION, either padding it with
 leading zeros or truncating leading characters until it's ten
 characters wide\".
+
+the substitution for a specification character can also be a
+function, taking no arguments and returning a string to be used
+for the replacement.  It will only be called if FORMAT uses that
+character.  For example:
+
+  (format-spec \"%n\"
+               \\=`((?n . ,(lambda ()
+                          (read-number \"Number: \")))))
+
+Note that it is best to make sure the function is not quoted,
+like above, so that it is compiled by the byte-compiler.
 
 Any text properties of FORMAT are copied to the result, with any
 text properties of a %-spec itself copied to its substitution.
@@ -15439,7 +15426,7 @@ it is disabled.
 
 ;;; Generated autoloads from progmodes/hideshow.el
 
-(defvar hs-special-modes-alist (mapcar 'purecopy '((c-mode "{" "}" "/[*/]" nil nil) (c++-mode "{" "}" "/[*/]" nil nil) (bibtex-mode ("@\\S(*\\(\\s(\\)" 1)) (java-mode "{" "}" "/[*/]" nil nil) (js-mode "{" "}" "/[*/]" nil) (mhtml-mode "{\\|<[^/>]*?" "}\\|</[^/>]*[^/]>" "<!--" mhtml-forward nil))) "\
+(defvar hs-special-modes-alist (mapcar #'purecopy '((c-mode "{" "}" "/[*/]" nil nil) (c++-mode "{" "}" "/[*/]" nil nil) (bibtex-mode ("@\\S(*\\(\\s(\\)" 1)) (java-mode "{" "}" "/[*/]" nil nil) (js-mode "{" "}" "/[*/]" nil) (mhtml-mode "{\\|<[^/>]*?" "}\\|</[^/>]*[^/]>" "<!--" mhtml-forward nil))) "\
 Alist for initializing the hideshow variables for different modes.
 Each element has the form
   (MODE START END COMMENT-START FORWARD-SEXP-FUNC ADJUST-BEG-FUNC
@@ -16779,8 +16766,9 @@ and that image type is present in `image-type-auto-detectable' with a
 non-nil value.  If that value is non-nil, but not t, then the image type
 must be available.")
 (autoload 'create-image "image" "\
-Create an image.
-FILE-OR-DATA is an image file name or image data.
+Create an image from FILE-OR-DATA.
+FILE-OR-DATA is an image file name or image data.  If it is a relative
+file name, the function will look for it along `image-load-path'.
 
 Optional TYPE is a symbol describing the image type.  If TYPE is omitted
 or nil, try to determine the image type from its first few bytes
@@ -16798,10 +16786,6 @@ automatically scaled up in proportion to the default font.
 Value is the image created, or nil if images of type TYPE are not supported.
 
 Images should not be larger than specified by `max-image-size'.
-
-Image file names that are not absolute are searched for in the
-\"images\" sub-directory of `data-directory' and
-`x-bitmap-file-path' (in that order).
 
 (fn FILE-OR-DATA &optional TYPE DATA-P &rest PROPS)")
 (autoload 'put-image "image" "\
@@ -16940,9 +16924,9 @@ should output the image in the current buffer, converted to
 ;;; Generated autoloads from image/image-crop.el
 
 (autoload 'image-cut "image-crop" "\
-Cut a rectangle from the image under point.
-Interactively, if given a prefix, prompt for COLOR to use.
-Otherwise, default to `image-cut-color'.
+Cut a rectangle from the image under point, filling it with COLOR.
+COLOR defaults to the value of `image-cut-color'.
+Interactively, with prefix argument, prompt for COLOR to use.
 
 (fn &optional COLOR)" t)
 (autoload 'image-crop "image-crop" "\
@@ -16968,7 +16952,8 @@ After cropping an image, you can save it by `M-x image-save' or
 
 ;;; Generated autoloads from image/image-dired.el
 
-(push (purecopy '(image-dired 0 4 11)) package--builtin-versions)
+(push (purecopy '(image-dired 0 5)) package--builtin-versions)
+(put 'image-dired-thumbnail-storage 'safe-local-variable (lambda (x) (eq x 'per-directory)))
 (autoload 'image-dired-dired-with-window-configuration "image-dired" "\
 Open directory DIR and create a default window configuration.
 
@@ -17012,8 +16997,8 @@ thumbnail buffer to be selected.
 (fn &optional ARG APPEND DO-NOT-POP)" '(nil dired-mode))
 (autoload 'image-dired-show-all-from-dir "image-dired" "\
 Make a thumbnail buffer for all images in DIR and display it.
-Any file matching `image-file-name-regexp' is considered an image
-file.
+Any file matching `image-dired--file-name-regexp' is considered an
+image file.
 
 If the number of image files in DIR exceeds
 `image-dired-show-all-from-dir-max-files', ask for confirmation
@@ -17044,10 +17029,30 @@ previous -ARG, if ARG<0) files.
 (autoload 'image-dired-jump-thumbnail-buffer "image-dired-dired" "\
 Jump to thumbnail buffer." '(dired-mode))
 (autoload 'image-dired-minor-mode "image-dired-dired" "\
-Setup easy-to-use keybindings for the commands to be used in Dired mode.
+Setup easy-to-use keybindings for Image-Dired in Dired mode.
 
-Note that n, p and <down> and <up> will be hijacked and bound to
-`image-dired-dired-next-line' and `image-dired-dired-previous-line'.
+This minor mode adds these additional bindings:
+\\<image-dired-minor-mode-map>
+  \\[image-dired-next-line-and-display]		Move to next line and display thumbnail image.
+  \\[image-dired-previous-line-and-display]		Move to previous line and display thumbnail image.
+  \\[image-dired-mark-and-display-next]		Mark current file and display next thumbnail image.
+  \\[image-dired-jump-thumbnail-buffer]		Jump to thumbnail buffer.
+
+For reference, these are the default Image-Dired bindings that
+are always available in Dired:
+\\<dired-mode-map>
+  \\[image-dired-display-thumbs]		Display thumbnails of all marked files.
+  \\[image-dired-tag-files]		Tag marked file(s).
+  \\[image-dired-delete-tag]		Remove tag for selected file(s).
+  \\[image-dired-jump-thumbnail-buffer]		Jump to thumbnail buffer.
+  \\[image-dired-dired-display-image]		Display current image file.
+  \\[image-dired-dired-display-external]		Display file at point using an external viewer.
+  \\[image-dired-display-thumbs-append]		Append thumbnails to thumbnail buffer.
+  \\[image-dired-display-thumb]		Display thumbnails of all marked files.
+  \\[image-dired-dired-comment-files]		Add comment to current or marked files in Dired.
+  \\[image-dired-mark-tagged-files]		Use REGEXP to mark files with matching tag.
+  \\[image-dired-dired-toggle-marked-thumbs]	Toggle thumbnails in front of file names.
+  \\[image-dired-dired-edit-comment-and-tags]		Edit comment and tags of marked images.
 
 This is a minor mode.  If called interactively, toggle the
 `Image-Dired minor mode' mode.  If the prefix argument is
@@ -17294,6 +17299,11 @@ an index alist of the current buffer.  The function is
 called within a `save-excursion'.
 
 See `imenu--index-alist' for the format of the buffer index alist.")
+(defvar-local imenu-submenus-on-top t "\
+Flag specifying whether items with sublists should be kept at top.
+
+For some indexes, such as those describing sections in a document, it
+makes sense to keep their original order even in the menubar.")
 (defvar-local imenu-prev-index-position-function 'beginning-of-defun "\
 Function for finding the next index position.
 
@@ -18686,58 +18696,6 @@ sleep in seconds.
 (register-definition-prefixes "life" '("life-"))
 
 
-;;; Generated autoloads from linum.el
-
-(autoload 'linum-mode "linum" "\
-Toggle display of line numbers in the left margin (Linum mode).
-
-This mode has been largely replaced by `display-line-numbers-mode'
-(which is much faster and has fewer interaction problems with other
-modes).
-
-Linum mode is a buffer-local minor mode.
-
-This is a minor mode.  If called interactively, toggle the `Linum
-mode' mode.  If the prefix argument is positive, enable the mode,
-and if it is zero or negative, disable the mode.
-
-If called from Lisp, toggle the mode if ARG is `toggle'.  Enable
-the mode if ARG is nil, omitted, or is a positive number.
-Disable the mode if ARG is a negative number.
-
-To check whether the minor mode is enabled in the current buffer,
-evaluate `linum-mode'.
-
-The mode's hook is called both when the mode is enabled and when
-it is disabled.
-
-(fn &optional ARG)" t)
-(put 'global-linum-mode 'globalized-minor-mode t)
-(defvar global-linum-mode nil "\
-Non-nil if Global Linum mode is enabled.
-See the `global-linum-mode' command
-for a description of this minor mode.
-Setting this variable directly does not take effect;
-either customize it (see the info node `Easy Customization')
-or call the function `global-linum-mode'.")
-(custom-autoload 'global-linum-mode "linum" nil)
-(autoload 'global-linum-mode "linum" "\
-Toggle Linum mode in all buffers.
-With prefix ARG, enable Global Linum mode if ARG is positive;
-otherwise, disable it.
-
-If called from Lisp, toggle the mode if ARG is `toggle'.
-Enable the mode if ARG is nil, omitted, or is a positive number.
-Disable the mode if ARG is a negative number.
-
-Linum mode is enabled in all buffers where `linum-on' would do it.
-
-See `linum-mode' for more information on Linum mode.
-
-(fn &optional ARG)" t)
-(register-definition-prefixes "linum" '("linum-"))
-
-
 ;;; Generated autoloads from cedet/ede/linux.el
 
 (register-definition-prefixes "ede/linux" '("ede-linux-" "project-linux-"))
@@ -18790,6 +18748,7 @@ This scans for ;;;###autoload forms and related things.
 The first element on the command line should be the (main)
 loaddefs.el output file, and the rest are the directories to
 use.")
+ (load "theme-loaddefs.el" t)
 (register-definition-prefixes "loaddefs-gen" '("autoload-" "generated-autoload-" "loaddefs-generate--" "no-update-autoloads"))
 
 
@@ -18911,6 +18870,8 @@ done.  Otherwise, this function will use the current buffer.
 Major mode for browsing CVS log output.
 
 (fn)" t)
+(autoload 'log-view-get-marked "log-view" "\
+Return the list of tags for the marked log entries.")
 (register-definition-prefixes "log-view" '("log-view-"))
 
 
@@ -20984,6 +20945,11 @@ it is disabled.
 
 (fn &optional ARG)" t)
 (register-definition-prefixes "mwheel" '("mouse-wheel-" "mwheel-"))
+
+
+;;; Generated autoloads from emacs-lisp/nadvice.el
+
+(push (purecopy '(nadvice 1 0)) package--builtin-versions)
 
 
 ;;; Generated autoloads from net/net-utils.el
@@ -24593,7 +24559,7 @@ Open profile FILENAME.
 
 ;;; Generated autoloads from progmodes/project.el
 
-(push (purecopy '(project 0 8 1)) package--builtin-versions)
+(push (purecopy '(project 0 8 2)) package--builtin-versions)
 (autoload 'project-current "project" "\
 Return the project instance in DIRECTORY, defaulting to `default-directory'.
 
@@ -25983,6 +25949,9 @@ The mode's hook is called both when the mode is enabled and when
 it is disabled.
 
 (fn &optional ARG)" t)
+(autoload 'repeat-exit "repeat" "\
+Exit the repeating sequence.
+This function can be used to force exit of repetition while it's active." t)
 (register-definition-prefixes "repeat" '("describe-repeat-maps" "repeat-"))
 
 
@@ -26190,7 +26159,7 @@ Regexp to match Header fields that Rmail should display.
 If nil, display all header fields except those matched by
 `rmail-ignored-headers'.")
 (custom-autoload 'rmail-displayed-headers "rmail" t)
-(defvar rmail-retry-ignored-headers (purecopy "^x-authentication-warning:\\|^x-detected-operating-system:\\|^x-spam[-a-z]*:\\|content-type:\\|content-transfer-encoding:\\|mime-version:\\|message-id:") "\
+(defvar rmail-retry-ignored-headers (concat "^x-authentication-warning:\\|^x-detected-operating-system:\\|" "^x-spam[-a-z]*:\\|^arc-.*:\\|" "^content-type:\\|^content-transfer-encoding:\\|" "^mime-version:\\|^message-id:\\|^x-google-smtp-source:\\|" "^x-received:\\|^received-spf:\\|" "^authentication-results:\\|^dkim-signature:") "\
 Headers that should be stripped when retrying a failed message.")
 (custom-autoload 'rmail-retry-ignored-headers "rmail" t)
 (defvar rmail-highlighted-headers (purecopy "^From:\\|^Subject:") "\
@@ -29493,6 +29462,8 @@ PROMPT will be inserted at the start of the buffer, but won't be
 included in the resulting string.  If PROMPT is nil, no help text
 will be inserted.
 
+Also see `read-string-from-buffer'.
+
 (fn PROMPT STRING SUCCESS-CALLBACK &key ABORT-CALLBACK)")
 (autoload 'read-string-from-buffer "string-edit" "\
 Switch to a new buffer to edit STRING in a recursive edit.
@@ -29501,6 +29472,8 @@ The user finishes editing with \\<string-edit-mode-map>\\[string-edit-done], or 
 PROMPT will be inserted at the start of the buffer, but won't be
 included in the resulting string.  If nil, no prompt will be
 inserted in the buffer.
+
+Also see `string-edit'.
 
 (fn PROMPT STRING)")
 (register-definition-prefixes "string-edit" '("string-edit-"))
@@ -29627,6 +29600,10 @@ Studlify-case the current buffer." t)
 
 ;;; Generated autoloads from emacs-lisp/subr-x.el
 
+(defsubst string-join (strings &optional separator) "\
+Join all STRINGS using SEPARATOR.
+Optional argument SEPARATOR must be a string, a vector, or a list of
+characters; nil stands for the empty string." (mapconcat #'identity strings separator))
 (autoload 'string-truncate-left "subr-x" "\
 If STRING is longer than LENGTH, return a truncated version.
 When truncating, \"...\" is always prepended to the string, so
@@ -30831,9 +30808,9 @@ such as if there are no commands in the file, the value of `tex-default-mode'
 says which mode to use.
 
 (fn)" t)
-(defalias 'TeX-mode #'tex-mode)
-(defalias 'plain-TeX-mode #'plain-tex-mode)
-(defalias 'LaTeX-mode #'latex-mode)
+ (defalias 'TeX-mode #'tex-mode)
+ (defalias 'plain-TeX-mode #'plain-tex-mode)
+ (defalias 'LaTeX-mode #'latex-mode)
 (autoload 'plain-tex-mode "tex-mode" "\
 Major mode for editing files of input for plain TeX.
 Makes $ and } display the characters they match.
@@ -31252,28 +31229,6 @@ An EVENT has the format
 Display a list of threads." t)
  (put 'list-threads 'disabled "Beware: manually canceling threads can ruin your Emacs session.")
 (register-definition-prefixes "thread" '("thread-list-"))
-
-
-;;; Generated autoloads from thumbs.el
-
-(autoload 'thumbs-find-thumb "thumbs" "\
-Display the thumbnail for IMG.
-
-(fn IMG)" t)
-(autoload 'thumbs-show-from-dir "thumbs" "\
-Make a preview buffer for all images in DIR.
-Optional argument REG to select file matching a regexp,
-and SAME-WINDOW to show thumbs in the same window.
-
-(fn DIR &optional REG SAME-WINDOW)" t)
-(autoload 'thumbs-dired-show-marked "thumbs" "\
-In dired, make a thumbs buffer with marked files." t)
-(autoload 'thumbs-dired-show "thumbs" "\
-In dired, make a thumbs buffer with all files in current directory." t)
-(defalias 'thumbs 'thumbs-show-from-dir)
-(autoload 'thumbs-dired-setroot "thumbs" "\
-In dired, call the setroot program on the image at point." t)
-(register-definition-prefixes "thumbs" '("thumbs-"))
 
 
 ;;; Generated autoloads from emacs-lisp/thunk.el
@@ -32075,6 +32030,11 @@ Add archive file name handler to `file-name-handler-alist'." (when (and tramp-ar
 (register-definition-prefixes "tramp-compat" '("tramp-"))
 
 
+;;; Generated autoloads from net/tramp-container.el
+
+(register-definition-prefixes "tramp-container" '("tramp-"))
+
+
 ;;; Generated autoloads from net/tramp-crypt.el
 
 (register-definition-prefixes "tramp-crypt" '("tramp-crypt-"))
@@ -32810,6 +32770,10 @@ if it had been inserted from a file named URL.
 
 
 (fn URL &optional VISIT BEG END REPLACE)")
+(autoload 'url-insert-file-contents-literally "url-handlers" "\
+Insert the data retrieved from URL literally in the current buffer.
+
+(fn URL)")
 (register-definition-prefixes "url-handlers" '("url-"))
 
 
@@ -33510,11 +33474,13 @@ Show the change log for BRANCH root in a window.
 (autoload 'vc-log-incoming "vc" "\
 Show log of changes that will be received with pull from REMOTE-LOCATION.
 When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
+In some version control systems REMOTE-LOCATION can be a remote branch name.
 
 (fn &optional REMOTE-LOCATION)" t)
 (autoload 'vc-log-outgoing "vc" "\
 Show log of changes that will be sent with a push operation to REMOTE-LOCATION.
 When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
+In some version control systems REMOTE-LOCATION can be a remote branch name.
 
 (fn &optional REMOTE-LOCATION)" t)
 (autoload 'vc-log-search "vc" "\
@@ -33573,6 +33539,22 @@ On a non-distributed version control system, this signals an error.
 It also signals an error in a Bazaar bound branch.
 
 (fn &optional ARG)" t)
+(autoload 'vc-pull-and-push "vc" "\
+First pull, and then push the current branch.
+The push will only be performed if the pull operation was successful.
+
+You must be visiting a version controlled file, or in a `vc-dir' buffer.
+
+On a distributed version control system, this runs a \"pull\"
+operation on the current branch, prompting for the precise
+command if required.  Optional prefix ARG non-nil forces a prompt
+for the VCS command to run.  If this is successful, a \"push\"
+operation will then be done.
+
+On a non-distributed version control system, this signals an error.
+It also signals an error in a Bazaar bound branch.
+
+(fn &optional ARG)" t)
 (autoload 'vc-switch-backend "vc" "\
 Make BACKEND the current version control system for FILE.
 FILE must already be registered in BACKEND.  The change is not
@@ -33621,6 +33603,22 @@ From a program, any ARGS are assumed to be filenames for which
 log entries should be gathered.
 
 (fn &rest ARGS)" t)
+(autoload 'vc-edit-next-command "vc" "\
+Request editing the next VC shell command before execution.
+This is a prefix command.  It affects only a VC command executed
+immediately after this one." t)
+(autoload 'vc-prepare-patch "vc" "\
+Compose an Email sending patches for REVISIONS to ADDRESSEE.
+If `vc-prepare-patches-separately' is nil, SUBJECT will be used
+as the default subject for the message (and it will be prompted
+for when called interactively).  Otherwise a separate message
+will be composed for each revision, with SUBJECT derived from the
+invidividual commits.
+
+When invoked interactively in a Log View buffer with marked
+revisions, those revisions will be used.
+
+(fn ADDRESSEE SUBJECT REVISIONS)" t)
 (register-definition-prefixes "vc" '("vc-" "with-vc-properties"))
 
 
@@ -33740,6 +33738,7 @@ FILE-OR-LIST is the name of a working file; it may be a list of
 files or be nil (to execute commands that don't expect a file
 name or set of files).  If an optional list of FLAGS is present,
 that is inserted into the command line before the filename.
+
 Return the return value of the slave command in the synchronous
 case, and the process object in the asynchronous case.
 
@@ -34614,10 +34613,6 @@ Convert Vietnamese characters of the current buffer to `VIQR' mnemonics." t)
 
 ;;; Generated autoloads from view.el
 
-(defvar view-remove-frame-by-deleting t "\
-Determine how View mode removes a frame no longer needed.
-If nil, make an icon of the frame.  If non-nil, delete the frame.")
-(custom-autoload 'view-remove-frame-by-deleting "view" t)
 (defvar-local view-mode nil "\
 Non-nil if View mode is enabled.
 Don't change this variable directly, you must change it by one of the
@@ -34916,6 +34911,19 @@ Turn on Viper emulation of Vi in Emacs.  See Info node `(viper)Top'." t)
 
 ;;; Generated autoloads from image/wallpaper.el
 
+(put 'wallpaper-setter-create 'lisp-indent-function 1)
+(autoload 'wallpaper-set "wallpaper" "\
+Set the desktop background to FILE in a graphical environment.
+
+On GNU/Linux and other Unix-like systems, this relies on an
+external command.  Which command to use is automatically detected
+in most cases, but can be manually customized with the user
+options `wallpaper-command' and `wallpaper-command-args'.
+
+On MS-Windows and Haiku systems, no external command is needed,
+so the value of `wallpaper-commands' is ignored.
+
+(fn FILE)" t)
 (register-definition-prefixes "wallpaper" '("wallpaper-"))
 
 
@@ -36158,7 +36166,13 @@ Extract file name from an yenc header.")
 ;;; Generated autoloads from play/zone.el
 
 (autoload 'zone "zone" "\
-Zone out, completely." t)
+Zone out, completely.
+With a prefix argument the user is prompted for a program to run.
+When called from Lisp the optional argument PGM can be used to
+run a specific program.  The program must be a member of
+`zone-programs'.
+
+(fn &optional PGM)" t)
 (register-definition-prefixes "zone" '("zone-"))
 
 ;;; End of scraped data
