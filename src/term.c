@@ -62,6 +62,10 @@ static int been_here = -1;
 #include "w32term.h"
 #endif
 
+#ifdef HAVE_HEADLESS
+#include "headless_term.h"
+#endif
+
 static void tty_set_scroll_region (struct frame *f, int start, int stop);
 static void turn_on_face (struct frame *, int face_id);
 static void turn_off_face (struct frame *, int face_id);
@@ -3930,6 +3934,10 @@ set_tty_hooks (struct terminal *terminal)
   terminal->delete_frame_hook = &tty_free_frame_resources;
   terminal->delete_terminal_hook = &delete_tty;
   /* Other hooks are NULL by default.  */
+
+#ifdef HAVE_HEADLESS
+  headless_set_hooks(terminal);
+#endif
 }
 
 /* If FD is the controlling terminal, drop it.  */

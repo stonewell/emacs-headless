@@ -491,6 +491,11 @@ struct terminal
   /* Chain of all terminal devices. */
   struct terminal *next_terminal;
 
+#ifdef HAVE_HEADLESS
+  /* save terminal information for headless. */
+  struct terminal *headless_terminal;
+#endif
+
   /* Unique id for this terminal device. */
   int id;
 

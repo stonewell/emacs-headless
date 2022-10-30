@@ -275,6 +275,10 @@ create_terminal (enum output_method type, struct redisplay_interface *rif)
   struct terminal *terminal = allocate_terminal ();
   Lisp_Object terminal_coding, keyboard_coding;
 
+#ifdef HAVE_HEADLESS
+  terminal->headless_terminal = xmalloc(sizeof(struct terminal));
+#endif
+
   terminal->next_terminal = terminal_list;
   terminal_list = terminal;
   terminal->type = type;
@@ -344,6 +348,12 @@ delete_terminal_internal (struct terminal *terminal)
     if (! *tp)
       emacs_abort ();
   *tp = terminal->next_terminal;
+
+#ifdef HAVE_HEADLESS
+  if (terminal->headless_terminal)
+    xfree(terminal->headless_terminal);
+  terminal->headless_terminal = NULL;
+#endif
 
   xfree (terminal->keyboard_coding);
   terminal->keyboard_coding = NULL;
