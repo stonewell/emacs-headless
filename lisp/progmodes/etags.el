@@ -1,7 +1,6 @@
 ;;; etags.el --- etags facility for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1988-1989, 1992-1996, 1998, 2000-2022 Free
-;; Software Foundation, Inc.
+;; Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -147,7 +146,10 @@ Otherwise, `find-tag-default' is used."
 (define-obsolete-variable-alias 'find-tag-marker-ring-length
   'tags-location-ring-length "25.1")
 
-(defvar tags-location-ring-length 16)
+(defvar tags-location-ring-length 16
+  "Size of the find-tag marker ring.
+This variable has no effect, and is kept only for backward compatibility.
+The actual size of the find-tag marker ring is unlimited.")
 
 (defcustom tags-tag-face 'default
   "Face for tags in the output of `tags-apropos'."
@@ -182,8 +184,9 @@ Example value:
 		       (sexp :tag "Tags to search")))
   :version "21.1")
 
-;; Obsolete variable kept for compatibility. We don't use it in any way.
-(defvar find-tag-marker-ring (make-ring 16))
+(defvar find-tag-marker-ring (make-ring 16)
+  "Find-tag marker ring.
+Obsolete variable kept for compatibility.  It is not used in any way.")
 (make-obsolete-variable
  'find-tag-marker-ring
  "use `xref-push-marker-stack' or `xref-go-back' instead."
@@ -2006,16 +2009,15 @@ see the doc of that variable if you want to add names to the list."
   (set-buffer-modified-p nil)
   (select-tags-table-mode))
 
-(defvar select-tags-table-mode-map ; Doc string?
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map button-buffer-map)
-    (define-key map "t" 'push-button)
-    (define-key map " " 'next-line)
-    (define-key map "\^?" 'previous-line)
-    (define-key map "n" 'next-line)
-    (define-key map "p" 'previous-line)
-    (define-key map "q" 'select-tags-table-quit)
-    map))
+(defvar-keymap select-tags-table-mode-map
+  :doc "Keymap for `select-tags-table-mode'."
+  :parent button-buffer-map
+  "t"   #'push-button
+  "SPC" #'next-line
+  "DEL" #'previous-line
+  "n"   #'next-line
+  "p"   #'previous-line
+  "q"   #'select-tags-table-quit)
 
 (define-derived-mode select-tags-table-mode special-mode "Select Tags Table"
   "Major mode for choosing a current tags table among those already loaded."

@@ -1,6 +1,6 @@
 ;;; authors.el --- utility for maintaining Emacs's AUTHORS file  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 ;; Author: Gerd Moellmann <gerd@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -90,6 +90,8 @@ files.")
     ("Etienne Prud’Homme" "Etienne Prud'Homme")
     ("Fabián Ezequiel Gallina" "Fabian Ezequiel Gallina" "Fabi.n E\\. Gallina")
     (nil "felix.*EmacsWiki")
+    (nil "felix\\.dick@web\\.de")
+    ("Felicián Németh" "Felician Nemeth")
     (nil "foudfou")
     ("Francis Litterio" "Fran Litterio")
     ("Francis J. Wright" "Dr Francis J. Wright" "Francis Wright")
@@ -98,6 +100,8 @@ files.")
     ("Frederic Pierresteguy" "Fred Pierresteguy")
     (nil "^FSF")
     ("Gerd Möllmann" "Gerd Moellmann")
+    (nil "haqle314")
+    ("Grégoire Jadi" "Gregoire Jadi")
     ("Hallvard B. Furuseth" "Hallvard B Furuseth" "Hallvard Furuseth")
     ("Hrvoje Nikšić" "Hrvoje Niksic")
     ("Ian Dunn" "^Ian D\\>")
@@ -109,6 +113,7 @@ files.")
     ("J. Alexander Branham" "Alex Branham")
     ("Jaeyoun Chung" "Jae-youn Chung" "Jae-you Chung" "Chung Jae-youn")
     ("Jan Djärv" "Jan D\\>" "Jan Djarv")
+    ("Jan Synáček" "Jan Synacek")
     ("João Távora" "João Tãvora")
     ("Jay K. Adams" "Jay Adams")
     ("J.D. Smith" "Jd Smith")
@@ -119,6 +124,7 @@ files.")
     ("Jeremy Bertram Maitin-Shepard" "Jeremy Maitin-Shepard")
     ("Jérémy Compostella" "Jeremy Compostella")
     ("Jimmy Aguilar Mena" "Ergus")
+    ("Jindřich Makovička" "Jindrich Makovicka")
     ("Johan Bockgård" "Johan Bockgard")
     ("John F. Carr" "John F Carr")
     ("John J Foerch" "John Foerch")
@@ -140,6 +146,10 @@ files.")
     ("Kenichi Handa" "Ken'ichi Handa" "Kenichi HANDA" "K\\. Handa")
     ("Kevin Greiner" "Kevin J. Greiner")
     ("Kim F. Storm" "Kim Storm")
+    ("Kjartan Óli Ágústsson" "Kjartan Oli Agustsson")
+    ;; The dash is a kludge, so this contributor is not ignored.
+    ("kobarity-" "kobarity@gmail\\.com")
+    ("Koen van Greevenbroek" "realcomplex" "koenvg@posteo\\.net")
     ("Kyle Jones" "Kyle E. Jones")
     ("Lars Magne Ingebrigtsen" "Lars Ingebrigtsen")
     (nil "LynX@bk.ru")
@@ -182,7 +192,7 @@ files.")
     ("Philip Kaludercic" "Philip K\\." "Philip K")
     ("Philipp Stephani" "Philipp .*phst@google")
     ("Piotr Zieliński" "Piotr Zielinski")
-    ("Po Lu" "Po Lu Via")               ; looks like a mistake
+    ("Po Lu" "Po Lu Via" "Your Name")   ; looks like a mistake
     ("Przemysław Wojnowski" "Przemyslaw Wojnowski")
     ("R. Bernstein" "rb@dustyfeet.com")
     ("Rainer Schöpf" "Rainer Schoepf")
@@ -990,7 +1000,7 @@ in the repository.")
 ;; to how a file was mentioned in the respective ChangeLog.  It is
 ;; advisable to run a Grep command such as
 ;;
-;;   fgrep -R BASENAME . --include='ChangeLog*'
+;;   grep -F -R BASENAME . --include='ChangeLog*'
 ;;
 ;; where BASENAME is the old basename of the renamed file.  This will
 ;; show all the different reference forms of the file in the various

@@ -1,6 +1,6 @@
 ;;; eval-tests.el --- unit tests for src/eval.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2023 Free Software Foundation, Inc.
 
 ;; Author: Philipp Stephani <phst@google.com>
 
@@ -222,7 +222,7 @@ expressions works for identifiers starting with period."
 
 (ert-deftest eval-tests/funcall-with-delayed-message ()
   ;; Check that `funcall-with-delayed-message' displays its message before
-  ;; its function terminates iff the timeout is short enough.
+  ;; its function terminates if the timeout is short enough.
 
   ;; This also serves as regression test for bug#55628 where a short
   ;; timeout was rounded up to the next whole second.
@@ -246,5 +246,40 @@ expressions works for identifiers starting with period."
                    "finished")))
             (should (equal (string-trim (buffer-string))
                            expected-messages))))))))
+
+(defvar-local eval-test--local-var 'global)
+
+(ert-deftest eval-test--bug62419 ()
+  (with-temp-buffer
+    (setq eval-test--local-var 'first-local)
+    (let ((eval-test--local-var t))
+      (kill-local-variable 'eval-test--local-var)
+      (setq eval-test--local-var 'second-local)
+      (should (eq eval-test--local-var 'second-local)))
+    ;; FIXME: It's not completely clear if exiting the above `let'
+    ;; should restore the buffer-local binding to `first-local'
+    ;; (i.e. reset the value of the second buffer-local binding to the
+    ;; first's initial value) or should do nothing (on the principle that
+    ;; the first buffer-local binding doesn't exists any more so there's
+    ;; nothing to restore).  I think both semantics make sense.
+    ;;(should (eq eval-test--local-var 'first-local))
+    )
+  (should (eq eval-test--local-var 'global)))
+
+(ert-deftest eval-tests-defvaralias ()
+  (defvar eval-tests--my-var 'coo)
+  (defvaralias 'eval-tests--my-var1 'eval-tests--my-var)
+  (defvar eval-tests--my-var1)
+  (should (equal eval-tests--my-var 'coo))
+  (should (equal eval-tests--my-var1 'coo))
+
+  (defvaralias 'eval-tests--my-a 'eval-tests--my-b)
+  (defvaralias 'eval-tests--my-b 'eval-tests--my-c)
+
+  (should-error (defvaralias 'eval-tests--my-c 'eval-tests--my-c)
+                :type 'cyclic-variable-indirection)
+  (defvaralias 'eval-tests--my-d 'eval-tests--my-a)
+  (should-error (defvaralias 'eval-tests--my-c 'eval-tests--my-d)
+                :type 'cyclic-variable-indirection))
 
 ;;; eval-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; files-tests.el --- tests for files.el.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -165,6 +165,27 @@ form.")
       (insert ";;; test-test.el --- tests  -*- lexical-binding: t; -*-\n\n")
       (hack-local-variables)
       (should (eq lexical-binding nil)))))
+
+(ert-deftest files-tests-safe-local-variable-directories ()
+  ;; safe-local-variable-directories should be risky,
+  ;; so use it as an arbitrary risky variable.
+  (let ((test-alist '((safe-local-variable-directories . "some_val")))
+        (fakedir default-directory)
+        (enable-local-eval t))
+    (with-temp-buffer
+      (setq safe-local-variable-directories (list fakedir))
+      (hack-local-variables-filter test-alist fakedir)
+      (should (equal file-local-variables-alist test-alist)))
+    (with-temp-buffer
+      (setq safe-local-variable-directories (list fakedir))
+      (setq noninteractive t)
+      (hack-local-variables-filter test-alist "wrong")
+      (should-not (equal file-local-variables-alist test-alist)))
+    (with-temp-buffer
+      (setq safe-local-variable-directories '())
+      (setq noninteractive t)
+      (hack-local-variables-filter test-alist fakedir)
+      (should-not (equal file-local-variables-alist test-alist)))))
 
 (defvar files-test-bug-18141-file
   (ert-resource-file "files-bug18141.el.gz")
@@ -1038,17 +1059,6 @@ unquoted file names."
     (let ((default-directory nospecial-dir))
       (should-error (make-directory "dir")))))
 
-(ert-deftest files-tests-file-name-non-special-make-directory-internal ()
-  (files-tests--with-temp-non-special (tmpdir nospecial-dir t)
-    (let ((default-directory nospecial-dir))
-      (make-directory-internal "dir")
-      (should (file-directory-p "dir"))
-      (delete-directory "dir")))
-  (files-tests--with-temp-non-special-and-file-name-handler
-      (tmpdir nospecial-dir t)
-    (let ((default-directory nospecial-dir))
-      (should-error (make-directory-internal "dir")))))
-
 (ert-deftest files-tests-file-name-non-special-make-nearby-temp-file ()
   (let* ((default-directory (file-name-quote temporary-file-directory))
          (near-tmpfile (make-nearby-temp-file "file")))
@@ -1194,30 +1204,30 @@ unquoted file names."
     (let ((process-environment (cons "FOO=foo" process-environment))
           (nospecial-foo (files-tests--new-name nospecial "$FOO")))
       ;; The "/:" prevents substitution.
-      (equal (substitute-in-file-name nospecial-foo) nospecial-foo)))
+      (should (equal (substitute-in-file-name nospecial-foo) nospecial-foo))))
   (files-tests--with-temp-non-special-and-file-name-handler (tmpfile nospecial)
     (let ((process-environment (cons "FOO=foo" process-environment))
           (nospecial-foo (files-tests--new-name nospecial "$FOO")))
       ;; The "/:" prevents substitution.
-      (equal (substitute-in-file-name nospecial-foo) nospecial-foo))))
+      (should (equal (substitute-in-file-name nospecial-foo) nospecial-foo)))))
 
 (ert-deftest files-tests-file-name-non-special-temporary-file-directory ()
   (files-tests--with-temp-non-special (tmpdir nospecial-dir t)
     (let ((default-directory nospecial-dir))
-      (equal (temporary-file-directory) temporary-file-directory)))
+      (should (equal (temporary-file-directory) temporary-file-directory))))
   (files-tests--with-temp-non-special-and-file-name-handler
       (tmpdir nospecial-dir t)
     (let ((default-directory nospecial-dir))
-      (equal (temporary-file-directory) temporary-file-directory))))
+      (should (equal (temporary-file-directory) temporary-file-directory)))))
 
 (ert-deftest files-tests-file-name-non-special-unhandled-file-name-directory ()
   (files-tests--with-temp-non-special (tmpdir nospecial-dir t)
-    (equal (unhandled-file-name-directory nospecial-dir)
-           (file-name-as-directory tmpdir)))
+    (should (equal (unhandled-file-name-directory nospecial-dir)
+                   (file-name-as-directory tmpdir))))
   (files-tests--with-temp-non-special-and-file-name-handler
       (tmpdir nospecial-dir t)
-    (equal (unhandled-file-name-directory nospecial-dir)
-           (file-name-as-directory tmpdir))))
+    (should-not (equal (unhandled-file-name-directory nospecial-dir)
+                       (file-name-as-directory tmpdir)))))
 
 (ert-deftest files-tests-file-name-non-special-vc-registered ()
   (files-tests--with-temp-non-special (tmpfile nospecial)
@@ -1272,11 +1282,11 @@ works as expected if the default directory is quoted."
            (a/b (concat dirname "a/b")))
       (write-region "" nil file)
       (should-error (make-directory "/"))
-      (should-not (make-directory "/" t))
+      (should (make-directory "/" t))
       (should-error (make-directory dir))
-      (should-not (make-directory dir t))
+      (should (make-directory dir t))
       (should-error (make-directory dirname))
-      (should-not (make-directory dirname t))
+      (should (make-directory dirname t))
       (should-error (make-directory file))
       (should-error (make-directory file t))
       (should-not (make-directory subdir1))
@@ -1357,7 +1367,9 @@ name (Bug#28412)."
            (dest (concat dirname "dest/new/directory/"))
            (file (concat (file-name-as-directory source) "file"))
            (source2 (concat dirname "source2"))
-           (dest2 (concat dirname "dest/new2")))
+           (dest2 (concat dirname "dest/new2"))
+           (source3 (concat dirname "source3/d"))
+           (dest3 (concat dirname "dest3/d")))
       (make-directory source)
       (write-region "" nil file)
       (copy-directory source dest t t t)
@@ -1365,6 +1377,11 @@ name (Bug#28412)."
       (make-directory (concat (file-name-as-directory source2) "a") t)
       (copy-directory source2 dest2)
       (should (file-directory-p (concat (file-name-as-directory dest2) "a")))
+      (make-directory source3 t)
+      (write-region "x\n" nil (concat (file-name-as-directory source3) "file"))
+      (make-directory dest3 t)
+      (write-region "y\n" nil (concat (file-name-as-directory dest3) "file"))
+      (copy-directory source3 (file-name-directory dest3) t)
       (delete-directory dir 'recursive))))
 
 (ert-deftest files-tests-abbreviate-file-name-homedir ()

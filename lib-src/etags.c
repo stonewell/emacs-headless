@@ -28,7 +28,7 @@ OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-Copyright (C) 1984, 1987-1989, 1993-1995, 1998-2022 Free Software
+Copyright (C) 1984, 1987-1989, 1993-1995, 1998-2023 Free Software
 Foundation, Inc.
 
 This file is not considered part of GNU Emacs.
@@ -109,6 +109,7 @@ University of California, as described above. */
 #include <limits.h>
 #include <unistd.h>
 #include <stdarg.h>
+#include <stdckdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sysstdio.h>
@@ -375,7 +376,7 @@ static void just_read_file (FILE *);
 
 static language *get_language_from_langname (const char *);
 static void readline (linebuffer *, FILE *);
-static ptrdiff_t readline_internal (linebuffer *, FILE *, char const *);
+static ptrdiff_t readline_internal (linebuffer *, FILE *, char const *, const bool);
 static bool nocase_tail (const char *);
 static void get_tag (char *, char **);
 static void get_lispy_tag (char *);
@@ -399,7 +400,12 @@ static void free_fdesc (fdesc *);
 static void pfnote (char *, bool, char *, ptrdiff_t, intmax_t, intmax_t);
 static void invalidate_nodes (fdesc *, node **);
 static void put_entries (node *);
+static void cleanup_tags_file (char const * const, char const * const);
 
+#if !MSDOS && !defined (DOS_NT)
+static char *escape_shell_arg_string (char *);
+#endif
+static void do_move_file (const char *, const char *);
 static char *concat (const char *, const char *, const char *);
 static char *skip_spaces (char *);
 static char *skip_non_spaces (char *);
@@ -774,7 +780,7 @@ static const char Rust_help [] =
 
 /* Can't do the `SCM' or `scm' prefix with a version number. */
 static const char *Scheme_suffixes [] =
-  { "oak", "sch", "scheme", "SCM", "scm", "SM", "sm", "ss", "t", NULL };
+  { "oak", "rkt", "sch", "scheme", "SCM", "scm", "SM", "sm", "ss", "t", NULL };
 static const char Scheme_help [] =
 "In Scheme code, tags include anything defined with 'def' or with a\n\
 construct whose name starts with 'def'.  They also include\n\
@@ -973,8 +979,8 @@ Relative ones are stored relative to the output file's directory.\n");
     puts
       ("\tand create tags for extern variables unless --no-globals is used.");
 
-  puts ("In Mercury, tag both declarations starting a line with ':-' and first\n\
-        predicates or functions in clauses.");
+  puts ("\tIn Mercury, tag both declarations starting a line with ':-' and\n\
+        first predicates or functions in clauses.");
 
   if (CTAGS)
     puts ("-d, --defines\n\
@@ -1332,7 +1338,7 @@ main (int argc, char **argv)
 		  if (parsing_stdin)
 		    fatal ("cannot parse standard input "
 			   "AND read file names from it");
-		  while (readline_internal (&filename_lb, stdin, "-") > 0)
+		  while (readline_internal (&filename_lb, stdin, "-", false) > 0)
 		    process_file_name (filename_lb.buffer, lang);
 		}
 	      else
@@ -1380,9 +1386,6 @@ main (int argc, char **argv)
   /* From here on, we are in (CTAGS && !cxref_style) */
   if (update)
     {
-      char *cmd =
-	xmalloc (strlen (tagfile) + whatlen_max +
-		 sizeof "mv..OTAGS;grep -Fv '\t\t' OTAGS >;rm OTAGS");
       for (i = 0; i < current_arg; ++i)
 	{
 	  switch (argbuffer[i].arg_type)
@@ -1393,17 +1396,8 @@ main (int argc, char **argv)
 	    default:
 	      continue;		/* the for loop */
 	    }
-	  char *z = stpcpy (cmd, "mv ");
-	  z = stpcpy (z, tagfile);
-	  z = stpcpy (z, " OTAGS;grep -Fv '\t");
-	  z = stpcpy (z, argbuffer[i].what);
-	  z = stpcpy (z, "\t' OTAGS >");
-	  z = stpcpy (z, tagfile);
-	  strcpy (z, ";rm OTAGS");
-	  if (system (cmd) != EXIT_SUCCESS)
-	    fatal ("failed to execute shell command");
+          cleanup_tags_file (tagfile, argbuffer[i].what);
 	}
-      free (cmd);
       append_to_tagfile = true;
     }
 
@@ -1423,7 +1417,7 @@ main (int argc, char **argv)
 	   setenv ("LC_COLLATE", "C", 1);
 	   setenv ("LC_ALL", "C", 1); */
 	char *cmd = xmalloc (8 * strlen (tagfile) + sizeof "sort -u -o '' ''");
-#if defined WINDOWSNT || defined MSDOS
+#if defined WINDOWSNT || MSDOS
 	/* Quote "like this".  No need to escape the quotes in the file name,
 	   since it is not allowed in file names on these systems.  */
 	char *z = stpcpy (cmd, "sort -u -o \"");
@@ -1448,6 +1442,51 @@ main (int argc, char **argv)
   return EXIT_SUCCESS;
 }
 
+/*
+ * Equivalent to: mv tags OTAGS;grep -Fv ' filename ' OTAGS >tags;rm OTAGS
+ */
+static void
+cleanup_tags_file (const char* tagfile, const char* match_file_name)
+{
+  FILE *otags_f = fopen ("OTAGS", "wb");
+  FILE *tag_f = fopen (tagfile, "rb");
+
+  if (otags_f == NULL)
+    pfatal ("OTAGS");
+
+  if (tag_f == NULL)
+    pfatal (tagfile);
+
+  int buf_len = strlen (match_file_name) + sizeof ("\t\t ") + 1;
+  char *buf = xmalloc (buf_len);
+  snprintf (buf, buf_len, "\t%s\t", match_file_name);
+
+  linebuffer line;
+  linebuffer_init (&line);
+  while (readline_internal (&line, tag_f, tagfile, true) > 0)
+    {
+      if (ferror (tag_f))
+        pfatal (tagfile);
+
+      if (strstr (line.buffer, buf) == NULL)
+        {
+          fprintf (otags_f, "%s\n", line.buffer);
+          if (ferror (tag_f))
+            pfatal (tagfile);
+        }
+    }
+  free (buf);
+  free (line.buffer);
+
+  if (fclose (otags_f) == EOF)
+    pfatal ("OTAGS");
+
+  if (fclose (tag_f) == EOF)
+    pfatal (tagfile);
+
+  do_move_file ("OTAGS", tagfile);
+  return;
+}
 
 /*
  * Return a compressor given the file name.  If EXTPTR is non-zero,
@@ -1678,13 +1717,25 @@ process_file_name (char *file, language *lang)
       else
 	{
 #if MSDOS || defined (DOS_NT)
-	  char *cmd1 = concat (compr->command, " \"", real_name);
-	  char *cmd = concat (cmd1, "\" > ", tmp_name);
+	  int buf_len =
+	    strlen (compr->command)
+	    + strlen (" \"\" > \"\"") + strlen (real_name)
+	    + strlen (tmp_name) + 1;
+	  char *cmd = xmalloc (buf_len);
+	  snprintf (cmd, buf_len, "%s \"%s\" > \"%s\"",
+		    compr->command, real_name, tmp_name);
 #else
-	  char *cmd1 = concat (compr->command, " '", real_name);
-	  char *cmd = concat (cmd1, "' > ", tmp_name);
+	  char *new_real_name = escape_shell_arg_string (real_name);
+	  char *new_tmp_name = escape_shell_arg_string (tmp_name);
+	  int buf_len =
+	    strlen (compr->command) + strlen ("  > ") + strlen (new_real_name)
+	    + strlen (new_tmp_name) + 1;
+	  char *cmd = xmalloc (buf_len);
+	  snprintf (cmd, buf_len, "%s %s > %s",
+		    compr->command, new_real_name, new_tmp_name);
+	  free (new_real_name);
+	  free (new_tmp_name);
 #endif
-	  free (cmd1);
 	  inf = (system (cmd) == -1
 		 ? NULL
 		 : fopen (tmp_name, "r" FOPEN_BINARY));
@@ -1831,7 +1882,7 @@ find_entries (FILE *inf)
 
   /* Else look for sharp-bang as the first two characters. */
   if (parser == NULL
-      && readline_internal (&lb, inf, infilename) > 0
+      && readline_internal (&lb, inf, infilename, false) > 0
       && lb.len >= 2
       && lb.buffer[0] == '#'
       && lb.buffer[1] == '!')
@@ -6878,7 +6929,7 @@ analyze_regex (char *regex_arg)
 	if (regexfp == NULL)
 	  pfatal (regexfile);
 	linebuffer_init (&regexbuf);
-	while (readline_internal (&regexbuf, regexfp, regexfile) > 0)
+	while (readline_internal (&regexbuf, regexfp, regexfile, false) > 0)
 	  analyze_regex (regexbuf.buffer);
 	free (regexbuf.buffer);
 	if (fclose (regexfp) != 0)
@@ -7226,11 +7277,13 @@ get_lispy_tag (register char *bp)
 
 /*
  * Read a line of text from `stream' into `lbp', excluding the
- * newline or CR-NL, if any.  Return the number of characters read from
- * `stream', which is the length of the line including the newline.
+ * newline or CR-NL (if `leave_cr` is false), if any.  Return the
+ * number of characters read from `stream', which is the length
+ * of the line including the newline.
  *
- * On DOS or Windows we do not count the CR character, if any before the
- * NL, in the returned length; this mirrors the behavior of Emacs on those
+ * On DOS or Windows, if `leave_cr` is false, we do not count the
+ * CR character, if any before the NL, in the returned length;
+ * this mirrors the behavior of Emacs on those
  * platforms (for text files, it translates CR-NL to NL as it reads in the
  * file).
  *
@@ -7238,7 +7291,8 @@ get_lispy_tag (register char *bp)
  * appended to `filebuf'.
  */
 static ptrdiff_t
-readline_internal (linebuffer *lbp, FILE *stream, char const *filename)
+readline_internal (linebuffer *lbp, FILE *stream, char const *filename,
+		   const bool leave_cr)
 {
   char *buffer = lbp->buffer;
   char *p = lbp->buffer;
@@ -7268,19 +7322,19 @@ readline_internal (linebuffer *lbp, FILE *stream, char const *filename)
 	  break;
 	}
       if (c == '\n')
-	{
-	  if (p > buffer && p[-1] == '\r')
-	    {
-	      p -= 1;
-	      chars_deleted = 2;
-	    }
-	  else
-	    {
-	      chars_deleted = 1;
-	    }
-	  *p = '\0';
-	  break;
-	}
+        {
+          if (!leave_cr && p > buffer && p[-1] == '\r')
+            {
+              p -= 1;
+              chars_deleted = 2;
+            }
+          else
+            {
+              chars_deleted = 1;
+            }
+          *p = '\0';
+          break;
+        }
       *p++ = c;
     }
   lbp->len = p - buffer;
@@ -7311,7 +7365,7 @@ static void
 readline (linebuffer *lbp, FILE *stream)
 {
   linecharno = charno;		/* update global char number of line start */
-  ptrdiff_t result = readline_internal (lbp, stream, infilename);
+  ptrdiff_t result = readline_internal (lbp, stream, infilename, false);
   lineno += 1;			/* increment global line number */
   charno += result;		/* increment global char number */
 
@@ -7669,6 +7723,97 @@ etags_mktmp (void)
   return templt;
 }
 
+#if !MSDOS && !defined (DOS_NT)
+/*
+ * Add single quotes around a string, and escape any single quotes.
+ * Return a newly-allocated string.
+ *
+ * For example:
+ * escape_shell_arg_string ("test.txt")  => "'test.txt'"
+ * escape_shell_arg_string ("'test.txt") => "''\''test.txt'"
+ */
+static char *
+escape_shell_arg_string (char *str)
+{
+  char *p = str;
+  int need_space = 2;		/* ' at begin and end */
+
+  while (*p != '\0')
+    {
+      if (*p == '\'')
+	need_space += 4;	/* ' to '\'', length is 4 */
+      else
+	need_space++;
+
+      p++;
+    }
+
+  char *new_str = xnew (need_space + 1, char);
+  new_str[0] = '\'';
+  new_str[need_space-1] = '\'';
+
+  int i = 1;			/* skip first byte */
+  p = str;
+  while (*p != '\0')
+    {
+      new_str[i] = *p;
+      if (*p == '\'')
+	{
+	  new_str[i+1] = '\\';
+	  new_str[i+2] = '\'';
+	  new_str[i+3] = '\'';
+	  i += 3;
+	}
+
+      i++;
+      p++;
+    }
+
+  new_str[need_space] = '\0';
+  return new_str;
+}
+#endif
+
+static void
+do_move_file (const char *src_file, const char *dst_file)
+{
+  if (rename (src_file, dst_file) == 0)
+    return;
+
+  FILE *src_f = fopen (src_file, "rb");
+  FILE *dst_f = fopen (dst_file, "wb");
+
+  if (src_f == NULL)
+    pfatal (src_file);
+
+  if (dst_f == NULL)
+    pfatal (dst_file);
+
+  int c;
+  while ((c = fgetc (src_f)) != EOF)
+    {
+      if (ferror (src_f))
+        pfatal (src_file);
+
+      if (ferror (dst_f))
+        pfatal (dst_file);
+
+      if (fputc (c, dst_f) == EOF)
+        pfatal ("cannot write");
+    }
+
+  if (fclose (src_f) == EOF)
+    pfatal (src_file);
+
+  if (fclose (dst_f) == EOF)
+    pfatal (dst_file);
+
+  if (unlink (src_file) == -1)
+    pfatal ("unlink error");
+
+  return;
+}
+
 /* Return a newly allocated string containing the file name of FILE
    relative to the absolute directory DIR (which should end with a slash). */
 static char *
@@ -7894,7 +8039,7 @@ xnmalloc (ptrdiff_t nitems, ptrdiff_t item_size)
   ptrdiff_t nbytes;
   assume (0 <= nitems);
   assume (0 < item_size);
-  if (INT_MULTIPLY_WRAPV (nitems, item_size, &nbytes))
+  if (ckd_mul (&nbytes, nitems, item_size))
     memory_full ();
   return xmalloc (nbytes);
 }
@@ -7905,7 +8050,7 @@ xnrealloc (void *pa, ptrdiff_t nitems, ptrdiff_t item_size)
   ptrdiff_t nbytes;
   assume (0 <= nitems);
   assume (0 < item_size);
-  if (INT_MULTIPLY_WRAPV (nitems, item_size, &nbytes) || SIZE_MAX < nbytes)
+  if (ckd_mul (&nbytes, nitems, item_size) || SIZE_MAX < nbytes)
     memory_full ();
   void *result = realloc (pa, nbytes);
   if (!result)

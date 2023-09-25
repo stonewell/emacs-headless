@@ -1,6 +1,6 @@
 /* Evaluator for GNU Emacs Lisp interpreter.
 
-Copyright (C) 1985-1987, 1993-1995, 1999-2022 Free Software Foundation,
+Copyright (C) 1985-1987, 1993-1995, 1999-2023 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -254,7 +254,7 @@ init_eval (void)
 static void
 max_ensure_room (intmax_t *m, intmax_t a, intmax_t b)
 {
-  intmax_t sum = INT_ADD_WRAPV (a, b, &sum) ? INTMAX_MAX : sum;
+  intmax_t sum = ckd_add (&sum, a, b) ? INTMAX_MAX : sum;
   *m = max (*m, sum);
 }
 
@@ -571,11 +571,12 @@ omitted or nil, NEW-ALIAS gets the documentation string of BASE-VARIABLE,
 or of the variable at the end of the chain of aliases, if BASE-VARIABLE is
 itself an alias.  If NEW-ALIAS is bound, and BASE-VARIABLE is not,
 then the value of BASE-VARIABLE is set to that of NEW-ALIAS.
-The return value is BASE-VARIABLE.  */)
+The return value is BASE-VARIABLE.
+
+If the resulting chain of variable definitions would contain a loop,
+signal a `cyclic-variable-indirection' error.  */)
   (Lisp_Object new_alias, Lisp_Object base_variable, Lisp_Object docstring)
 {
-  struct Lisp_Symbol *sym;
-
   CHECK_SYMBOL (new_alias);
   CHECK_SYMBOL (base_variable);
 
@@ -584,7 +585,18 @@ The return value is BASE-VARIABLE.  */)
     error ("Cannot make a constant an alias: %s",
 	   SDATA (SYMBOL_NAME (new_alias)));
 
-  sym = XSYMBOL (new_alias);
+  struct Lisp_Symbol *sym = XSYMBOL (new_alias);
+
+  /* Ensure non-circularity.  */
+  struct Lisp_Symbol *s = XSYMBOL (base_variable);
+  for (;;)
+    {
+      if (s == sym)
+	xsignal1 (Qcyclic_variable_indirection, base_variable);
+      if (s->u.s.redirect != SYMBOL_VARALIAS)
+	break;
+      s = SYMBOL_ALIAS (s);
+    }
 
   switch (sym->u.s.redirect)
     {
@@ -1329,7 +1341,7 @@ Then the value of the last BODY form is returned from the `condition-case'
 expression.
 
 The special handler (:success BODY...) is invoked if BODYFORM terminated
-without signalling an error.  BODY is then evaluated with VAR bound to
+without signaling an error.  BODY is then evaluated with VAR bound to
 the value returned by BODYFORM.
 
 See also the function `signal' for more info.
@@ -1367,7 +1379,7 @@ internal_lisp_condition_case (Lisp_Object var, Lisp_Object bodyform,
 	error ("Invalid condition handler: %s",
 	       SDATA (Fprin1_to_string (tem, Qt, Qnil)));
       if (CONSP (tem) && EQ (XCAR (tem), QCsuccess))
-	success_handler = XCDR (tem);
+	success_handler = tem;
       else
 	clausenb++;
     }
@@ -1430,7 +1442,7 @@ internal_lisp_condition_case (Lisp_Object var, Lisp_Object bodyform,
   if (!NILP (success_handler))
     {
       if (NILP (var))
-	return Fprogn (success_handler);
+	return Fprogn (XCDR (success_handler));
 
       Lisp_Object handler_var = var;
       if (!NILP (Vinternal_interpreter_environment))
@@ -1442,7 +1454,7 @@ internal_lisp_condition_case (Lisp_Object var, Lisp_Object bodyform,
 
       specpdl_ref count = SPECPDL_INDEX ();
       specbind (handler_var, result);
-      return unbind_to (count, Fprogn (success_handler));
+      return unbind_to (count, Fprogn (XCDR (success_handler)));
     }
   return result;
 }
@@ -1716,7 +1728,6 @@ signal_or_quit (Lisp_Object error_symbol, Lisp_Object data, bool keyboard_quit)
   Lisp_Object clause = Qnil;
   struct handler *h;
 
-  eassert (!itree_iterator_busy_p ());
   if (gc_in_progress || waiting_for_input)
     emacs_abort ();
 
@@ -1810,7 +1821,7 @@ signal_or_quit (Lisp_Object error_symbol, Lisp_Object data, bool keyboard_quit)
       unbind_to (count, Qnil);
     }
 
-  /* If an error is signalled during a Lisp hook in redisplay, write a
+  /* If an error is signaled during a Lisp hook in redisplay, write a
      backtrace into the buffer *Redisplay-trace*.  */
   if (!debugger_called && !NILP (error_symbol)
       && backtrace_on_redisplay_error
@@ -1901,6 +1912,19 @@ signal_error (const char *s, Lisp_Object arg)
     arg = list1 (arg);
 
   xsignal (Qerror, Fcons (build_string (s), arg));
+}
+
+void
+define_error (Lisp_Object name, const char *message, Lisp_Object parent)
+{
+  eassert (SYMBOLP (name));
+  eassert (SYMBOLP (parent));
+  Lisp_Object parent_conditions = Fget (parent, Qerror_conditions);
+  eassert (CONSP (parent_conditions));
+  eassert (!NILP (Fmemq (parent, parent_conditions)));
+  eassert (NILP (Fmemq (name, parent_conditions)));
+  Fput (name, Qerror_conditions, pure_cons (name, parent_conditions));
+  Fput (name, Qerror_message, build_pure_c_string (message));
 }
 
 /* Use this for arithmetic overflow, e.g., when an integer result is
@@ -2104,7 +2128,7 @@ then strings and vectors are not accepted.  */)
 
   fun = function;
 
-  fun = indirect_function (fun); /* Check cycles.  */
+  fun = indirect_function (fun);
   if (NILP (fun))
     return Qnil;
 
@@ -2336,6 +2360,8 @@ it defines a macro.  */)
 }
 
 
+static Lisp_Object list_of_t;  /* Never-modified constant containing (t).  */
+
 DEFUN ("eval", Feval, Seval, 1, 2, 0,
        doc: /* Evaluate FORM and return its value.
 If LEXICAL is t, evaluate using lexical scoping.
@@ -2345,7 +2371,7 @@ alist mapping symbols to their value.  */)
 {
   specpdl_ref count = SPECPDL_INDEX ();
   specbind (Qinternal_interpreter_environment,
-	    CONSP (lexical) || NILP (lexical) ? lexical : list1 (Qt));
+	    CONSP (lexical) || NILP (lexical) ? lexical : list_of_t);
   return unbind_to (count, eval_sub (form));
 }
 
@@ -2359,8 +2385,7 @@ grow_specpdl_allocation (void)
   union specbinding *pdlvec = specpdl - 1;
   ptrdiff_t size = specpdl_end - specpdl;
   ptrdiff_t pdlvecsize = size + 1;
-  if (max_size <= size)
-    xsignal0 (Qexcessive_variable_binding);  /* Can't happen, essentially.  */
+  eassert (max_size > size);
   pdlvec = xpalloc (pdlvec, &pdlvecsize, 1, max_size + 1, sizeof *specpdl);
   specpdl = pdlvec + 1;
   specpdl_end = specpdl + pdlvecsize - 1;
@@ -3386,7 +3411,7 @@ DEFUN ("fetch-bytecode", Ffetch_bytecode, Sfetch_bytecode,
   return object;
 }
 
-/* Return true if SYMBOL currently has a let-binding
+/* Return true if SYMBOL's default currently has a let-binding
    which was made in the buffer that is now current.  */
 
 bool
@@ -3401,6 +3426,7 @@ let_shadows_buffer_binding_p (struct Lisp_Symbol *symbol)
 	struct Lisp_Symbol *let_bound_symbol = XSYMBOL (specpdl_symbol (p));
 	eassert (let_bound_symbol->u.s.redirect != SYMBOL_VARALIAS);
 	if (symbol == let_bound_symbol
+	    && p->kind != SPECPDL_LET_LOCAL /* bug#62419 */
 	    && EQ (specpdl_where (p), buf))
 	  return 1;
       }
@@ -3462,7 +3488,7 @@ specbind (Lisp_Object symbol, Lisp_Object value)
   switch (sym->u.s.redirect)
     {
     case SYMBOL_VARALIAS:
-      sym = indirect_variable (sym); XSETSYMBOL (symbol, sym); goto start;
+      sym = SYMBOL_ALIAS (sym); XSETSYMBOL (symbol, sym); goto start;
     case SYMBOL_PLAINVAL:
       /* The most common case is that of a non-constant symbol with a
 	 trivial value.  Make that as fast as we can.  */
@@ -4177,7 +4203,7 @@ mark_specpdl (union specbinding *first, union specbinding *ptr)
 void
 get_backtrace (Lisp_Object array)
 {
-  union specbinding *pdl = backtrace_next (backtrace_top ());
+  union specbinding *pdl = backtrace_top ();
   ptrdiff_t i = 0, asize = ASIZE (array);
 
   /* Copy the backtrace contents into working memory.  */
@@ -4270,6 +4296,10 @@ See also the variable `debug-on-quit' and `inhibit-debugger'.  */);
 Each element may be a condition-name or a regexp that matches error messages.
 If any element applies to a given error, that error skips the debugger
 and just returns to top level.
+If you invoke Emacs with --debug-init, and want to remove some
+elements from the default value of this variable, use `setq' to
+change the value of the variable to a new list, rather than `delq'
+to remove some errors from the list.
 This overrides the variable `debug-on-error'.
 It does not apply to errors handled by `condition-case'.  */);
   Vdebug_ignored_errors = Qnil;
@@ -4379,6 +4409,9 @@ alist of active lexical bindings.  */);
      cons cell as error data, so use an uninterned symbol instead.  */
   Qcatch_all_memory_full
     = Fmake_symbol (build_pure_c_string ("catch-all-memory-full"));
+
+  staticpro (&list_of_t);
+  list_of_t = list1 (Qt);
 
   defsubr (&Sor);
   defsubr (&Sand);

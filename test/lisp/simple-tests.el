@@ -1,6 +1,6 @@
 ;;; simple-tests.el --- Tests for simple.el           -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 ;; Author: Artur Malabarba <bruce.connor.am@gmail.com>
 
@@ -71,6 +71,30 @@
   (with-temp-buffer
     (insert "あ\nい\nう\nえ\nお\n")
     (should (= (count-lines (point) (point)) 0))))
+
+
+;;; `execute-extended-command'
+
+(ert-deftest simple-execute-extended-command--shorter ()
+  ;; This test can be flaky with completion frameworks other than the
+  ;; default, so just skip it in interactive sessions.
+  (skip-unless noninteractive)
+  (should (equal (execute-extended-command--shorter
+                  "display-line-numbers-mode"
+                  "display-line")
+                 "di-n")))
+
+(ert-deftest simple-execute-extended-command--describe-binding-msg ()
+  (let ((text-quoting-style 'grave))
+    (should (equal (execute-extended-command--describe-binding-msg
+                    'foo "m" nil)
+                   "You can run the command `foo' with m"))
+    (should (equal (execute-extended-command--describe-binding-msg
+                    'foo [14] nil)
+                   "You can run the command `foo' with C-n"))
+    (should (equal (execute-extended-command--describe-binding-msg
+                    'display-line-numbers-mode nil "di-n")
+                   "You can run the command `display-line-numbers-mode' with M-x di-n"))))
 
 
 ;;; `transpose-sexps'
@@ -718,7 +742,7 @@ See Bug#21722."
 
 (ert-deftest eval-expression-print-format-sym-echo ()
   ;; We can only check the echo area when running interactive.
-  (skip-unless (not noninteractive))
+  (skip-when noninteractive)
   (with-temp-buffer
     (cl-letf (((symbol-function 'read--expression) (lambda (&rest _) t)))
       (let ((current-prefix-arg nil))
@@ -739,7 +763,7 @@ See Bug#21722."
         (should (equal (buffer-string) "65 (#o101, #x41, ?A)"))))))
 
 (ert-deftest eval-expression-print-format-small-int-echo ()
-  (skip-unless (not noninteractive))
+  (skip-when noninteractive)
   (with-temp-buffer
     (cl-letf (((symbol-function 'read--expression) (lambda (&rest _) ?A)))
       (let ((current-prefix-arg nil))
@@ -765,7 +789,7 @@ See Bug#21722."
         (should (equal (buffer-string) "66 (#o102, #x42, ?B)"))))))
 
 (ert-deftest eval-expression-print-format-large-int-echo ()
-  (skip-unless (not noninteractive))
+  (skip-when noninteractive)
   (with-temp-buffer
     (cl-letf (((symbol-function 'read--expression) (lambda (&rest _) ?B))
               (eval-expression-print-maximum-character ?A))
@@ -815,7 +839,7 @@ See Bug#21722."
     (forward-line 2)
     (narrow-to-region (pos-bol) (pos-eol))
     (should (equal (line-number-at-pos) 1))
-    (line-number-at-pos nil t)
+    (should (equal (line-number-at-pos nil t) 3))
     (should (equal (line-number-at-pos) 1))))
 
 (ert-deftest line-number-at-pos-keeps-point ()
@@ -825,8 +849,8 @@ See Bug#21722."
       (goto-char (point-min))
       (forward-line 2)
       (setq pos (point))
-      (line-number-at-pos)
-      (line-number-at-pos nil t)
+      (should (equal (line-number-at-pos) 3))
+      (should (equal (line-number-at-pos nil t) 3))
       (should (equal pos (point))))))
 
 (ert-deftest line-number-at-pos-when-passing-point ()

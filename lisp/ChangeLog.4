@@ -3384,7 +3384,7 @@
 
 	* font-lock.el (shell-font-lock-keywords): Doc fix.
 
-1994-02-02  Eric S. Raymond  (eric@mole.gnu.ai.mit.edu)
+1994-02-02  Eric S. Raymond  (esr@thyrsus.com)
 
 	* vc-hooks.el (vc-mode-line): Use force-mode-line-update instead
 	of the Emacs 18 kluge.
@@ -3402,7 +3402,7 @@
 	* files.el (file-relative-name): Allow for ancestors as well
 	as descendants.
 
-1994-02-02  Eric S. Raymond  (eric@mole.gnu.ai.mit.edu)
+1994-02-02  Eric S. Raymond  (esr@thyrsus.com)
 
 	* vc.el (vc-parse-buffer): Arrange for old properties to get
 	cleared when their match string is not found in the master file.
@@ -4811,7 +4811,7 @@
 	(add-new-page): Insert new page in specified location.
 	(original-page-delimiter): Set default value to "^^L".
 
-1993-11-15  Eric S. Raymond  (eric@mole.gnu.ai.mit.edu)
+1993-11-15  Eric S. Raymond  (esr@thyrsus.com)
 
 	* vc.el: vc-static-header-alist shouldn't have been declared const.
 
@@ -5535,7 +5535,7 @@
 	* rmail.el (rmail-convert-to-babyl-format): Protect against
 	nonsensical content-length values.
 
-1993-10-04  Eric S. Raymond  (eric@mole.gnu.ai.mit.edu)
+1993-10-04  Eric S. Raymond  (esr@thyrsus.com)
 
 	* vc.el (vc-next-action): Fix (throw ... ) invocation to work with 19;
 	allows vc-next-action on all marked files in a dired buffer to work.
@@ -6858,7 +6858,7 @@
 1993-07-26  Richard Stallman  (rms@mole.gnu.ai.mit.edu)
 
 	* frame.el (frame-notice-user-settings): Don't reapply a parm
-	whose value is ot changed (as far as we know) since frame-initialize.
+	whose value is not changed (as far as we know) since frame-initialize.
 
 	* simple.el (kill-ring-save): Delete spurious `message' call.
 	(set-mark): If POS is nil, call deactivate-mark.
@@ -7238,7 +7238,8 @@
 	* ispell.el (ispell-menu-map): Add missing quote in defalias.
 	(ispell-window-configuration): Initialize to nil.
 
-	* vc-hooks.el (vc-rcs-status): Make work buffer's name start w/ space.
+	* vc-hooks.el (vc-rcs-status): Make work buffer's name start with
+	space.
 
 	* simple.el (completion-setup-function): Insert the mouse help message
 	only if non-nil `window-system'.
@@ -8934,7 +8935,7 @@ See ChangeLog.3 for earlier changes.
 ;; coding: utf-8
 ;; End:
 
-    Copyright (C) 1993-1994, 2001-2022 Free Software Foundation, Inc.
+    Copyright (C) 1993-1994, 2001-2023 Free Software Foundation, Inc.
 
   This file is part of GNU Emacs.
 

@@ -1,6 +1,6 @@
 ;;; esh-cmd-tests.el --- esh-cmd test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -73,6 +73,36 @@ Test that trailing arguments outside the subcommand are ignored.
 e.g. \"{(+ 1 2)} 3\" => 3"
   (eshell-command-result-equal "{(+ 1 2)} 3" 3))
 
+(ert-deftest esh-cmd-test/subcommand-shadow-value ()
+  "Test that the variable `value' isn't shadowed inside subcommands."
+  (with-temp-eshell
+   (with-no-warnings (setq-local value "hello"))
+   (eshell-match-command-output "echo ${echo $value}"
+                                "hello\n")))
+
+(ert-deftest esh-cmd-test/skip-leading-nils ()
+  "Test that Eshell skips leading nil arguments for named commands."
+  (eshell-command-result-equal "$eshell-test-value echo hello" "hello")
+  (eshell-command-result-equal
+   "$eshell-test-value $eshell-test-value echo hello" "hello"))
+
+(ert-deftest esh-cmd-test/let-rebinds-after-defer ()
+  "Test that let-bound values are properly updated after `eshell-defer'.
+When inside a `let' block in an Eshell command form, we need to
+ensure that deferred commands update any let-bound variables so
+they have the correct values when resuming evaluation.  See
+bug#59469."
+  (skip-unless (executable-find "echo"))
+  (with-temp-eshell
+   (eshell-match-command-output
+    (concat "{"
+            "  export LOCAL=value; "
+            "  echo \"$LOCAL\"; "
+            "  *echo external; "        ; This will throw `eshell-defer'.
+            "  echo \"$LOCAL\"; "
+            "}")
+    "value\nexternal\nvalue\n")))
+
 
 ;; Lisp forms
 
@@ -114,6 +144,78 @@ e.g. \"{(+ 1 2)} 3\" => 3"
                                 "hi\n")))
 
 
+;; Pipelines
+
+(ert-deftest esh-cmd-test/pipeline-wait/head-proc ()
+  "Check that piping a non-process to a process command waits for the process."
+  (skip-unless (executable-find "cat"))
+  (with-temp-eshell
+   (eshell-match-command-output "echo hi | *cat"
+                                "hi")))
+
+(ert-deftest esh-cmd-test/pipeline-wait/tail-proc ()
+  "Check that piping a process to a non-process command waits for the process."
+  (skip-unless (executable-find "echo"))
+  (with-temp-eshell
+   (eshell-match-command-output "*echo hi | echo bye"
+                                "bye\nhi\n")))
+
+(ert-deftest esh-cmd-test/pipeline-wait/multi-proc ()
+  "Check that a pipeline waits for all its processes before returning."
+  (skip-unless (and (executable-find "echo")
+                    (executable-find "sh")
+                    (executable-find "rev")))
+  (with-temp-eshell
+   (eshell-match-command-output
+    "*echo hello | sh -c 'sleep 1; rev' 1>&2 | *echo goodbye"
+    "goodbye\nolleh\n")))
+
+(ert-deftest esh-cmd-test/pipeline-wait/subcommand ()
+  "Check that piping with an asynchronous subcommand waits for the subcommand."
+  (skip-unless (and (executable-find "echo")
+                    (executable-find "cat")))
+  (with-temp-eshell
+   (eshell-match-command-output "echo ${*echo hi} | *cat"
+                                "hi")))
+
+(ert-deftest esh-cmd-test/pipeline-wait/subcommand-with-pipe ()
+  "Check that piping with an asynchronous subcommand with its own pipe works.
+This should also wait for the subcommand."
+  (skip-unless (and (executable-find "echo")
+                    (executable-find "cat")))
+  (with-temp-eshell
+   (eshell-match-command-output "echo ${*echo hi | *cat} | *cat"
+                                "hi")))
+
+(ert-deftest esh-cmd-test/reset-in-pipeline/subcommand ()
+  "Check that subcommands reset `eshell-in-pipeline-p'."
+  (skip-unless (executable-find "cat"))
+  (dolist (template '("echo {%s} | *cat"
+                      "echo ${%s} | *cat"
+                      "*cat $<%s> | *cat"))
+    (eshell-command-result-equal
+     (format template "echo $eshell-in-pipeline-p")
+     nil)
+    (eshell-command-result-equal
+     (format template "echo | echo $eshell-in-pipeline-p")
+     "last")
+    (eshell-command-result-equal
+     (format template "echo $eshell-in-pipeline-p | echo")
+     "first")
+    (eshell-command-result-equal
+     (format template "echo | echo $eshell-in-pipeline-p | echo")
+     "t")))
+
+(ert-deftest esh-cmd-test/reset-in-pipeline/lisp ()
+  "Check that interpolated Lisp forms reset `eshell-in-pipeline-p'."
+  (skip-unless (executable-find "cat"))
+  (dolist (template '("echo (%s) | *cat"
+                      "echo $(%s) | *cat"))
+    (eshell-command-result-equal
+     (format template "format \"%s\" eshell-in-pipeline-p")
+     "nil")))
+
+
 ;; Control flow statements
 
 (ert-deftest esh-cmd-test/for-loop ()
@@ -134,13 +236,13 @@ e.g. \"{(+ 1 2)} 3\" => 3"
    (eshell-match-command-output "for i in 1 2 (list 3 4) { echo $i }"
                                 "1\n2\n3\n4\n")))
 
-(ert-deftest esh-cmd-test/for-name-loop () ; bug#15231
+(ert-deftest esh-cmd-test/for-loop-name () ; bug#15231
   "Test invocation of a for loop using `name'."
   (let ((process-environment (cons "name" process-environment)))
     (eshell-command-result-equal "for name in 3 { echo $name }"
                                  3)))
 
-(ert-deftest esh-cmd-test/for-name-shadow-loop () ; bug#15372
+(ert-deftest esh-cmd-test/for-loop-name-shadow () ; bug#15372
   "Test invocation of a for loop using an env-var."
   (let ((process-environment (cons "name=env-value" process-environment)))
     (with-temp-eshell
@@ -148,14 +250,28 @@ e.g. \"{(+ 1 2)} 3\" => 3"
       "echo $name; for name in 3 { echo $name }; echo $name"
       "env-value\n3\nenv-value\n"))))
 
+(ert-deftest esh-cmd-test/for-loop-for-items-shadow ()
+  "Test that the variable `for-items' isn't shadowed inside for loops."
+  (with-temp-eshell
+   (with-no-warnings (setq-local for-items "hello"))
+   (eshell-match-command-output "for i in 1 { echo $for-items }"
+                                "hello\n")))
+
+(ert-deftest esh-cmd-test/for-loop-pipe ()
+  "Test invocation of a for loop piped to another command."
+  (skip-unless (executable-find "rev"))
+  (with-temp-eshell
+   (eshell-match-command-output "for i in foo bar baz { echo $i } | rev"
+                                "zabraboof")))
+
 (ert-deftest esh-cmd-test/while-loop ()
   "Test invocation of a while loop."
   (with-temp-eshell
    (let ((eshell-test-value '(0 1 2)))
      (eshell-match-command-output
       (concat "while $eshell-test-value "
-              "{ setq eshell-test-value (cdr eshell-test-value) }")
-      "(1 2)\n(2)\n"))))
+              "{ (pop eshell-test-value) }")
+      "0\n1\n2\n"))))
 
 (ert-deftest esh-cmd-test/while-loop-lisp-form ()
   "Test invocation of a while loop using a Lisp form."
@@ -175,6 +291,17 @@ e.g. \"{(+ 1 2)} 3\" => 3"
       (concat "while {[ $eshell-test-value -ne 3 ]} "
               "{ setq eshell-test-value (1+ eshell-test-value) }")
       "1\n2\n3\n"))))
+
+(ert-deftest esh-cmd-test/while-loop-pipe ()
+  "Test invocation of a while loop piped to another command."
+  (skip-unless (executable-find "rev"))
+  (with-temp-eshell
+   (let ((eshell-test-value '("foo" "bar" "baz")))
+     (eshell-match-command-output
+      (concat "while $eshell-test-value "
+              "{ (pop eshell-test-value) }"
+              " | rev")
+      "zabraboof"))))
 
 (ert-deftest esh-cmd-test/until-loop ()
   "Test invocation of an until loop."
@@ -252,6 +379,30 @@ This tests when `eshell-lisp-form-nil-is-failure' is nil."
                                "yes")
   (eshell-command-result-equal "if {[ foo = bar ]} {echo yes} {echo no}"
                                "no"))
+
+(ert-deftest esh-cmd-test/if-statement-pipe ()
+  "Test invocation of an if statement piped to another command."
+  (skip-unless (executable-find "rev"))
+  (with-temp-eshell
+   (let ((eshell-test-value t))
+     (eshell-match-command-output "if $eshell-test-value {echo yes} | rev"
+                                  "\\`sey\n?"))
+   (let ((eshell-test-value nil))
+     (eshell-match-command-output "if $eshell-test-value {echo yes} | rev"
+                                  "\\`\n?"))))
+
+(ert-deftest esh-cmd-test/if-else-statement-pipe ()
+  "Test invocation of an if/else statement piped to another command."
+  (skip-unless (executable-find "rev"))
+  (with-temp-eshell
+   (let ((eshell-test-value t))
+     (eshell-match-command-output
+      "if $eshell-test-value {echo yes} {echo no} | rev"
+      "\\`sey\n?"))
+   (let ((eshell-test-value nil))
+     (eshell-match-command-output
+      "if $eshell-test-value {echo yes} {echo no} | rev"
+      "\\`on\n?"))))
 
 (ert-deftest esh-cmd-test/unless-statement ()
   "Test invocation of an unless statement."

@@ -1,5 +1,5 @@
 /* Header for coding system handler.
-   Copyright (C) 2001-2022 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
      2005, 2006, 2007, 2008, 2009, 2010, 2011
      National Institute of Advanced Industrial Science and Technology (AIST)
@@ -709,7 +709,7 @@ extern void encode_coding_object (struct coding_system *,
 /* Defined in this file.  */
 INLINE int surrogates_to_codepoint (int, int);
 
-#if defined (WINDOWSNT) || defined (CYGWIN)
+#if defined (WINDOWSNT) || defined (CYGWIN) || defined HAVE_ANDROID
 
 /* These functions use Lisp string objects to store the UTF-16LE
    strings that modern versions of Windows expect.  These strings are
@@ -732,7 +732,7 @@ extern Lisp_Object from_unicode (Lisp_Object str);
 /* Convert WSTR to an Emacs string.  */
 extern Lisp_Object from_unicode_buffer (const wchar_t *wstr);
 
-#endif /* WINDOWSNT || CYGWIN */
+#endif /* WINDOWSNT || CYGWIN || HAVE_ANDROID */
 
 /* Macros for backward compatibility.  */
 

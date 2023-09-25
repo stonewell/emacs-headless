@@ -1,6 +1,6 @@
 ;;; message.el --- composing mail and news messages -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: mail, news
@@ -911,8 +911,10 @@ installations, which are rare these days."
 (defcustom message-sendmail-envelope-from
   'obey-mail-envelope-from
   "Envelope-from when sending mail with sendmail.
-If this is nil, use `user-mail-address'.  If it is the symbol
-`header', use the From: header of the message."
+If this is `obey-mail-envelope-from', then use
+`mail-envelope-from' to decide what to do.  If it is nil, use
+`user-mail-address'.  If it is the symbol `header', use the
+\"From:\" header of the message."
   :version "27.1"
   :type '(choice (string :tag "From name")
 		 (const :tag "Use From: header from message" header)
@@ -1926,9 +1928,10 @@ no, only reply back to the author."
   "Whether to generate X-Hashcash: headers.
 If t, always generate hashcash headers.  If `opportunistic',
 only generate hashcash headers if it can be done without the user
-waiting (i.e., only asynchronously).
+waiting (i.e., only asynchronously).  If nil, don't generate
+hashcash headers.
 
-You must have the \"hashcash\" binary installed, see `hashcash-path'."
+You must have the \"hashcash\" binary installed, see `hashcash-program'."
   :version "24.1"
   :group 'message-headers
   :link '(custom-manual "(message)Mail Headers")
@@ -2822,7 +2825,7 @@ systematically send encrypted emails when possible."
 
 The value must be a list of three elements, all strings:
 - Key ID, in hexadecimal form;
-- Key URL or ASCII armoured key; and
+- Key URL or ASCII armored key; and
 - Protection preference, one of: \"unprotected\", \"sign\",
   \"encrypt\" or \"signencrypt\".
 
@@ -2837,11 +2840,11 @@ will not be inserted."
 			(const :tag "No ID" nil))
 		(choice (string :tag "Key")
 			(const :tag "No Key" nil))
-		(choice (other :tag "None" nil)
-			(const :tag "Unprotected" "unprotected")
+                (choice (const :tag "Unprotected" "unprotected")
 			(const :tag "Sign" "sign")
 			(const :tag "Encrypt" "encrypt")
-			(const :tag "Sign and Encrypt" "signencrypt"))))
+                        (const :tag "Sign and Encrypt" "signencrypt")
+                        (other :tag "None" nil))))
   :version "28.1")
 
 (defun message-add-openpgp-header ()
@@ -2909,7 +2912,7 @@ Consider adding this function to `message-header-setup-hook'"
   "C-c C-f s"    #'message-change-subject
   ;;
   "C-c C-f x"    #'message-cross-post-followup-to
-  ;; prefix+message-cross-post-followup-to = same w/o cross-post
+  ;; prefix+message-cross-post-followup-to = same without cross-post
   "C-c C-f t"    #'message-reduce-to-to-cc
   "C-c C-f a"    #'message-add-archive-header
   ;; mark inserted text
@@ -3191,7 +3194,6 @@ Like `text-mode', but with these additional commands:
     (mail-abbrevs-setup))
    ((message-mail-alias-type-p 'ecomplete)
     (ecomplete-setup)))
-  (add-hook 'completion-at-point-functions #'eudc-capf-complete -1 t)
   (add-hook 'completion-at-point-functions #'message-completion-function nil t)
   (unless buffer-file-name
     (message-set-auto-save-file-name))
@@ -4359,8 +4361,10 @@ If COND is a function, METHOD will be inserted if COND returns
 a non-nil value when called in the message buffer without any
 arguments.  If METHOD is nil in this case, the return value of
 the function will be inserted instead.
-If the buffer already has a\"X-Message-SMTP-Method\" header,
-it is left unchanged."
+
+Note: if the buffer already has a \"X-Message-SMTP-Method\"
+header, these rules are ignored, and the header is left
+unchanged."
   :type '(alist :key-type (choice
                            (string :tag "From Address")
                            (function :tag "Predicate"))
@@ -5007,30 +5011,34 @@ Each line should be no more than 79 characters long."
   "Send the current buffer to `message-send-mail-function'.
 Or, if there's a header that specifies a different method, use
 that instead."
-  (let ((method (message-field-value "X-Message-SMTP-Method")))
+  (let ((method (message-field-value "X-Message-SMTP-Method"))
+        send-function)
     (if (not method)
-	(funcall message-send-mail-function)
+        (funcall message-send-mail-function)
       (message-remove-header "X-Message-SMTP-Method")
       (setq method (split-string method))
+      (setq send-function
+            (symbol-function
+             (intern-soft (format "message-send-mail-with-%s" (car method)))))
       (cond
-       ((equal (car method) "sendmail")
-	(message-send-mail-with-sendmail))
        ((equal (car method) "smtp")
-	(require 'smtpmail)
-	(let* ((smtpmail-store-queue-variables t)
+        (require 'smtpmail)
+        (let* ((smtpmail-store-queue-variables t)
                (smtpmail-smtp-server (nth 1 method))
-	       (service (nth 2 method))
-	       (port (string-to-number service))
-	       ;; If we're talking to the TLS SMTP port, then force a
-	       ;; TLS connection.
-	       (smtpmail-stream-type (if (= port 465)
-					 'tls
-				       smtpmail-stream-type))
-	       (smtpmail-smtp-service (if (> port 0) port service))
-	       (smtpmail-smtp-user (or (nth 3 method) smtpmail-smtp-user)))
-	  (message-smtpmail-send-it)))
+               (service (nth 2 method))
+               (port (string-to-number service))
+               ;; If we're talking to the TLS SMTP port, then force a
+               ;; TLS connection.
+               (smtpmail-stream-type (if (= port 465)
+                                         'tls
+                                       smtpmail-stream-type))
+               (smtpmail-smtp-service (if (> port 0) port service))
+               (smtpmail-smtp-user (or (nth 3 method) smtpmail-smtp-user)))
+          (message-smtpmail-send-it)))
+       (send-function
+        (funcall send-function))
        (t
-	(error "Unknown method %s" method))))))
+        (error "Unknown mail method %s" method))))))
 
 (defun message-send-mail-with-sendmail ()
   "Send off the prepared buffer with sendmail."
@@ -6587,8 +6595,8 @@ they are."
     (widen)
     (forward-line 1)
     (unless (looking-at "$")
-      (forward-line 2)))
-   (sit-for 0)))
+      (forward-line 2))))
+  (sit-for 0))
 
 (defcustom message-beginning-of-line t
   "Whether \\<message-mode-map>\\[message-beginning-of-line]\
@@ -6862,10 +6870,9 @@ are not included."
 
 (defun message-setup-1 (headers &optional yank-action actions return-action)
   (dolist (action actions)
-    (condition-case nil
-        ;; FIXME: Use functions rather than expressions!
-	(add-to-list 'message-send-actions
-		     `(apply #',(car action) ',(cdr action)))))
+    ;; FIXME: Use functions rather than expressions!
+    (add-to-list 'message-send-actions
+		 `(apply #',(car action) ',(cdr action))))
   (setq message-return-action return-action)
   (setq message-reply-buffer
 	(if (and (consp yank-action)
@@ -7034,6 +7041,7 @@ is a function used to switch to and display the mail buffer."
           ;; Firefox sends us In-Reply-To headers that are Message-IDs
           ;; without <> around them.  Fix that.
           (when (and (eq (car h) 'In-Reply-To)
+                     (stringp (cdr h))
                      ;; Looks like a Message-ID.
                      (string-match-p "\\`[^ @]+@[^ @]+\\'" (cdr h))
                      (not (string-match-p "\\`<.*>\\'" (cdr h))))
@@ -7701,10 +7709,7 @@ the message."
 		""))
 	(when message-wash-forwarded-subjects
 	  (setq subject (message-wash-subject subject)))
-	;; Make sure funcs is a list.
-	(and funcs
-	     (not (listp funcs))
-	     (setq funcs (list funcs)))
+        (setq funcs (ensure-list funcs))
 	;; Apply funcs in order, passing subject generated by previous
 	;; func to the next one.
 	(dolist (func funcs)
@@ -8810,8 +8815,6 @@ headers.  If FORCE, insert new field even if NEW-VALUE is empty."
 	"bug-gnu-emacs@gnu.org")
   "Mail addresses that have no full name.
 Used in `message-simplify-recipients'."
-  ;; Maybe the addresses could be extracted from
-  ;; `gnus-parameter-to-list-alist'?
   :type '(choice (const :tag "None" nil)
 		 (repeat string))
   :version "23.1" ;; No Gnus

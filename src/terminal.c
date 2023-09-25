@@ -1,5 +1,5 @@
 /* Functions related to terminal devices.
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -461,6 +461,8 @@ return values.  */)
       return Qpgtk;
     case output_haiku:
       return Qhaiku;
+    case output_android:
+      return Qandroid;
     default:
       emacs_abort ();
     }

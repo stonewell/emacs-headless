@@ -1,6 +1,6 @@
 ;;; sqlite-mode.el --- Mode for examining sqlite3 database files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -55,10 +55,15 @@
   (interactive "fSQLite file name: ")
   (unless (sqlite-available-p)
     (error "This Emacs doesn't have SQLite support, so it can't view SQLite files"))
+  (if (file-remote-p file)
+      (error "Remote SQLite files are not yet supported"))
   (pop-to-buffer (get-buffer-create
                   (format "*SQLite %s*" (file-name-nondirectory file))))
   (sqlite-mode)
   (setq-local sqlite--db (sqlite-open file))
+  (unless (sqlitep sqlite--db)
+    (error "`sqlite-open' failed to open SQLite file"))
+  (add-hook 'kill-buffer-hook (lambda () (sqlite-close sqlite--db)) nil t)
   (sqlite-mode-list-tables))
 
 (defun sqlite-mode-list-tables ()
@@ -122,7 +127,7 @@
         (forward-line 1)
         (if (looking-at " ")
             ;; Delete the info.
-            (delete-region (point) (if (re-search-forward "^[^ ]" nil t)
+            (delete-region (point) (if (re-search-forward "^[^ \t]" nil t)
                                        (match-beginning 0)
                                      (point-max)))
           ;; Insert the info.
@@ -131,22 +136,7 @@
 
 (defun sqlite-mode--column-names (table)
   "Return a list of the column names for TABLE."
-  (let ((sql
-         (caar
-          (sqlite-select
-           sqlite--db
-           "select sql from sqlite_master where tbl_name = ? AND type = 'table'"
-           (list table)))))
-    (with-temp-buffer
-      (insert sql)
-      (mapcar #'string-trim
-              (split-string
-               ;; Extract the args to CREATE TABLE.  Point is
-               ;; currently at its end.
-               (buffer-substring
-                (1- (point))                          ; right before )
-                (1+ (progn (backward-sexp) (point)))) ; right after (
-               ",")))))
+  (mapcar (lambda (row) (nth 1 row)) (sqlite-select sqlite--db (format "pragma table_info(%s)" table))))
 
 (defun sqlite-mode-list-data ()
   "List the data from the table under point."

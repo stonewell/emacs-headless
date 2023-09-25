@@ -1,6 +1,6 @@
 ;;; terminal.el --- terminal emulator for GNU Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1986-1989, 1993-1994, 2001-2022 Free Software
+;; Copyright (C) 1986-1989, 1993-1994, 2001-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Richard Mlynarik <mly@eddie.mit.edu>
@@ -1095,7 +1095,9 @@ subprocess started."
                    (or explicit-shell-file-name
                        (getenv "ESHELL")
                        (getenv "SHELL")
-                       "/bin/sh"))
+                       (if (eq system-type 'android)
+                           "/system/bin/sh"
+                         "/bin/sh")))
                  (s (read-string
                      (format "Run program in emulator (default %s): "
                              default-s))))

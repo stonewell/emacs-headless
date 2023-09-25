@@ -1,5 +1,5 @@
 ;; -*- mode: lisp-data; -*-
-((pass 1 "PASS :changeme"))
+((pass 10 "PASS :changeme"))
 ((nick 1 "NICK tester"))
 ((user 1 "USER user 0 * :tester")
  (0 ":irc.foonet.org 001 tester :Welcome to the foonet IRC Network tester")
@@ -18,7 +18,7 @@
  (0 ":irc.foonet.org 266 tester 3 3 :Current global users 3, max 3")
  (0 ":irc.foonet.org 422 tester :MOTD File is missing"))
 
-((mode-user 3.2 "MODE tester +i")
+((mode-user 10 "MODE tester +i")
  (0 ":irc.foonet.org 221 tester +i")
  (0 ":irc.foonet.org NOTICE tester :This server is in debug mode and is logging all user I/O. If you do not wish for everything you send to be readable by the server owner(s), please disconnect."))
 

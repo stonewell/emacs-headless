@@ -1,5 +1,5 @@
-# serial 37
-dnl Copyright (C) 2002-2003, 2005-2007, 2009-2022 Free Software Foundation,
+# serial 38
+dnl Copyright (C) 2002-2003, 2005-2007, 2009-2023 Free Software Foundation,
 dnl Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
@@ -280,7 +280,6 @@ AC_DEFUN([gl_FUNC_MKTIME],
   AC_REQUIRE([AC_CANONICAL_HOST])
   AC_REQUIRE([gl_FUNC_MKTIME_WORKS])
 
-  REPLACE_MKTIME=0
   if test "$gl_cv_func_working_mktime" != yes; then
     REPLACE_MKTIME=1
     AC_DEFINE([NEED_MKTIME_WORKING], [1],

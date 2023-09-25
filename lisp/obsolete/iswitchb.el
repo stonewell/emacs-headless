@@ -1,6 +1,6 @@
 ;;; iswitchb.el --- switch between buffers using substrings  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-1997, 2000-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 2000-2023 Free Software Foundation, Inc.
 
 ;; Author: Stephen Eglen <stephen@gnu.org>
 ;; Keywords: completion convenience
@@ -251,7 +251,7 @@
   :group 'convenience
   :group 'completion
   :link '(emacs-commentary-link :tag "Commentary" "iswitchb.el")
-  :link '(url-link "http://www.anc.ed.ac.uk/~stephen/emacs/")
+  :link '(url-link "https://www.anc.ed.ac.uk/~stephen/emacs/")
   :link '(emacs-library-link :tag "Lisp File" "iswitchb.el"))
 
 (defcustom iswitchb-case case-fold-search

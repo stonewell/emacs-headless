@@ -1,6 +1,6 @@
 ;;; em-smart.el --- smart display of output  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -69,7 +69,6 @@
 ;;; Code:
 
 (require 'esh-mode)
-(eval-when-compile (require 'eshell))
 
 ;;;###autoload
 (progn
@@ -100,6 +99,7 @@ it to get a real sense of how it works."
   "A hook that gets run when `eshell-smart' is unloaded."
   :type 'hook
   :group 'eshell-smart)
+(make-obsolete-variable 'eshell-smart-unload-hook nil "30.1")
 
 (defcustom eshell-review-quick-commands nil
   "If t, always review commands.
@@ -214,7 +214,7 @@ The options are `begin', `after' or `end'."
      0 frame)
     (if affected
 	(let (window-scroll-functions) ;;FIXME: Why?
-	  (eshell-redisplay)))))
+          (redisplay)))))
 
 (defun eshell-smart-display-setup ()
   "Set the point to somewhere in the beginning of the last command."
@@ -261,7 +261,7 @@ and the end of the buffer are still visible."
 	(recenter -1)
 	;; trigger the redisplay now, so that we catch any attempted
 	;; point motion; this is to cover for a redisplay bug
-	(eshell-redisplay))
+        (redisplay))
     (let ((top-point (point)))
       (and (memq 'eshell-smart-display-move pre-command-hook)
 	   (>= (point) eshell-last-input-start)
@@ -321,6 +321,9 @@ and the end of the buffer are still visible."
 	(goto-char (point-max)))))
     (if clear
 	(remove-hook 'pre-command-hook 'eshell-smart-display-move t))))
+
+(defun em-smart-unload-hook ()
+  (remove-hook 'window-configuration-change-hook #'eshell-refresh-windows))
 
 (provide 'em-smart)
 

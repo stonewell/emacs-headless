@@ -1,6 +1,6 @@
 ;;; idlwave.el --- IDL editing mode for GNU Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Authors: JD Smith <jd.smith@utoledo.edu>
 ;;          Carsten Dominik <dominik@science.uva.nl>
@@ -133,7 +133,7 @@
 ;;   limited to comments only and occurs only when a comment
 ;;   paragraph is filled via `idlwave-fill-paragraph'.
 ;;
-;;   Muti-statement lines (using "&") on block begin and end lines can
+;;   Multi-statement lines (using "&") on block begin and end lines can
 ;;   ruin the formatting.  For example, multiple end statements on a
 ;;   line: endif & endif.  Using "&" outside of block begin/end lines
 ;;   should be okay.
@@ -266,7 +266,7 @@ extends to the end of the match for the regular expression."
   :type 'regexp)
 
 (defcustom idlwave-use-last-hang-indent nil
-  "If non-nil then use last match on line for `idlwave-indent-regexp'."
+  "If non-nil then use last match on line for `idlwave-hang-indent-regexp'."
   :group 'idlwave-code-formatting
   :type 'boolean)
 
@@ -3891,7 +3891,7 @@ you specify /."
 	    (while (and item)
 	      ;;
 	      ;; Call etags
-	      (if (not (string-match "^[ \\t]*$" item))
+	      (if (not (string-match "^[ \t]*$" item))
 		  (progn
 		    (message "%s" (concat "Tagging " item "..."))
 		    (setq errbuf (get-buffer-create "*idltags-error*"))
@@ -4311,10 +4311,7 @@ automatically when called interactively.  When you need routine
 information updated immediately, leave NO-CONCATENATE nil."
   (interactive "P\np")
   ;; Stop any idle processing
-  (if (or (and (fboundp 'itimerp)
-	       (itimerp idlwave-load-rinfo-idle-timer))
-	  (and (fboundp 'timerp)
-	       (timerp idlwave-load-rinfo-idle-timer)))
+  (if (timerp idlwave-load-rinfo-idle-timer)
       (cancel-timer idlwave-load-rinfo-idle-timer))
   (cond
    ((equal arg '(64))
@@ -4388,10 +4385,7 @@ information updated immediately, leave NO-CONCATENATE nil."
 (defvar idlwave-load-rinfo-steps-done (make-vector 6 nil))
 (defvar idlwave-load-rinfo-idle-timer nil)
 (defun idlwave-start-load-rinfo-timer ()
-  (if (or (and (fboundp 'itimerp)
-	       (itimerp idlwave-load-rinfo-idle-timer))
-	  (and (fboundp 'timerp)
-	       (timerp idlwave-load-rinfo-idle-timer)))
+  (if (timerp idlwave-load-rinfo-idle-timer)
       (cancel-timer idlwave-load-rinfo-idle-timer))
   (setq idlwave-load-rinfo-steps-done (make-vector 6 nil))
   (setq idlwave-load-rinfo-idle-timer nil)
@@ -4653,7 +4647,7 @@ Gets set in cached XML rinfo, or `idlw-rinfo.el'.")
 	    (setcar alias (car x))
 	    (push alias idlwave-system-routines)))
     (cl-loop for x in remove-list do
-	  (delq x idlwave-system-routines))))
+	     (setq idlwave-system-routines (delq x idlwave-system-routines)))))
 
 (defun idlwave-convert-xml-clean-sysvar-aliases (aliases)
   ;; Duplicate and trim original routine aliases from rinfo list
@@ -4666,7 +4660,8 @@ Gets set in cached XML rinfo, or `idlw-rinfo.el'.")
 	    (setcar alias (car x))
 	    (push alias idlwave-system-variables-alist)))
     (cl-loop for x in remove-list do
-	  (delq x idlwave-system-variables-alist))))
+	     (setq idlwave-system-variables-alist
+                   (delq x idlwave-system-variables-alist)))))
 
 
 (defun idlwave-xml-create-sysvar-alist (xml-entry)
@@ -5340,7 +5335,6 @@ directories and save the routine info.
 	(idlwave-path-alist-remove-flag dir-entry 'user)))
     (idlwave-scan-user-lib-files path-alist)))
 
-(defvar font-lock-mode)
 (defun idlwave-scan-user-lib-files (path-alist)
   ;; Scan the PRO files in PATH-ALIST and store the info in the user catalog
   (let* ((idlwave-scanning-lib t)
@@ -8756,11 +8750,12 @@ This expects NAME TYPE IDLWAVE-TWIN-CLASS to be bound to the right values."
 
 (defun idlwave-count-eq (elt list)
   "How often is ELT in LIST?"
-  (length (delq nil (mapcar (lambda (x) (eq x elt)) list))))
+  (declare (obsolete nil "30.1"))
+  (seq-count (lambda (x) (eq x elt)) list))
 
 (defun idlwave-count-memq (elt alist)
   "How often is ELT a key in ALIST?"
-  (length (delq nil (mapcar (lambda (x) (eq (car x) elt)) alist))))
+  (seq-count (lambda (x) (eq (car x) elt)) alist))
 
 (defun idlwave-syslib-p (file)
   "Non-nil if FILE is in the system library."

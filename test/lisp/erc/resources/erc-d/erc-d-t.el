@@ -1,26 +1,24 @@
 ;;; erc-d-t.el --- ERT helpers for ERC test server -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
-;;
-;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
-;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
-;;; Commentary:
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Code:
+
 (eval-and-compile
   (let* ((d (file-name-directory (or (macroexp-file-name) buffer-file-name)))
          (load-path (cons (directory-file-name d) load-path)))
@@ -34,7 +32,7 @@
     (dolist (buf (buffer-list))
       (with-current-buffer buf
         (when (or erc-d-u--process-buffer
-                  (derived-mode-p 'erc-mode))
+                  (derived-mode-p 'erc-mode 'erc-dcc-chat-mode))
           (push buf buflist))))
     (dolist (buf buflist)
       (when (and (boundp 'erc-server-flood-timer)
@@ -85,6 +83,8 @@ returning."
                (ignore-errors (kill-buffer buf)))))
          (sleep-for erc-d-t-cleanup-sleep-secs)))))
 
+(defvar erc-d-t--wait-message-prefix "Awaiting: ")
+
 (defmacro erc-d-t-wait-for (max-secs msg &rest body)
   "Wait for BODY to become non-nil.
 Or signal error with MSG after MAX-SECS.  When MAX-SECS is negative,
@@ -101,7 +101,7 @@ be desirable."
   (let ((inverted (make-symbol "inverted"))
         (time-out (make-symbol "time-out"))
         (result (make-symbol "result")))
-    `(ert-info ((concat "Awaiting: " ,msg))
+    `(ert-info ((concat erc-d-t--wait-message-prefix ,msg))
        (let ((,time-out (abs ,max-secs))
              (,inverted (< ,max-secs 0))
              (,result ',result))
@@ -122,7 +122,8 @@ On failure, emit MSG."
   (unless (or (stringp msg) (memq (car-safe msg) '(format concat)))
     (push msg body)
     (setq msg (prin1-to-string body)))
-  `(erc-d-t-wait-for (- (abs ,max-secs)) ,msg (not (progn ,@body))))
+  `(let ((erc-d-t--wait-message-prefix "Sustaining: "))
+     (erc-d-t-wait-for (- (abs ,max-secs)) ,msg (not (progn ,@body)))))
 
 (defun erc-d-t-search-for (timeout text &optional from on-success)
   "Wait for TEXT to appear in current buffer before TIMEOUT secs.

@@ -1,6 +1,6 @@
 ;;; cl-generic.el --- CLOS-style generic functions for Elisp  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Version: 1.0
@@ -1101,10 +1101,10 @@ MET-NAME is as returned by `cl--generic-load-hist-format'."
          (qualifiers   (cl--generic-method-qualifiers method))
          (call-con     (cl--generic-method-call-con method))
          (function     (cl--generic-method-function method))
-         (args (help-function-arglist (if (not (eq call-con 'curried))
-                                          function
-                                        (funcall function #'ignore))
-                                      'names))
+         (function (if (not (eq call-con 'curried))
+                              function
+                            (funcall function #'ignore)))
+         (args (help-function-arglist function 'names))
          (docstring (documentation function))
          (qual-string
           (if (null qualifiers) ""

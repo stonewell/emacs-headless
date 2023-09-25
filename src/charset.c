@@ -1,6 +1,6 @@
 /* Basic character set support.
 
-Copyright (C) 2001-2022 Free Software Foundation, Inc.
+Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
   2005, 2006, 2007, 2008, 2009, 2010, 2011
@@ -486,8 +486,9 @@ load_charset_map_from_file (struct charset *charset, Lisp_Object mapfile,
   specpdl_ref count = SPECPDL_INDEX ();
   record_unwind_protect_nothing ();
   specbind (Qfile_name_handler_alist, Qnil);
-  fd = openp (Vcharset_map_path, mapfile, suffixes, NULL, Qnil, false, false);
-  fp = fd < 0 ? 0 : fdopen (fd, "r");
+  fd = openp (Vcharset_map_path, mapfile, suffixes, NULL, Qnil, false, false,
+	      NULL);
+  fp = fd < 0 ? 0 : emacs_fdopen (fd, "r");
   if (!fp)
     {
       int open_errno = errno;
@@ -544,7 +545,7 @@ load_charset_map_from_file (struct charset *charset, Lisp_Object mapfile,
       entries->entry[idx].c = c;
       n_entries++;
     }
-  fclose (fp);
+  emacs_fclose (fp);
   clear_unwind_protect (count);
 
   load_charset_map (charset, head, n_entries, control_flag);

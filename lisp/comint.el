@@ -1,6 +1,6 @@
 ;;; comint.el --- general command interpreter in a window stuff -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1990, 1992-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1988, 1990, 1992-2023 Free Software Foundation, Inc.
 
 ;; Author: Olin Shivers <shivers@cs.cmu.edu>
 ;;	Simon Marshall <simon@gnu.org>
@@ -78,7 +78,7 @@
 ;;
 ;; Not bound by default in comint-mode (some are in shell mode)
 ;; comint-run				Run a program under comint-mode
-;; comint-send-invisible		Read a line w/o echo, and send to proc
+;; comint-send-invisible		Read a line without echo, and send to proc
 ;; comint-dynamic-complete-filename	Complete filename at point.
 ;; comint-dynamic-list-filename-completions List completions in help buffer.
 ;; comint-replace-by-expanded-filename	Expand and complete filename at point;
@@ -258,6 +258,36 @@ to set this in a mode hook, rather than customize the default value."
 		 file)
   :group 'comint)
 
+(defcustom comint-pager nil
+  "If non-nil, the program to use for pagination of program output.
+If nil, use the default pager.
+
+Some programs produce large amounts of output, and have provision for
+pagination of their output through a filter program, commonly known as
+a \"pager\".  The pager limits the amount of output produced and
+allows the user to interactively browse the output one page at a time.
+Some programs paginate their output by default, by always starting a
+pager.  The program they use as the pager is specified by the
+environment variable PAGER; if that variable is not defined, they use
+some fixed default, such as \"less\".
+
+The interactive browsing aspects of pagination are not needed, and get
+in the way, when the output of the program is directed to an Emacs
+buffer, so in those cases pagination might need to be disabled.
+Disabling pagination means that some programs will produce large
+amounts of output, but most such programs have other ways to limit
+their output, such as additional arguments or Emacs interfaces.
+To disable pagination, this variable's value should be a string that
+names a program, such as \"cat\", which passes through all of the
+output without any filtering or delays.  Comint will then set the
+PAGER variable to name that program, when it invokes external
+programs."
+  :version "30.1"
+  :type '(choice (const :tag "Use default PAGER" nil)
+                 (const :tag "Don't do paging (PAGER=cat)" "cat")
+                 (string :tag "Program name or absolute path of pager"))
+  :group 'comint)
+
 (defvar comint-input-ring-file-prefix nil
   "The prefix to skip when parsing the input ring file.
 This is useful in Zsh when the extended_history option is on.")
@@ -383,8 +413,9 @@ This variable is buffer-local."
    "\\(?:" (regexp-opt password-word-equivalents) "\\|Response\\)"
    "\\(?:\\(?:, try\\)? *again\\| (empty for no passphrase)\\| (again)\\)?"
    ;; "[[:alpha:]]" used to be "for", which fails to match non-English.
-   "\\(?: [[:alpha:]]+ .+\\)?[[:blank:]]*[:：៖][[:space:]]*\\'"
-   ;; The ccrypt encryption dialogue doesn't end with a colon, so
+   "\\(?: [[:alpha:]]+ .+\\)?[[:blank:]]*"
+   "[" (apply #'string password-colon-equivalents) "][[:space:]]*\\'"
+   ;; The ccrypt encryption dialog doesn't end with a colon, so
    ;; treat it specially.
    "\\|^Enter encryption key: (repeat) *\\'"
    ;; openssh-8.6p1 format: "(user@host) Password:".
@@ -604,6 +635,12 @@ via PTYs.")
 				       menu-bar-final-items))
     map))
 
+(defvar-keymap comint-repeat-map
+  :doc "Keymap to repeat comint key sequences.  Used in `repeat-mode'."
+  :repeat t
+  "C-n" #'comint-next-prompt
+  "C-p" #'comint-previous-prompt)
+
 ;; Fixme: Is this still relevant?
 (defvar comint-ptyp t
   "Non-nil if communications via pty; false if by pipe.  Buffer local.
@@ -687,6 +724,9 @@ Entry to this mode runs the hooks on `comint-mode-hook'."
   (setq-local comint-last-input-start (point-min-marker))
   (setq-local comint-last-input-end (point-min-marker))
   (setq-local comint-last-output-start (make-marker))
+  ;; It is ok to let the input method edit prompt text, but RET must
+  ;; be processed by Emacs.
+  (setq text-conversion-style 'action)
   (make-local-variable 'comint-last-prompt)
   (make-local-variable 'comint-prompt-regexp)        ; Don't set; default
   (make-local-variable 'comint-input-ring-size)      ; ...to global val.
@@ -858,6 +898,10 @@ series of processes in the same Comint buffer.  The hook
 	 (nconc
           (comint-term-environment)
 	  (list (format "INSIDE_EMACS=%s,comint" emacs-version))
+          (when comint-pager
+            (if (stringp comint-pager)
+                (list (format "PAGER=%s" comint-pager))
+              (error "comint-pager should be a string: %s" comint-pager)))
 	  process-environment))
 	(default-directory
 	  (if (file-accessible-directory-p default-directory)
@@ -1397,7 +1441,7 @@ actual side-effect."
                (if dry-run (throw dry-run 'message))
 	       (goto-char (match-end 0))
 	       (message "Absolute reference cannot be expanded"))
-	      ((looking-at "!-\\([0-9]+\\)\\(:?[0-9^$*-]+\\)?")
+	      ((looking-at "!-\\([0-9]+\\):?\\([0-9^$*-]+\\)?")
 	       ;; Just a number of args from `number' lines backward.
                (if dry-run (throw dry-run 'history))
 	       (let ((number (1- (string-to-number
@@ -1421,7 +1465,7 @@ actual side-effect."
 			      t t)
 	       (message "History item: previous"))
 	      ((looking-at
-		"!\\??\\({\\(.+\\)}\\|\\(\\sw+\\)\\)\\(:?[0-9^$*-]+\\)?")
+		"!\\??\\({\\(.+\\)}\\|\\(\\sw+\\)\\):?\\([0-9^$*-]+\\)?")
 	       ;; Most recent input starting with or containing (possibly
 	       ;; protected) string, maybe just a number of args.  Phew.
                (if dry-run (throw dry-run 'expand))
@@ -1536,6 +1580,8 @@ Intended to be added to `isearch-mode-hook' in `comint-mode'."
   (setq isearch-message-function nil)
   (setq isearch-wrap-function nil)
   (setq isearch-push-state-function nil)
+  ;; Force isearch to not change mark.
+  (setq isearch-opoint (point))
   (kill-local-variable 'isearch-lazy-count)
   (remove-hook 'isearch-mode-end-hook 'comint-history-isearch-end t)
   (unless isearch-suspended
@@ -2764,7 +2810,7 @@ If N is negative, find the previous or Nth previous match."
 If `comint-use-prompt-regexp' is nil, then this means the beginning of
 the Nth next `input' field, otherwise, it means the Nth occurrence of
 text matching `comint-prompt-regexp'."
-  (interactive "p")
+  (interactive "^p")
   (if comint-use-prompt-regexp
       ;; Use comint-prompt-regexp
       (let ((paragraph-start comint-prompt-regexp))
@@ -2801,7 +2847,7 @@ text matching `comint-prompt-regexp'."
 If `comint-use-prompt-regexp' is nil, then this means the beginning of
 the Nth previous `input' field, otherwise, it means the Nth occurrence of
 text matching `comint-prompt-regexp'."
-  (interactive "p")
+  (interactive "^p")
   (comint-next-prompt (- n)))
 
 ;; State used by `comint-insert-previous-argument' when cycling.
@@ -2812,7 +2858,7 @@ text matching `comint-prompt-regexp'."
   "If non-nil, `comint-insert-previous-argument' counts args from the end.
 If this variable is nil, the default, `comint-insert-previous-argument'
 counts the arguments from the beginning; if non-nil, it counts from
-the end instead.  This allows to emulate the behavior of `ESC-NUM ESC-.'
+the end instead.  This emulates the behavior of `ESC-NUM ESC-.'
 in both Bash and zsh: in Bash, `number' counts from the
 beginning (variable is nil), while in zsh, it counts from the end."
   :type 'boolean
@@ -4113,9 +4159,15 @@ function called, or nil, if no function was called (if BEG = END)."
         (save-restriction
           (let ((beg2 beg1)
                 (end2 end1))
-            (when (= beg2 beg)
+            (when (and (= beg2 beg)
+                       (> beg2 (point-min))
+                       (eq is-output
+                           (eq (get-text-property (1- beg2) 'field) 'output)))
               (setq beg2 (field-beginning beg2)))
-            (when (= end2 end)
+            (when (and (= end2 end)
+                       (< end2 (point-max))
+                       (eq is-output
+                           (eq (get-text-property (1+ end2) 'field) 'output)))
               (setq end2 (field-end end2)))
             ;; Narrow to the whole field surrounding the region
             (narrow-to-region beg2 end2))

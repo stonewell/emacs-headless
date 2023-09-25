@@ -1,6 +1,6 @@
 ;;; shortdoc.el --- Short function summaries  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
 ;; Keywords: lisp, help
 ;; Package: emacs
@@ -137,11 +137,11 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (assoc-string "foo" '(("foo" . "bar") ("zot" "baz"))))
   "Manipulating Alists"
   (assoc-delete-all
-   :eval (assoc-delete-all "foo" '(("foo" . "bar") ("zot" . "baz")) #'equal))
+   :eval (assoc-delete-all "b" (list '("a" . a) '("b" . b) '("b" . c))))
   (assq-delete-all
-   :eval (assq-delete-all 'foo '((foo . bar) (zot . baz))))
+   :eval (assq-delete-all 2 (list '(1 . a) '(2 . b) '(2 . c))))
   (rassq-delete-all
-   :eval (rassq-delete-all 'bar '((foo . bar) (zot . baz))))
+   :eval (rassq-delete-all 'b (list '(1 . a) '(2 . b) '(2 . c))))
   (alist-get
    :eval (let ((foo '((bar . baz))))
            (setf (alist-get 'bar foo) 'zot)
@@ -153,14 +153,14 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (let* ((old '((foo . bar)))
                 (new (copy-alist old)))
            (eq old new)))
-  ;; FIXME: Outputs "\.rose" for the symbol `.rose'.
-  ;; (let-alist
-  ;;     :eval (let ((colors '((rose . red)
-  ;;                           (lily . white))))
-  ;;             (let-alist colors
-  ;;               (if (eq .rose 'red)
-  ;;                   .lily))))
-  )
+  ;; FIXME: Outputs "\.rose" for the symbol `.rose'.  It would be
+  ;; better if that could be cleaned up.
+  (let-alist
+      :eval (let ((colors '((rose . red)
+                            (lily . white))))
+              (let-alist colors
+                (if (eq .rose 'red)
+                    .lily)))))
 
 (define-short-documentation-group string
   "Making Strings"
@@ -187,8 +187,10 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (format "This number is %d" 4))
   "Manipulating Strings"
   (substring
-   :eval (substring "foobar" 0 3)
-   :eval (substring "foobar" 3))
+   :eval (substring "abcde" 1 3)
+   :eval (substring "abcde" 2)
+   :eval (substring "abcde" 1 -1)
+   :eval (substring "abcde" -4 4))
   (string-limit
    :eval (string-limit "foobar" 3)
    :eval (string-limit "foobar" 3 t)
@@ -251,19 +253,24 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (string-glyph-decompose "Å"))
   "Predicates for Strings"
   (string-equal
-   :eval (string-equal "foo" "foo"))
+   :eval (string-equal "abc" "abc")
+   :eval (string-equal "abc" "ABC"))
   (string-equal-ignore-case
    :eval (string-equal-ignore-case "foo" "FOO"))
-  (eq
-   :eval (eq "foo" "foo"))
-  (eql
-   :eval (eql "foo" "foo"))
   (equal
    :eval (equal "foo" "foo"))
   (cl-equalp
    :eval (cl-equalp "Foo" "foo"))
   (stringp
+   :eval (stringp "a")
+   :eval (stringp 'a)
    :eval "(stringp ?a)")
+  (string-or-null-p
+   :eval (string-or-null-p "a")
+   :eval (string-or-null-p nil))
+  (char-or-string-p
+   :eval "(char-or-string-p ?a)"
+   :eval (char-or-string-p "a"))
   (string-empty-p
    :no-manual t
    :eval (string-empty-p ""))
@@ -271,16 +278,16 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :no-manual t
    :eval (string-blank-p " \n"))
   (string-lessp
-   :eval (string-lessp "foo" "bar")
+   :eval (string-lessp "abc" "def")
    :eval (string-lessp "pic4.png" "pic32.png")
-   :eval (string-lessp "1.1" "1 2"))
+   :eval (string-lessp "1.1" "1.2"))
   (string-greaterp
    :eval (string-greaterp "foo" "bar"))
   (string-version-lessp
    :eval (string-version-lessp "pic4.png" "pic32.png")
-   :eval (string-version-lessp "1.1" "1 2"))
+   :eval (string-version-lessp "1.9.3" "1.10.2"))
   (string-collate-lessp
-   :eval (string-collate-lessp "1.1" "1 2"))
+   :eval (string-collate-lessp "abc" "abd"))
   (string-prefix-p
    :eval (string-prefix-p "foo" "foobar"))
   (string-suffix-p
@@ -297,9 +304,13 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   "Converting Strings"
   (string-to-number
    :eval (string-to-number "42")
-   :eval (string-to-number "deadbeef" 16))
+   :eval (string-to-number "deadbeef" 16)
+   :eval (string-to-number "2.5e+03"))
   (number-to-string
    :eval (number-to-string 42))
+  (char-uppercase-p
+   :eval "(char-uppercase-p ?A)"
+   :eval "(char-uppercase-p ?a)")
   "Data About Strings"
   (length
    :eval (length "foo")
@@ -412,8 +423,8 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (file-readable-p
    :no-eval (file-readable-p "/tmp/foo")
    :eg-result t)
-  (file-writeable-p
-   :no-eval (file-writeable-p "/tmp/foo")
+  (file-writable-p
+   :no-eval (file-writable-p "/tmp/foo")
    :eg-result t)
   (file-accessible-directory-p
    :no-eval (file-accessible-directory-p "/tmp")
@@ -627,11 +638,12 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (nconc
    :eval (nconc (list 1) (list 2 3 4)))
   (delq
-   :eval (delq 2 (list 1 2 3 4))
-   :eval (delq "a" (list "a" "b" "c" "d")))
+   :eval (delq 'a (list 'a 'b 'c 'd)))
   (delete
    :eval (delete 2 (list 1 2 3 4))
    :eval (delete "a" (list "a" "b" "c" "d")))
+  (remq
+   :eval (remq 'b '(a b c)))
   (remove
    :eval (remove 2 '(1 2 3 4))
    :eval (remove "a" '("a" "b" "c" "d")))
@@ -644,8 +656,8 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (mapcan #'list '(1 2 3)))
   (mapc
    :eval (mapc #'insert '("1" "2" "3")))
-  (reduce
-   :eval (reduce #'+ '(1 2 3)))
+  (seq-reduce
+   :eval (seq-reduce #'+ '(1 2 3) 0))
   (mapconcat
    :eval (mapconcat #'identity '("foo" "bar") "|"))
   "Predicates"
@@ -670,29 +682,23 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (nlistp '(1 . 2)))
   "Finding Elements"
   (memq
-   :eval (memq 2 '(1 2 3))
-   :eval (memq 2.0 '(1.0 2.0 3.0))
-   :eval (memq "b" '("a" "b" "c")))
+   :eval (memq 'b '(a b c)))
+  (memql
+   :eval (memql 2.0 '(1.0 2.0 3.0)))
   (member
    :eval (member 2 '(1 2 3))
    :eval (member "b" '("a" "b" "c")))
-  (remq
-   :eval (remq 2 '(1 2 3 2 4 2))
-   :eval (remq "b" '("a" "b" "c")))
-  (memql
-   :eval (memql 2.0 '(1.0 2.0 3.0)))
   (member-ignore-case
    :eval (member-ignore-case "foo" '("bar" "Foo" "zot")))
   "Association Lists"
   (assoc
-   :eval (assoc 'b '((a 1) (b 2))))
+   :eval (assoc "b" '(("a" . 1) ("b" . 2))))
   (rassoc
-   :eval (rassoc '2 '((a . 1) (b . 2))))
+   :eval (rassoc "b" '((1 . "a") (2 . "b"))))
   (assq
-   :eval (assq 'b '((a 1) (b 2)))
-   :eval (assq "a" '(("a" 1) ("b" 2))))
+   :eval (assq 'b '((a . 1) (b . 2))))
   (rassq
-   :eval (rassq '2 '((a . 1) (b . 2))))
+   :eval (rassq 'b '((1 . a) (2 . b))))
   (assoc-string
    :eval (assoc-string "foo" '(("a" 1) (foo 2))))
   (alist-get
@@ -701,10 +707,12 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (assoc-default 2 '((1 . a) (2 . b) #'=)))
   (copy-alist
    :eval (copy-alist '((1 . a) (2 . b))))
-  (assq-delete-all
-   :eval (assq-delete-all 2 (list '(1 . a) '(2 . b) '(2 . c))))
   (assoc-delete-all
    :eval (assoc-delete-all "b" (list '("a" . a) '("b" . b) '("b" . c))))
+  (assq-delete-all
+   :eval (assq-delete-all 2 (list '(1 . a) '(2 . b) '(2 . c))))
+  (rassq-delete-all
+   :eval (rassq-delete-all 'b (list '(1 . a) '(2 . b) '(2 . c))))
   "Property Lists"
   (plist-get
    :eval (plist-get '(a 1 b 2 c 3) 'b))
@@ -725,6 +733,88 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (safe-length
    :eval (safe-length '(a b c))))
 
+(define-short-documentation-group symbol
+  "Making symbols"
+  (intern
+   :eval (intern "abc"))
+  (intern-soft
+   :eval (intern-soft "Phooey!"))
+  (make-symbol
+   :eval (make-symbol "abc"))
+  "Comparing symbols"
+  (eq
+   :eval (eq 'abc 'abc)
+   :eval (eq 'abc 'abd))
+  (eql
+   :eval (eql 'abc 'abc))
+  (equal
+   :eval (equal 'abc 'abc))
+  "Name"
+  (symbol-name
+   :eval (symbol-name 'abc)))
+
+(define-short-documentation-group comparison
+  "General-purpose"
+  (eq
+   :eval (eq 'a 'a)
+   :eval "(eq ?A ?A)"
+   :eval (let ((x (list 'a "b" '(c) 4 5.0)))
+           (eq x x)))
+  (eql
+   :eval (eql 2 2)
+   :eval (eql 2.0 2.0)
+   :eval (eql 2.0 2))
+  (equal
+   :eval (equal "abc" "abc")
+   :eval (equal 2.0 2.0)
+   :eval (equal 2.0 2)
+   :eval (equal '(a "b" (c) 4.0) '(a "b" (c) 4.0)))
+  (cl-equalp
+   :eval (cl-equalp 2 2.0)
+   :eval (cl-equalp "ABC" "abc"))
+  "Numeric"
+  (=
+   :args (number &rest numbers)
+   :eval (= 2 2)
+   :eval (= 2.0 2.0)
+   :eval (= 2.0 2)
+   :eval (= 4 4 4 4))
+  (/=
+   :eval (/= 4 4))
+  (<
+   :args (number &rest numbers)
+   :eval (< 4 4)
+   :eval (< 1 2 3))
+  (<=
+   :args (number &rest numbers)
+   :eval (<= 4 4)
+   :eval (<= 1 2 2 3))
+  (>
+   :args (number &rest numbers)
+   :eval (> 4 4)
+   :eval (> 3 2 1))
+  (>=
+   :args (number &rest numbers)
+   :eval (>= 4 4)
+   :eval (>= 3 2 2 1))
+  "String"
+  (string-equal
+   :eval (string-equal "abc" "abc")
+   :eval (string-equal "abc" "ABC"))
+  (string-equal-ignore-case
+   :eval (string-equal-ignore-case "abc" "ABC"))
+  (string-lessp
+   :eval (string-lessp "abc" "abd")
+   :eval (string-lessp "abc" "abc")
+   :eval (string-lessp "pic4.png" "pic32.png"))
+  (string-greaterp
+   :eval (string-greaterp "abd" "abc")
+   :eval (string-greaterp "abc" "abc"))
+  (string-version-lessp
+   :eval (string-version-lessp "pic4.png" "pic32.png")
+   :eval (string-version-lessp "1.9.3" "1.10.2"))
+  (string-collate-lessp
+   :eval (string-collate-lessp "abc" "abd")))
 
 (define-short-documentation-group vector
   "Making Vectors"
@@ -747,6 +837,8 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (seq-subseq
    :eval (seq-subseq [1 2 3 4 5] 1 3)
    :eval (seq-subseq [1 2 3 4 5] 1))
+  (copy-tree
+   :eval (copy-tree [1 (2 3) [4 5]] t))
   "Mapping Over Vectors"
   (mapcar
    :eval (mapcar #'identity [1 2 3]))
@@ -833,7 +925,7 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (seq-set-equal-p
    :eval (seq-set-equal-p '(1 2 3) '(3 1 2)))
   (seq-some
-   :eval (seq-some #'cl-evenp '(1 2 3)))
+   :eval (seq-some #'floatp '(1 2.0 3)))
   "Building Sequences"
   (seq-concatenate
    :eval (seq-concatenate 'vector '(1 2) '(c d)))
@@ -898,14 +990,14 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (seq-filter
    :eval (seq-filter #'numberp '(a b 3 4 f 6)))
   (seq-keep
-   :eval (seq-keep #'cl-digit-char-p '(?6 ?a ?7)))
+   :eval (seq-keep #'car-safe '((1 2) 3 t (a . b))))
   (seq-remove
    :eval (seq-remove #'numberp '(1 2 c d 5)))
   (seq-remove-at-position
    :eval (seq-remove-at-position '(a b c d e) 3)
    :eval (seq-remove-at-position [a b c d e] 0))
   (seq-group-by
-   :eval (seq-group-by #'cl-plusp '(-1 2 3 -4 -5 6)))
+   :eval (seq-group-by #'natnump '(-1 2 3 -4 -5 6)))
   (seq-union
    :eval (seq-union '(1 2 3) '(3 5)))
   (seq-difference
@@ -921,7 +1013,7 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (seq-split
    :eval (seq-split [0 1 2 3 5] 2))
   (seq-take-while
-   :eval (seq-take-while #'cl-evenp [2 4 9 6 5]))
+   :eval (seq-take-while #'integerp [1 2 3.0 4]))
   (seq-uniq
    :eval (seq-uniq '(a b d b a c))))
 
@@ -1081,6 +1173,9 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eg-result-string "#<process foo>")
   (processp
    :eval (processp t))
+  (process-status
+   :no-eval (process-status process)
+   :eg-result exit)
   (delete-process
    :no-value (delete-process process))
   (kill-process
@@ -1131,13 +1226,10 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :args (number &rest numbers)
    :eval (= 4 4)
    :eval (= 4.0 4.0)
-   :eval (= 4 5 6 7))
-  (eq
-   :eval (eq 4 4)
-   :eval (eq 4.0 4.0))
+   :eval (= 4 4.0)
+   :eval (= 4 4 4 4))
   (eql
    :eval (eql 4 4)
-   :eval (eql 4 "4")
    :eval (eql 4.0 4.0))
   (/=
    :eval (/= 4 4))
@@ -1148,17 +1240,21 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
   (<=
    :args (number &rest numbers)
    :eval (<= 4 4)
-   :eval (<= 1 2 3))
+   :eval (<= 1 2 2 3))
   (>
    :args (number &rest numbers)
    :eval (> 4 4)
-   :eval (> 1 2 3))
+   :eval (> 3 2 1))
   (>=
    :args (number &rest numbers)
    :eval (>= 4 4)
-   :eval (>= 1 2 3))
+   :eval (>= 3 2 2 1))
   (zerop
    :eval (zerop 0))
+  (natnump
+   :eval (natnump -1)
+   :eval (natnump 0)
+   :eval (natnump 23))
   (cl-plusp
    :eval (cl-plusp 0)
    :eval (cl-plusp 1))
@@ -1169,9 +1265,6 @@ A FUNC form can have any number of `:no-eval' (or `:no-value'),
    :eval (cl-oddp 3))
   (cl-evenp
    :eval (cl-evenp 6))
-  (natnump
-   :eval (natnump -1)
-   :eval (natnump 23))
   (bignump
    :eval (bignump 4)
    :eval (bignump (expt 2 90)))
@@ -1357,37 +1450,51 @@ If SAME-WINDOW, don't pop to a new window."
     (setq group (intern group)))
   (unless (assq group shortdoc--groups)
     (error "No such documentation group %s" group))
-  (funcall (if same-window
-               #'pop-to-buffer-same-window
-             #'pop-to-buffer)
-           (format "*Shortdoc %s*" group))
-  (let ((inhibit-read-only t)
-        (prev nil))
-    (erase-buffer)
-    (shortdoc-mode)
-    (button-mode)
-    (mapc
-     (lambda (data)
-       (cond
-        ((stringp data)
-         (setq prev nil)
-         (unless (bobp)
-           (insert "\n"))
-         (insert (propertize
-                  (concat (substitute-command-keys data) "\n\n")
-                  'face 'shortdoc-heading
-                  'shortdoc-section t)))
-        ;; There may be functions not yet defined in the data.
-        ((fboundp (car data))
-         (when prev
-           (insert (make-separator-line)))
-         (setq prev t)
-         (shortdoc--display-function data))))
-     (cdr (assq group shortdoc--groups))))
+  (let ((buf (get-buffer-create (format "*Shortdoc %s*" group))))
+    (shortdoc--insert-group-in-buffer group buf)
+    (funcall (if same-window
+                 #'pop-to-buffer-same-window
+               #'pop-to-buffer)
+             buf))
   (goto-char (point-min))
   (when function
     (text-property-search-forward 'shortdoc-function function t)
     (beginning-of-line)))
+
+(defun shortdoc--insert-group-in-buffer (group &optional buf)
+  "Insert a short documentation summary for functions in GROUP in buffer BUF.
+BUF defaults to the current buffer if nil or omitted."
+  (with-current-buffer (or buf (current-buffer))
+    (let ((inhibit-read-only t)
+          (prev nil))
+      (erase-buffer)
+      (shortdoc-mode)
+      (button-mode)
+      (mapc
+       (lambda (data)
+         (cond
+          ((stringp data)
+           (setq prev nil)
+           (unless (bobp)
+             (insert "\n"))
+           (insert (propertize
+                    (substitute-command-keys data)
+                    'face 'shortdoc-heading
+                    'shortdoc-section t
+                    'outline-level 1))
+           (insert (propertize
+                    "\n\n"
+                    'face 'shortdoc-heading
+                    'shortdoc-section t)))
+          ;; There may be functions not yet defined in the data.
+          ((fboundp (car data))
+           (when prev
+             (insert (make-separator-line)
+                     ;; This helps with hidden outlines (bug#53981)
+                     (propertize "\n" 'face '(:height 0))))
+           (setq prev t)
+           (shortdoc--display-function data))))
+       (cdr (assq group shortdoc--groups))))))
 
 ;;;###autoload
 (defalias 'shortdoc #'shortdoc-display-group)
@@ -1397,7 +1504,7 @@ If SAME-WINDOW, don't pop to a new window."
         (start-section (point))
         arglist-start)
     ;; Function calling convention.
-    (insert (propertize "(" 'shortdoc-function function))
+    (insert (propertize "(" 'shortdoc-function function 'outline-level 2))
     (if (plist-get data :no-manual)
         (insert-text-button
          (symbol-name function)
@@ -1428,19 +1535,22 @@ function's documentation in the Info manual"))
                           "=>"))
           (single-arrow (if (char-displayable-p ?→)
                             "→"
-                          "->")))
+                          "->"))
+          (start-example (point)))
       (cl-loop for (type value) on data by #'cddr
                do
                (cl-case type
                  (:eval
+                  (insert "  ")
                   (if (stringp value)
-                      (insert "  " value "\n")
-                    (insert "  ")
-                    (prin1 value (current-buffer))
-                    (insert "\n")
-                    (insert "    " double-arrow " ")
-                    (prin1 (eval value) (current-buffer))
-                    (insert "\n")))
+                      (insert value)
+                    (prin1 value (current-buffer)))
+                  (insert "\n    " double-arrow " ")
+                  (let ((expr (if (stringp value)
+                                  (car (read-from-string value))
+                                value)))
+                    (prin1 (eval expr) (current-buffer)))
+                    (insert "\n"))
                  (:no-eval*
                   (if (stringp value)
                       (insert "  " value "\n")
@@ -1477,7 +1587,8 @@ function's documentation in the Info manual"))
                  (:eg-result-string
                   (insert "    e.g. " double-arrow " ")
                   (princ value (current-buffer))
-                  (insert "\n")))))
+                  (insert "\n"))))
+      (add-text-properties start-example (point) `(shortdoc-example ,function)))
     ;; Insert the arglist after doing the evals, in case that's pulled
     ;; in the function definition.
     (save-excursion
@@ -1486,6 +1597,73 @@ function's documentation in the Info manual"))
                          (help-function-arglist function t)))
         (insert " " (symbol-name param)))
       (add-face-text-property arglist-start (point) 'shortdoc-section t))))
+
+(defun shortdoc-function-examples (function)
+  "Return all shortdoc examples for FUNCTION.
+The result is an alist with items of the form (GROUP . EXAMPLES),
+where GROUP is a shortdoc group where FUNCTION appears, and
+EXAMPLES is a string with the usage examples of FUNCTION defined
+in GROUP.  Return nil if FUNCTION is not a function or if it
+doesn't has any shortdoc information."
+  (let ((groups (and (symbolp function)
+                     (shortdoc-function-groups function)))
+        (examples nil))
+    (mapc
+     (lambda (group)
+       (with-temp-buffer
+         (shortdoc--insert-group-in-buffer group)
+         (goto-char (point-min))
+         (let ((match (text-property-search-forward
+                       'shortdoc-example function t)))
+           (push `(,group . ,(string-trim
+                              (buffer-substring-no-properties
+                               (prop-match-beginning match)
+                               (prop-match-end match))))
+                 examples))))
+     groups)
+    examples))
+
+(defun shortdoc-help-fns-examples-function (function)
+  "Insert Emacs Lisp examples for FUNCTION into the current buffer.
+You can add this function to the `help-fns-describe-function-functions'
+hook to show examples of using FUNCTION in *Help* buffers produced
+by \\[describe-function]."
+  (let* ((examples (shortdoc-function-examples function))
+         (num-examples (length examples))
+         (times 0))
+    (dolist (example examples)
+      (when (zerop times)
+        (if (> num-examples 1)
+            (insert "\n  Examples:\n\n")
+          ;; Some functions have more than one example per group.
+          ;; Count the number of arrows to know if we need to
+          ;; pluralize "Example".
+          (let* ((text (cdr example))
+                 (count 0)
+                 (pos 0)
+                 (end (length text))
+                 (double-arrow (if (char-displayable-p ?⇒)
+                                   "    ⇒"
+                                 "    =>"))
+                 (double-arrow-example (if (char-displayable-p ?⇒)
+                                           "    e.g. ⇒"
+                                         "    e.g. =>"))
+                 (single-arrow (if (char-displayable-p ?→)
+                                   "    →"
+                                 "    ->")))
+            (while (and (< pos end)
+                        (or (string-match double-arrow text pos)
+                            (string-match double-arrow-example text pos)
+                            (string-match single-arrow text pos)))
+              (setq count (1+ count)
+                    pos (match-end 0)))
+            (if (> count 1)
+                (insert "\n  Examples:\n\n")
+              (insert "\n  Example:\n\n")))))
+      (setq times (1+ times))
+      (insert "  ")
+      (insert (cdr example))
+      (insert "\n\n"))))
 
 (defun shortdoc-function-groups (function)
   "Return all shortdoc groups FUNCTION appears in."
@@ -1531,7 +1709,10 @@ Example:
 
 (define-derived-mode shortdoc-mode special-mode "shortdoc"
   "Mode for shortdoc."
-  :interactive nil)
+  :interactive nil
+  (setq-local outline-search-function #'outline-search-level
+              outline-level (lambda ()
+                              (get-text-property (point) 'outline-level))))
 
 (defun shortdoc--goto-section (arg sym &optional reverse)
   (unless (natnump arg)

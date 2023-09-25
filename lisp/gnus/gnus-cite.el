@@ -1,6 +1,6 @@
 ;;; gnus-cite.el --- parse citations in articles for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2023 Free Software Foundation, Inc.
 
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 
@@ -1116,12 +1116,6 @@ Returns nil if there is no such line before LIMIT, t otherwise."
 	   (push (list count (list 'quote face) 'prepend t) list)
 	   (setq count (1+ count)))))) ;;
   "Keywords for highlighting different levels of message citations.")
-
-(defvar font-lock-defaults-computed)
-(defvar font-lock-keywords)
-(defvar font-lock-set-defaults)
-
-(autoload 'font-lock-set-defaults "font-lock")
 
 (define-minor-mode gnus-message-citation-mode
   "Minor mode providing more font-lock support for nested citations.

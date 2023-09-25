@@ -1,6 +1,6 @@
 ;;; multisession.el --- Multisession storage for variables  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -19,7 +19,18 @@
 
 ;;; Commentary:
 
+;; This library provides multisession variables for Emacs Lisp, to
+;; make them persist between sessions.
 ;;
+;; Use `define-multisession-variable' to define a multisession
+;; variable, and `multisession-value' to read its value.  Use
+;; `list-multisession-values' to list multisession variables.
+;;
+;; Users might want to customize `multisession-storage' and
+;; `multisession-directory'.
+;;
+;; See Info node `(elisp) Multisession Variables' for more
+;; information.
 
 ;;; Code:
 
@@ -436,8 +447,9 @@ storage method to list."
   (let* ((object (or
                   ;; If the multisession variable already exists, use
                   ;; it (so that we update it).
-                  (and (intern-soft (cdr id))
-                       (bound-and-true-p (intern (cdr id))))
+                  (if-let (sym (intern-soft (cdr id)))
+                      (and (boundp sym) (symbol-value sym))
+                    nil)
                   ;; Create a new object.
                   (make-multisession
                    :package (car id)

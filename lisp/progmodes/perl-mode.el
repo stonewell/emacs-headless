@@ -1,6 +1,6 @@
 ;;; perl-mode.el --- Perl code editing commands for GNU Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990, 1994, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1990, 1994, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: William F. Mann
 ;; Maintainer: emacs-devel@gnu.org
@@ -27,8 +27,8 @@
 
 ;;; Commentary:
 
-;; To enter perl-mode automatically, add (autoload 'perl-mode "perl-mode")
-;; to your init file and change the first line of your perl script to:
+;; To enter `perl-mode' automatically, change the first line of your
+;; perl script to:
 ;; #!/usr/bin/perl --	 # -*-Perl-*-
 ;; With arguments to perl:
 ;; #!/usr/bin/perl -P-	 # -*-Perl-*-
@@ -46,10 +46,6 @@
 ;; move past leading white space; delete an empty comment; reindent a
 ;; comment; move to end of line; create an empty comment; tell you that
 ;; the line ends in a quoted string, or has a # which should be a \#.
-
-;; If your machine is slow, you may want to remove some of the bindings
-;; to perl-electric-terminator.  I changed the indenting defaults to be
-;; what Larry Wall uses in perl/lib, but left in all the options.
 
 ;; I also tuned a few things:  comments and labels starting in column
 ;; zero are left there by perl-indent-exp; perl-beginning-of-function
@@ -968,7 +964,7 @@ changed by, or (parse-state) if line starts in a quoted string."
 
 (defun perl-hanging-paren-p ()
   "Non-nil if we are right after a hanging parenthesis-like char."
-  (and (looking-at "[ \t]*$")
+  (and (looking-at "[ \t]*\\(?:#.*\\)?$")
        (save-excursion
 	 (skip-syntax-backward " (") (not (bolp)))))
 

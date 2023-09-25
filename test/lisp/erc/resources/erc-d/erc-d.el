@@ -1,22 +1,21 @@
 ;;; erc-d.el --- A dumb test server for ERC -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
-;;
+;; Copyright (C) 2020-2023 Free Software Foundation, Inc.
+
 ;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -300,9 +299,10 @@ PROCESS should be a client connection or a server network process."
                             (concat (format-time-string "%s.%N: ")
                                     ,format-string)
                           ,format-string))
-         (want-insert (and ,process erc-d--in-process)))
-     (when want-insert
-       (with-current-buffer (process-buffer (process-get ,process :server))
+         (want-insert (and ,process erc-d--in-process))
+         (buffer (process-buffer (process-get ,process :server))))
+     (when (and want-insert (buffer-live-p buffer))
+       (with-current-buffer buffer
          (goto-char (point-max))
          (insert (concat (format ,format-string ,@args) "\n"))))
      (when (or erc-d--m-debug (not want-insert))
@@ -456,14 +456,14 @@ including line delimiters."
         (setq string (unless (= (match-end 0) (length string))
                        (substring string (match-end 0))))
         (erc-d--log process line nil)
-        (ring-insert queue (erc-d-i--parse-message line 'decode))))
+        (ring-insert queue (erc-d-i--parse-message line nil))))
     (when string
       (setf (process-get process :stashed-input) string))))
 
 ;; Misc process properties:
 ;;
 ;; The server property `:dialog-dialogs' is an alist of (symbol
-;; . erc-d-u-scan-d) conses, each of which pairs a dialogs name with
+;; . erc-d-u-scan-d) conses, each of which pairs a dialog's name with
 ;; info on its read progress (described above in the Commentary).
 ;; This list is populated by `erc-d-run' at the start of each session.
 ;;

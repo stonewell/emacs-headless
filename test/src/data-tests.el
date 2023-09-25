@@ -1,6 +1,6 @@
 ;;; data-tests.el --- tests for src/data.c  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -768,8 +768,69 @@ comparing the subr with a much slower Lisp implementation."
                          (default-value 'last-coding-system-used))
                    '(no-conversion bug34318)))))
 
+(defvar-local data-tests--bug65209 :default-value)
+
+(ert-deftest data-tests-make-local-bug65209 ()
+  (dolist (sym '(data-tests--bug65209   ;A normal always-local Lisp var.
+                 cursor-in-non-selected-windows)) ;Same but DEFVAR_PER_BUFFER.
+    ;; Note: For vars like `mode-name' that are *really* always buffer-local,
+    ;; this test isn't right because the `cl-progv' only binds the
+    ;; buffer-local value!
+    (let ((default (default-value sym))
+          vli vlo vgi vgo)
+      (with-temp-buffer
+        (cl-progv (list sym) '(:let-bound-value)
+          ;; While `setq' would not make the var buffer-local
+          ;; (because we'd be setq-ing the let-binding instead),
+          ;; `setq-local' definitely should.
+          (set (make-local-variable sym) :buffer-local-value)
+          (setq vgi (with-temp-buffer (symbol-value sym)))
+          (setq vli (symbol-value sym)))
+      (setq vgo (with-temp-buffer (symbol-value sym)))
+      (setq vlo (symbol-value sym)))
+      (should (equal (list vgo vgi vlo vli)
+                     (cons default
+                           '(:let-bound-value
+                             :buffer-local-value :buffer-local-value)))))))
+
 (ert-deftest data-tests-make_symbol_constant ()
   "Can't set variable marked with 'make_symbol_constant'."
   (should-error (setq most-positive-fixnum 1) :type 'setting-constant))
+
+(ert-deftest data-tests-fset ()
+  (fset 'data-tests--fs-fun (lambda () 'moo))
+  (declare-function data-tests--fs-fun nil)
+  (should (equal (data-tests--fs-fun) 'moo))
+
+  (fset 'data-tests--fs-fun1 'data-tests--fs-fun)
+  (declare-function data-tests--fs-fun1 nil)
+  (should (equal (data-tests--fs-fun1) 'moo))
+
+  (fset 'data-tests--fs-a 'data-tests--fs-b)
+  (fset 'data-tests--fs-b 'data-tests--fs-c)
+
+  (should-error (fset 'data-tests--fs-c 'data-tests--fs-c)
+                :type 'cyclic-function-indirection)
+  (fset 'data-tests--fs-d 'data-tests--fs-a)
+  (should-error (fset 'data-tests--fs-c 'data-tests--fs-d)
+                :type 'cyclic-function-indirection))
+
+(ert-deftest data-tests-defalias ()
+  (defalias 'data-tests--da-fun (lambda () 'baa))
+  (declare-function data-tests--da-fun nil)
+  (should (equal (data-tests--da-fun) 'baa))
+
+  (defalias 'data-tests--da-fun1 'data-tests--da-fun)
+  (declare-function data-tests--da-fun1 nil)
+  (should (equal (data-tests--da-fun1) 'baa))
+
+  (defalias 'data-tests--da-a 'data-tests--da-b)
+  (defalias 'data-tests--da-b 'data-tests--da-c)
+
+  (should-error (defalias 'data-tests--da-c 'data-tests--da-c)
+                :type 'cyclic-function-indirection)
+  (defalias 'data-tests--da-d 'data-tests--da-a)
+  (should-error (defalias 'data-tests--da-c 'data-tests--da-d)
+                :type 'cyclic-function-indirection))
 
 ;;; data-tests.el ends here

@@ -17,7 +17,7 @@
  (0. ":irc.foonet.org 266 tester 3 3 :Current global users 3, max 3")
  (0. ":irc.foonet.org 422 tester :MOTD File is missing"))
 
-((mode-user 1.2 "MODE tester +i")
+((mode-user 2 "MODE tester +i")
  (0. ":irc.foonet.org 221 tester +Zi")
  (0. ":irc.foonet.org 306 tester :You have been marked as being away")
  (0 ":tester!~u@awyxgybtkx7uq.irc JOIN #chan")
@@ -29,4 +29,4 @@
  (0 ":irc.foonet.org 329 tester #chan 1620805269")
  (0.1 ":alice!~u@awyxgybtkx7uq.irc PRIVMSG #chan :bob: Yes, a dozen; and as many to the vantage, as would store the world they played for.")
  (0.05 ":bob!~u@awyxgybtkx7uq.irc PRIVMSG #chan :alice: As he regards his aged father's life.")
- (0.05 ":alice!~u@awyxgybtkx7uq.irc PRIVMSG #chan :bob: It is a rupture that you may easily heal; and the cure of it not only saves your brother, but keeps you from dishonour in doing it."))
+ (0.05 ":alice!~u@awyxgybtkx7uq.irc PRIVMSG #chan :bob: It is a rupture that you may easily heal; and the cure of it not only saves your brother, but keeps you from dishonor in doing it."))

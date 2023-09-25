@@ -1,6 +1,6 @@
 /* Functions for creating and updating GTK widgets.
 
-Copyright (C) 2003-2022 Free Software Foundation, Inc.
+Copyright (C) 2003-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -694,8 +694,8 @@ get_utf8_string (const char *str)
 
       len = strlen (str);
       ptrdiff_t alloc;
-      if (INT_MULTIPLY_WRAPV (nr_bad, 4, &alloc)
-	  || INT_ADD_WRAPV (len + 1, alloc, &alloc)
+      if (ckd_mul (&alloc, nr_bad, 4)
+	  || ckd_add (&alloc, alloc, len + 1)
 	  || SIZE_MAX < alloc)
 	memory_full (SIZE_MAX);
       up = utf8_str = xmalloc (alloc);
@@ -2103,7 +2103,7 @@ xg_frame_restack (struct frame *f1, struct frame *f2, bool above_flag)
 
       gdk_window_restack (gwin1, gwin2, above_flag);
 #ifndef HAVE_PGTK
-      x_sync (f1);
+      XSync (FRAME_X_DISPLAY (f1), False);
 #else
       gdk_flush ();
 #endif
@@ -4141,7 +4141,7 @@ xg_update_frame_menubar (struct frame *f)
   g_signal_connect (x->menubar_widget, "map", G_CALLBACK (menubar_map_cb), f);
   gtk_widget_show_all (x->menubar_widget);
   gtk_widget_get_preferred_size (x->menubar_widget, NULL, &req);
-  req.height *= xg_get_scale (f);
+  req.height *= scale;
 
 #if !defined HAVE_PGTK && defined HAVE_GTK3
   if (FRAME_DISPLAY_INFO (f)->n_planes == 32)
@@ -4154,9 +4154,9 @@ xg_update_frame_menubar (struct frame *f)
     }
 #endif
 
-  if (FRAME_MENUBAR_HEIGHT (f) != (req.height * scale))
+  if (FRAME_MENUBAR_HEIGHT (f) != req.height)
     {
-      FRAME_MENUBAR_HEIGHT (f) = req.height * scale;
+      FRAME_MENUBAR_HEIGHT (f) = req.height;
       adjust_frame_size (f, -1, -1, 2, 0, Qmenu_bar_lines);
     }
   unblock_input ();
@@ -4793,7 +4793,7 @@ xg_update_scrollbar_pos (struct frame *f,
          here to get some events.  */
 
 #ifndef HAVE_PGTK
-      x_sync (f);
+      XSync (FRAME_X_DISPLAY (f), False);
 #else
       gdk_flush ();
 #endif
@@ -4894,7 +4894,7 @@ xg_update_horizontal_scrollbar_pos (struct frame *f,
       }
 
 #ifndef HAVE_PGTK
-      x_sync (f);
+      XSync (FRAME_X_DISPLAY (f), False);
 #else
       gdk_flush ();
 #endif

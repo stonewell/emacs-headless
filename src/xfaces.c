@@ -1,6 +1,6 @@
 /* xfaces.c -- "Face" primitives.
 
-Copyright (C) 1993-1994, 1998-2022 Free Software Foundation, Inc.
+Copyright (C) 1993-1994, 1998-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -254,6 +254,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef HAVE_HAIKU
 #define GCGraphicsExposures 0
 #endif /* HAVE_HAIKU */
+
+#ifdef HAVE_ANDROID
+#define GCGraphicsExposures 0
+#endif /* HAVE_ANDROID */
 #endif /* HAVE_WINDOW_SYSTEM */
 
 #include "buffer.h"
@@ -606,6 +610,39 @@ x_free_gc (struct frame *f, Emacs_GC *gc)
   xfree (gc);
 }
 #endif  /* HAVE_NS */
+
+#ifdef HAVE_ANDROID
+
+/* Android real GCs.  */
+
+static struct android_gc *
+x_create_gc (struct frame *f, unsigned long value_mask,
+	     Emacs_GC *xgcv)
+{
+  struct android_gc_values gcv;
+  unsigned long mask;
+
+  gcv.foreground = xgcv->foreground;
+  gcv.background = xgcv->background;
+
+  mask = 0;
+
+  if (value_mask & GCForeground)
+    mask |= ANDROID_GC_FOREGROUND;
+
+  if (value_mask & GCBackground)
+    mask |= ANDROID_GC_BACKGROUND;
+
+  return android_create_gc (mask, &gcv);
+}
+
+static void
+x_free_gc (struct frame *f, struct android_gc *gc)
+{
+  android_free_gc (gc);
+}
+
+#endif
 
 /***********************************************************************
 			   Frames and faces
@@ -1575,7 +1612,7 @@ the face font sort order, see `face-font-selection-order'.  */)
     {
       Lisp_Object font = AREF (vec, i);
       int point = PIXEL_TO_POINT (XFIXNUM (AREF (font, FONT_SIZE_INDEX)) * 10,
-				  FRAME_RES_Y (f));
+				  FRAME_RES (f));
       Lisp_Object spacing = Ffont_get (font, QCspacing);
       Lisp_Object v = CALLN (Fvector,
 			     AREF (font, FONT_FAMILY_INDEX),
@@ -1592,7 +1629,7 @@ the face font sort order, see `face-font-selection-order'.  */)
 					  make_fixnum
 					  (FONT_SPACING_PROPORTIONAL)))
 			     ? Qnil : Qt,
-			     Ffont_xlfd_name (font, Qnil),
+			     Ffont_xlfd_name (font, Qnil, Qt),
 			     AREF (font, FONT_REGISTRY_INDEX));
       result = Fcons (v, result);
     }
@@ -1701,7 +1738,7 @@ the WIDTH times as wide as FACE on FRAME.  */)
 	  ASET (font_entity, FONT_SIZE_INDEX,
 		AREF (font_spec, FONT_SIZE_INDEX));
 	}
-      XSETCAR (tail, Ffont_xlfd_name (font_entity, Qnil));
+      XSETCAR (tail, Ffont_xlfd_name (font_entity, Qnil, Qt));
     }
   if (NILP (frame))
     /* We don't have to check fontsets.  */
@@ -2136,7 +2173,7 @@ set_lface_from_font (struct frame *f, Lisp_Object lface,
 
   if (force_p || UNSPECIFIEDP (LFACE_HEIGHT (lface)))
     {
-      int pt = PIXEL_TO_POINT (font->pixel_size * 10, FRAME_RES_Y (f));
+      int pt = PIXEL_TO_POINT (font->pixel_size * 10, FRAME_RES (f));
 
       eassert (pt > 0);
       ASET (lface, LFACE_HEIGHT_INDEX, make_fixnum (pt));
@@ -2780,8 +2817,7 @@ merge_face_ref (struct window *w,
 	      else if (EQ (keyword, QCstipple))
 		{
 #if defined (HAVE_WINDOW_SYSTEM)
-		  Lisp_Object pixmap_p = Fbitmap_spec_p (value);
-		  if (!NILP (pixmap_p))
+		  if (NILP (value) || !NILP (Fbitmap_spec_p (value)))
 		    to[LFACE_STIPPLE_INDEX] = value;
 		  else
 		    err = true;
@@ -3809,8 +3845,12 @@ set_font_frame_param (Lisp_Object frame, Lisp_Object lface)
 	  ASET (lface, LFACE_FONT_INDEX, font);
 	}
       f->default_face_done_p = false;
-      AUTO_FRAME_ARG (arg, Qfont, font);
-      Fmodify_frame_parameters (frame, arg);
+      AUTO_LIST2 (arg, AUTO_CONS_EXPR (Qfont, font),
+		  /* Clear the `font-parameter' frame property, as the
+		     font is now being specified by a face, not a
+		     frame property.  */
+		  AUTO_CONS_EXPR (Qfont_parameter, Qnil));
+      gui_set_frame_parameters_1 (f, arg, true);
     }
 }
 
@@ -3978,7 +4018,8 @@ x_update_menu_appearance (struct frame *f)
 	      || !UNSPECIFIEDP (LFACE_SLANT (lface))
 	      || !UNSPECIFIEDP (LFACE_HEIGHT (lface))))
 	{
-	  Lisp_Object xlfd = Ffont_xlfd_name (LFACE_FONT (lface), Qnil);
+	  Lisp_Object xlfd = Ffont_xlfd_name (LFACE_FONT (lface), Qnil,
+					      Qnil);
 #ifdef USE_MOTIF
 	  const char *suffix = "List";
 	  bool motif = true;
@@ -4183,7 +4224,9 @@ Default face attributes override any local face attributes.  */)
   if (EQ (face, Qdefault))
     {
       struct face_cache *c = FRAME_FACE_CACHE (f);
-      struct face *newface, *oldface = FACE_FROM_ID_OR_NULL (f, DEFAULT_FACE_ID);
+      struct face *newface;
+      struct face *oldface =
+	c ? FACE_FROM_ID_OR_NULL (f, DEFAULT_FACE_ID) : NULL;
       Lisp_Object attrs[LFACE_VECTOR_SIZE];
 
       /* This can be NULL (e.g., in batch mode).  */
@@ -4208,7 +4251,17 @@ Default face attributes override any local face attributes.  */)
 	    {
 	      Lisp_Object name = newface->font->props[FONT_NAME_INDEX];
 	      AUTO_FRAME_ARG (arg, Qfont, name);
-	      Fmodify_frame_parameters (frame, arg);
+
+#ifdef HAVE_WINDOW_SYSTEM
+	      if (FRAME_WINDOW_P (f))
+		/* This is a window-system frame.  Prevent changes of
+		   the `font' parameter here from messing with the
+		   `font-parameter' frame property, as the frame
+		   parameter is not being changed by the user.  */
+	        gui_set_frame_parameters_1 (f, arg, true);
+	      else
+#endif
+		Fmodify_frame_parameters (frame, arg);
 	    }
 
 	  if (STRINGP (gvec[LFACE_FOREGROUND_INDEX]))
@@ -5998,8 +6051,25 @@ realize_non_ascii_face (struct frame *f, Lisp_Object font_object,
 
   return face;
 }
-#endif	/* HAVE_WINDOW_SYSTEM */
 
+/* Remove the attribute at INDEX from the font object if SYMBOL
+   appears in `font-fallback-ignored-attributes'.  */
+
+static void
+font_maybe_unset_attribute (Lisp_Object font_object,
+			    enum font_property_index index, Lisp_Object symbol)
+{
+  Lisp_Object tail = Vface_font_lax_matched_attributes;
+
+  eassert (CONSP (tail));
+
+  FOR_EACH_TAIL_SAFE (tail)
+    {
+      if (EQ (XCAR (tail), symbol))
+	ASET (font_object, index, Qnil);
+    }
+}
+#endif /* HAVE_WINDOW_SYSTEM */
 
 /* Realize the fully-specified face with attributes ATTRS in face
    cache CACHE for ASCII characters.  Do it for GUI frame CACHE->f.
@@ -6057,8 +6127,48 @@ realize_gui_face (struct face_cache *cache, Lisp_Object attrs[LFACE_VECTOR_SIZE]
 	    emacs_abort ();
 	}
       if (! FONT_OBJECT_P (attrs[LFACE_FONT_INDEX]))
-	attrs[LFACE_FONT_INDEX]
-	  = font_load_for_lface (f, attrs, attrs[LFACE_FONT_INDEX]);
+	{
+	  Lisp_Object spec = copy_font_spec (attrs[LFACE_FONT_INDEX]);
+
+	  /* Maybe unset several values in SPEC, usually the width,
+	     slant, and weight.  The best possible values for these
+	     attributes are determined in font_find_for_lface, called
+	     by font_load_for_lface, when the list of candidate fonts
+	     returned by font_list_entities is sorted by font_select_entity
+	     (which calls font_sort_entities, which calls font_score).
+	     If these attributes are not unset here, the candidate
+	     font list returned by font_list_entities only contains
+	     fonts that are exact matches for these weight, slant, and
+	     width attributes, which could lead to suboptimal or wrong
+	     font selection.  (bug#5934) */
+	  if (EQ (Vface_font_lax_matched_attributes, Qt))
+	    {
+	      /* The default case: clear the font attributes that
+		 affect its appearance the least, to try to find some
+		 font that is close, if not exact, match.  */
+	      ASET (spec, FONT_WEIGHT_INDEX, Qnil);
+	      ASET (spec, FONT_SLANT_INDEX, Qnil);
+	      ASET (spec, FONT_WIDTH_INDEX, Qnil);
+	    }
+	  else if (!NILP (Vface_font_lax_matched_attributes))
+	    {
+	      /* Also allow unsetting specific attributes for
+		 debugging purposes.  */
+	      font_maybe_unset_attribute (spec, FONT_WEIGHT_INDEX, QCweight);
+	      font_maybe_unset_attribute (spec, FONT_SLANT_INDEX, QCslant);
+	      font_maybe_unset_attribute (spec, FONT_WIDTH_INDEX, QCwidth);
+	      font_maybe_unset_attribute (spec, FONT_FAMILY_INDEX, QCfamily);
+	      font_maybe_unset_attribute (spec, FONT_FOUNDRY_INDEX, QCfoundry);
+	      font_maybe_unset_attribute (spec, FONT_REGISTRY_INDEX, QCregistry);
+	      font_maybe_unset_attribute (spec, FONT_ADSTYLE_INDEX, QCadstyle);
+	      font_maybe_unset_attribute (spec, FONT_SIZE_INDEX, QCsize);
+	      font_maybe_unset_attribute (spec, FONT_DPI_INDEX, QCdpi);
+	      font_maybe_unset_attribute (spec, FONT_SPACING_INDEX, QCspacing);
+	      font_maybe_unset_attribute (spec, FONT_AVGWIDTH_INDEX, QCavgwidth);
+	    }
+
+	  attrs[LFACE_FONT_INDEX] = font_load_for_lface (f, attrs, spec);
+	}
       if (FONT_OBJECT_P (attrs[LFACE_FONT_INDEX]))
 	{
 	  face->font = XFONT_OBJECT (attrs[LFACE_FONT_INDEX]);
@@ -6880,20 +6990,22 @@ where R,G,B are numbers between 0 and 255 and name is an arbitrary string.  */)
       int num;
 
       while (fgets (buf, sizeof (buf), fp) != NULL)
-	if (sscanf (buf, "%d %d %d %n", &red, &green, &blue, &num) == 3)
-	  {
+	{
+	  if (sscanf (buf, "%d %d %d %n", &red, &green, &blue, &num) == 3)
+	    {
 #ifdef HAVE_NTGUI
-	    int color = RGB (red, green, blue);
+	      int color = RGB (red, green, blue);
 #else
-	    int color = (red << 16) | (green << 8) | blue;
+	      int color = (red << 16) | (green << 8) | blue;
 #endif
-	    char *name = buf + num;
-	    ptrdiff_t len = strlen (name);
-	    len -= 0 < len && name[len - 1] == '\n';
-	    cmap = Fcons (Fcons (make_string (name, len), make_fixnum (color)),
-			  cmap);
-	  }
-      fclose (fp);
+	      char *name = buf + num;
+	      ptrdiff_t len = strlen (name);
+	      len -= 0 < len && name[len - 1] == '\n';
+	      cmap = Fcons (Fcons (make_string (name, len), make_fixnum (color)),
+			    cmap);
+	    }
+	}
+      emacs_fclose (fp);
     }
   unblock_input ();
   return cmap;
@@ -7209,7 +7321,7 @@ syms_of_xfaces (void)
   DEFVAR_BOOL ("face-filters-always-match", face_filters_always_match,
     doc: /* Non-nil means that face filters are always deemed to match.
 This variable is intended for use only by code that evaluates
-the "specifity" of a face specification and should be let-bound
+the "specificity" of a face specification and should be let-bound
 only for this purpose.  */);
 
   DEFVAR_LISP ("face--new-frame-defaults", Vface_new_frame_defaults,
@@ -7345,6 +7457,35 @@ will be used for the face instead of the foreground color.
 Lisp programs that change the value of this variable should also
 clear the face cache, see `clear-face-cache'.  */);
   face_near_same_color_threshold = 30000;
+
+  DEFVAR_LISP ("face-font-lax-matched-attributes",
+	       Vface_font_lax_matched_attributes,
+	       doc: /* Whether to match some face attributes in lax manner when realizing faces.
+
+If non-nil, some font-related face attributes will be matched in a lax
+manner when looking for candidate fonts.
+If the value is t, the default, the search for fonts will not insist
+on exact match for 3 font attributes: weight, width, and slant.
+Instead, it will examine the available fonts with various values of
+these attributes, and select the font that is the closest possible
+match.  (If an exact match is available, it will still be selected,
+as that is the closest match.)  For example, looking for a semi-bold
+font might select a bold or a medium-weight font if no semi-bold font
+matching other attributes can be found.  This is especially important
+when the `default' face specifies unusual values for one or more of
+these 3 attributes, which other installed fonts don't support.
+
+The value can also be a list of font-related face attribute symbols;
+see `set-face-attribute' for the full list of attributes.  Then the
+corresponding face attributes will be treated as "soft" constraints
+in the manner described above, instead of the default 3 attributes.
+
+If the value is nil, candidate fonts might be rejected if the don't
+have exactly the same values of attributes as the face requests.
+
+This variable exists for debugging of the font-selection process,
+and we advise not to change it otherwise.  */);
+  Vface_font_lax_matched_attributes = Qt;
 
 #ifdef HAVE_WINDOW_SYSTEM
   defsubr (&Sbitmap_spec_p);

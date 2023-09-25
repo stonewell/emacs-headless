@@ -1,6 +1,6 @@
 /* String search routines for GNU Emacs.
 
-Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2022 Free Software
+Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2023 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -68,9 +68,6 @@ static EMACS_INT simple_search (EMACS_INT, unsigned char *, ptrdiff_t,
 static EMACS_INT boyer_moore (EMACS_INT, unsigned char *, ptrdiff_t,
                               Lisp_Object, Lisp_Object, ptrdiff_t,
                               ptrdiff_t, int);
-static EMACS_INT search_buffer (Lisp_Object, ptrdiff_t, ptrdiff_t,
-                                ptrdiff_t, ptrdiff_t, EMACS_INT, int,
-                                Lisp_Object, Lisp_Object, bool);
 
 Lisp_Object re_match_object;
 
@@ -165,7 +162,7 @@ clear_regexp_cache (void)
     /* It's tempting to compare with the syntax-table we've actually changed,
        but it's not sufficient because char-table inheritance means that
        modifying one syntax-table can change others at the same time.  */
-    if (!searchbufs[i].busy && !EQ (searchbufs[i].syntax_table, Qt))
+    if (!searchbufs[i].busy && !BASE_EQ (searchbufs[i].syntax_table, Qt))
       searchbufs[i].regexp = Qnil;
 }
 
@@ -217,10 +214,11 @@ compile_pattern (Lisp_Object pattern, struct re_registers *regp,
           && !cp->busy
 	  && STRING_MULTIBYTE (cp->regexp) == STRING_MULTIBYTE (pattern)
 	  && !NILP (Fstring_equal (cp->regexp, pattern))
-	  && EQ (cp->buf.translate, translate)
+	  && BASE_EQ (cp->buf.translate, translate)
 	  && cp->posix == posix
-	  && (EQ (cp->syntax_table, Qt)
-	      || EQ (cp->syntax_table, BVAR (current_buffer, syntax_table)))
+	  && (BASE_EQ (cp->syntax_table, Qt)
+	      || BASE_EQ (cp->syntax_table,
+			  BVAR (current_buffer, syntax_table)))
 	  && !NILP (Fequal (cp->f_whitespace_regexp, Vsearch_spaces_regexp))
 	  && cp->buf.charset_unibyte == charset_unibyte)
 	break;
@@ -496,19 +494,27 @@ fast_string_match_internal (Lisp_Object regexp, Lisp_Object string,
   return val;
 }
 
-/* Match REGEXP against STRING, searching all of STRING ignoring case,
-   and return the index of the match, or negative on failure.
-   This does not clobber the match data.
+/* Match REGEXP against STRING, searching all of STRING and return the
+   index of the match, or negative on failure.  This does not clobber
+   the match data.  Table is a canonicalize table for ignoring case,
+   or nil for none.
+
    We assume that STRING contains single-byte characters.  */
 
 ptrdiff_t
-fast_c_string_match_ignore_case (Lisp_Object regexp,
-				 const char *string, ptrdiff_t len)
+fast_c_string_match_internal (Lisp_Object regexp,
+			      const char *string, ptrdiff_t len,
+			      Lisp_Object table)
 {
+  /* FIXME: This is expensive and not obviously correct when it makes
+     a difference. I.e., no longer "fast", and may hide bugs.
+     Something should be done about this.  */
   regexp = string_make_unibyte (regexp);
+  /* Record specpdl index because freeze_pattern pushes an
+     unwind-protect on the specpdl.  */
   specpdl_ref count = SPECPDL_INDEX ();
   struct regexp_cache *cache_entry
-    = compile_pattern (regexp, 0, Vascii_canon_table, 0, 0);
+    = compile_pattern (regexp, 0, table, 0, 0);
   freeze_pattern (cache_entry);
   re_match_object = Qt;
   ptrdiff_t val = re_search (&cache_entry->buf, string, len, 0, len, 0);
@@ -1022,7 +1028,7 @@ find_before_next_newline (ptrdiff_t from, ptrdiff_t to,
 
 static Lisp_Object
 search_command (Lisp_Object string, Lisp_Object bound, Lisp_Object noerror,
-		Lisp_Object count, int direction, int RE, bool posix)
+		Lisp_Object count, int direction, bool RE, bool posix)
 {
   EMACS_INT np;
   EMACS_INT lim;
@@ -1124,21 +1130,6 @@ trivial_regexp_p (Lisp_Object regexp)
     }
   return 1;
 }
-
-/* Search for the n'th occurrence of STRING in the current buffer,
-   starting at position POS and stopping at position LIM,
-   treating STRING as a literal string if RE is false or as
-   a regular expression if RE is true.
-
-   If N is positive, searching is forward and LIM must be greater than POS.
-   If N is negative, searching is backward and LIM must be less than POS.
-
-   Returns -x if x occurrences remain to be found (x > 0),
-   or else the position at the beginning of the Nth occurrence
-   (if searching backward) or the end (if searching forward).
-
-   POSIX is nonzero if we want full backtracking (POSIX style)
-   for this pattern.  0 means backtrack only enough to get a valid match.  */
 
 #define TRANSLATE(out, trt, d)			\
 do						\
@@ -1303,7 +1294,7 @@ search_buffer_re (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
 static EMACS_INT
 search_buffer_non_re (Lisp_Object string, ptrdiff_t pos,
                       ptrdiff_t pos_byte, ptrdiff_t lim, ptrdiff_t lim_byte,
-                      EMACS_INT n, int RE, Lisp_Object trt, Lisp_Object inverse_trt,
+                      EMACS_INT n, bool RE, Lisp_Object trt, Lisp_Object inverse_trt,
                       bool posix)
 {
   unsigned char *raw_pattern, *pat;
@@ -1502,10 +1493,28 @@ search_buffer_non_re (Lisp_Object string, ptrdiff_t pos,
   return result;
 }
 
-static EMACS_INT
+/* Search for the Nth occurrence of STRING in the current buffer,
+   from buffer position POS/POS_BYTE until LIM/LIM_BYTE.
+
+   If RE, look for matches against the regular expression STRING instead;
+   if POSIX, enable POSIX style backtracking within that regular
+   expression.
+
+   If N is positive, search forward; in this case, LIM must be greater
+   than POS.
+
+   If N is negative, search backward; LIM must be less than POS.
+
+   Return -X if there are X remaining occurrences or matches,
+   or else the position at the beginning (if N is negative) or the end
+   (if N is positive) of the Nth occurrence or match against STRING.
+
+   Use TRT and INVERSE_TRT as character translation tables.  */
+
+EMACS_INT
 search_buffer (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
 	       ptrdiff_t lim, ptrdiff_t lim_byte, EMACS_INT n,
-	       int RE, Lisp_Object trt, Lisp_Object inverse_trt, bool posix)
+	       bool RE, Lisp_Object trt, Lisp_Object inverse_trt, bool posix)
 {
   if (running_asynch_code)
     save_search_regs ();
@@ -1558,7 +1567,6 @@ simple_search (EMACS_INT n, unsigned char *pat,
 	while (1)
 	  {
 	    /* Try matching at position POS.  */
-	    ptrdiff_t this_pos = pos;
 	    ptrdiff_t this_pos_byte = pos_byte;
 	    ptrdiff_t this_len = len;
 	    unsigned char *p = pat;
@@ -1580,7 +1588,6 @@ simple_search (EMACS_INT n, unsigned char *pat,
 		p += charlen;
 
 		this_pos_byte += buf_charlen;
-		this_pos++;
 	      }
 
 	    if (this_len == 0)
@@ -2216,7 +2223,7 @@ Search case-sensitivity is determined by the value of the variable
 See also the functions `match-beginning', `match-end' and `replace-match'.  */)
   (Lisp_Object string, Lisp_Object bound, Lisp_Object noerror, Lisp_Object count)
 {
-  return search_command (string, bound, noerror, count, -1, 0, 0);
+  return search_command (string, bound, noerror, count, -1, false, false);
 }
 
 DEFUN ("search-forward", Fsearch_forward, Ssearch_forward, 1, 4, "MSearch: ",
@@ -2241,7 +2248,7 @@ Search case-sensitivity is determined by the value of the variable
 See also the functions `match-beginning', `match-end' and `replace-match'.  */)
   (Lisp_Object string, Lisp_Object bound, Lisp_Object noerror, Lisp_Object count)
 {
-  return search_command (string, bound, noerror, count, 1, 0, 0);
+  return search_command (string, bound, noerror, count, 1, false, false);
 }
 
 DEFUN ("re-search-backward", Fre_search_backward, Sre_search_backward, 1, 4,
@@ -2257,7 +2264,7 @@ because REGEXP is still matched in the forward direction.  See Info
 anchor `(elisp) re-search-backward' for details.  */)
   (Lisp_Object regexp, Lisp_Object bound, Lisp_Object noerror, Lisp_Object count)
 {
-  return search_command (regexp, bound, noerror, count, -1, 1, 0);
+  return search_command (regexp, bound, noerror, count, -1, true, false);
 }
 
 DEFUN ("re-search-forward", Fre_search_forward, Sre_search_forward, 1, 4,
@@ -2288,7 +2295,7 @@ See also the functions `match-beginning', `match-end', `match-string',
 and `replace-match'.  */)
   (Lisp_Object regexp, Lisp_Object bound, Lisp_Object noerror, Lisp_Object count)
 {
-  return search_command (regexp, bound, noerror, count, 1, 1, 0);
+  return search_command (regexp, bound, noerror, count, 1, true, false);
 }
 
 DEFUN ("posix-search-backward", Fposix_search_backward, Sposix_search_backward, 1, 4,
@@ -2316,7 +2323,7 @@ See also the functions `match-beginning', `match-end', `match-string',
 and `replace-match'.  */)
   (Lisp_Object regexp, Lisp_Object bound, Lisp_Object noerror, Lisp_Object count)
 {
-  return search_command (regexp, bound, noerror, count, -1, 1, 1);
+  return search_command (regexp, bound, noerror, count, -1, true, true);
 }
 
 DEFUN ("posix-search-forward", Fposix_search_forward, Sposix_search_forward, 1, 4,
@@ -2344,7 +2351,7 @@ See also the functions `match-beginning', `match-end', `match-string',
 and `replace-match'.  */)
   (Lisp_Object regexp, Lisp_Object bound, Lisp_Object noerror, Lisp_Object count)
 {
-  return search_command (regexp, bound, noerror, count, 1, 1, 1);
+  return search_command (regexp, bound, noerror, count, 1, true, true);
 }
 
 DEFUN ("replace-match", Freplace_match, Sreplace_match, 1, 5, 0,
@@ -2356,7 +2363,9 @@ the replacement text.  Otherwise, maybe capitalize the whole text, or
 maybe just word initials, based on the replaced text.  If the replaced
 text has only capital letters and has at least one multiletter word,
 convert NEWTEXT to all caps.  Otherwise if all words are capitalized
-in the replaced text, capitalize each word in NEWTEXT.
+in the replaced text, capitalize each word in NEWTEXT.  Note that
+what exactly is a word is determined by the syntax tables in effect
+in the current buffer.
 
 If optional third arg LITERAL is non-nil, insert NEWTEXT literally.
 Otherwise treat `\\' as special:
@@ -2824,11 +2833,21 @@ Return value is undefined if the last search failed.  */)
 }
 
 DEFUN ("match-data", Fmatch_data, Smatch_data, 0, 3, 0,
-       doc: /* Return a list describing what the last search matched.
-Element 2N is `(match-beginning N)'; element 2N + 1 is `(match-end N)'.
-All the elements are markers or nil (nil if the Nth pair didn't match)
-if the last match was on a buffer; integers or nil if a string was matched.
-Use `set-match-data' to reinstate the data in this list.
+       doc: /* Return a list of positions that record text matched by the last search.
+Element 2N of the returned list is the position of the beginning of the
+match of the Nth subexpression; it corresponds to `(match-beginning N)';
+element 2N + 1 is the position of the end of the match of the Nth
+subexpression; it corresponds to `(match-end N)'.  See `match-beginning'
+and `match-end'.
+If the last search was on a buffer, all the elements are by default
+markers or nil (nil when the Nth pair didn't match); they are integers
+or nil if the search was on a string.  But if the optional argument
+INTEGERS is non-nil, the elements that represent buffer positions are
+always integers, not markers, and (if the search was on a buffer) the
+buffer itself is appended to the list as one additional element.
+
+Use `set-match-data' to reinstate the match data from the elements of
+this list.
 
 Note that non-matching optional groups at the end of the regexp are
 elided instead of being represented with two `nil's each.  For instance:
@@ -2838,16 +2857,13 @@ elided instead of being represented with two `nil's each.  For instance:
     (match-data))
   => (0 1 nil nil 0 1)
 
-If INTEGERS (the optional first argument) is non-nil, always use
-integers (rather than markers) to represent buffer positions.  In
-this case, and if the last match was in a buffer, the buffer will get
-stored as one additional element at the end of the list.
+If REUSE is a list, store the value in REUSE by destructively modifying it.
+If REUSE is long enough to hold all the values, its length remains the
+same, and any unused elements are set to nil.  If REUSE is not long
+enough, it is extended.  Note that if REUSE is long enough and INTEGERS
+is non-nil, no consing is done to make the return value; this minimizes GC.
 
-If REUSE is a list, reuse it as part of the value.  If REUSE is long
-enough to hold all the values, and if INTEGERS is non-nil, no consing
-is done.
-
-If optional third arg RESEAT is non-nil, any previous markers on the
+If optional third argument RESEAT is non-nil, any previous markers on the
 REUSE list will be modified to point to nowhere.
 
 Return value is undefined if the last search failed.  */)
@@ -2879,7 +2895,7 @@ Return value is undefined if the last search failed.  */)
       ptrdiff_t start = search_regs.start[i];
       if (start >= 0)
 	{
-	  if (EQ (last_thing_searched, Qt)
+	  if (BASE_EQ (last_thing_searched, Qt)
 	      || ! NILP (integers))
 	    {
 	      XSETFASTINT (data[2 * i], start);

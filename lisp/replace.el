@@ -1,6 +1,6 @@
 ;;; replace.el --- replace commands for Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1987, 1992, 1994, 1996-1997, 2000-2022 Free
+;; Copyright (C) 1985-1987, 1992, 1994, 1996-1997, 2000-2023 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -417,8 +417,9 @@ Replacement transfers the case pattern of the old text to the
 new text, if both `case-fold-search' and `case-replace' are
 non-nil and FROM-STRING has no uppercase letters.
 \(Transferring the case pattern means that if the old text
-matched is all caps, or capitalized, then its replacement is
-respectively upcased or capitalized.)
+matched is all caps, or all of its words are capitalized, then its
+replacement is respectively upcased or capitalized.  For more
+details about this, see `replace-match'.)
 
 Ignore read-only matches if `query-replace-skip-read-only' is non-nil,
 ignore hidden matches if `search-invisible' is nil, and ignore more
@@ -436,6 +437,8 @@ Fourth and fifth arg START and END specify the region to operate on.
 
 Arguments FROM-STRING, TO-STRING, DELIMITED, START, END, BACKWARD, and
 REGION-NONCONTIGUOUS-P are passed to `perform-replace' (which see).
+\(TO-STRING is passed to `perform-replace' as REPLACEMENTS and
+DELIMITED is passed as DELIMITED-FLAG.)
 
 To customize possible responses, change the bindings in `query-replace-map'."
   (declare (interactive-args
@@ -490,8 +493,9 @@ there are uppercase letters in REGEXP.
 Replacement transfers the case pattern of the old text to the new
 text, if both `case-fold-search' and `case-replace' are non-nil
 and REGEXP has no uppercase letters.  (Transferring the case pattern
-means that if the old text matched is all caps, or capitalized,
-then its replacement is respectively upcased or capitalized.)
+means that if the old text matched is all caps, or all of its words
+are capitalized, then its replacement is respectively upcased or
+capitalized.  For more details about this, see `replace-match'.)
 
 Ignore read-only matches if `query-replace-skip-read-only' is non-nil,
 ignore hidden matches if `search-invisible' is nil, and ignore more
@@ -533,7 +537,10 @@ text, TO-STRING is actually made a list instead of a string.
 Use \\[repeat-complex-command] after this command for details.
 
 Arguments REGEXP, TO-STRING, DELIMITED, START, END, BACKWARD, and
-REGION-NONCONTIGUOUS-P are passed to `perform-replace' (which see)."
+REGION-NONCONTIGUOUS-P are passed to `perform-replace' (which see).
+\(REGEXP is passed to `perform-replace' as FROM-STRING,
+TO-STRING is passed as REPLACEMENTS, and DELIMITED is passed
+as DELIMITED-FLAG.)"
   (declare (interactive-args
 	    (start (use-region-beginning))
 	    (end (use-region-end))
@@ -824,11 +831,11 @@ by this function to the end of values available via
 
 (defvar-keymap read-regexp-map
   :parent minibuffer-local-map
-  "M-c" #'read-regexp-toggle-case-folding)
+  "M-s c" #'read-regexp-toggle-case-fold)
 
 (defvar read-regexp--case-fold nil)
 
-(defun read-regexp-toggle-case-folding ()
+(defun read-regexp-toggle-case-fold ()
   (interactive)
   (setq read-regexp--case-fold
         (if (or (eq read-regexp--case-fold 'fold)
@@ -875,7 +882,7 @@ in \":\", followed by optional whitespace), DEFAULT is added to the prompt.
 The optional argument HISTORY is a symbol to use for the history list.
 If nil, use `regexp-history'.
 
-If the user has used the \\<read-regexp-map>\\[read-regexp-toggle-case-folding] command to specify case
+If the user has used the \\<read-regexp-map>\\[read-regexp-toggle-case-fold] command to specify case
 sensitivity, the returned string will have a text property named
 `case-fold' that has a value of either `fold' or
 `inhibit-fold'.  (It's up to the caller of `read-regexp' to
@@ -1039,7 +1046,10 @@ They are deleted _before_ looking for the next match.  Hence, a match
 starting on the same line at which another match ended is ignored.
 
 Return the number of deleted matching lines.  When called interactively,
-also print the number."
+also print the number.
+
+If you want to not just delete the lines, but also add them to
+the kill ring, use the \\[kill-matching-lines] command instead."
   (interactive
    (progn
      (barf-if-buffer-read-only)
@@ -1101,7 +1111,10 @@ Hence, a match starting on the same line at which another match
 ended is ignored.
 
 Return the number of killed matching lines.  When called
-interactively, also print the number."
+interactively, also print the number.
+
+If you merely want to delete the lines, without adding them to
+the kill ring, the \\[delete-matching-lines] command is faster."
   (interactive
    (progn
      (barf-if-buffer-read-only)
@@ -1654,13 +1667,15 @@ A positive number means to include that many lines both before and after."
 (defcustom list-matching-lines-face 'match
   "Face used by \\[list-matching-lines] to show the text that matches.
 If the value is nil, don't highlight the matching portions specially."
-  :type 'face
+  :type '(choice (const :tag "Don't highlight matching portions" nil)
+                 face)
   :group 'matching)
 
 (defcustom list-matching-lines-buffer-name-face 'underline
   "Face used by \\[list-matching-lines] to show the names of buffers.
 If the value is nil, don't highlight the buffer names specially."
-  :type 'face
+  :type '(choice (const :tag "Don't highlight buffer names" nil)
+                 face)
   :group 'matching)
 
 (defcustom list-matching-lines-current-line-face 'lazy-highlight
@@ -1686,7 +1701,7 @@ contents of the line; it normally shows the line number.  \(For
 multiline matches, the prefix column shows the line number for the
 first line and whitespace for the rest of the lines.\)
 If this face will display the same as the default face, the prefix
-column will not be highlighted speciall."
+column will not be highlighted specially."
   :type 'face
   :group 'matching
   :version "24.4")
@@ -2818,7 +2833,7 @@ see the documentation of `replace-match' to find out how to simulate
 `case-replace'.
 
 This function returns nil if there were no matches to make, or
-the user cancelled the call.
+the user canceled the call.
 
 REPLACEMENTS is either a string, a list of strings, or a cons cell
 containing a function and its first argument.  The function is

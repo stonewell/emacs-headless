@@ -1,6 +1,6 @@
 ;;; rmc.el --- read from a multiple choice question -*- lexical-binding: t -*-
 
-;; Copyright (C) 2016-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 
@@ -125,8 +125,9 @@
 ;;;###autoload
 (defun read-multiple-choice (prompt choices &optional help-string show-help
                                     long-form)
-  "Ask user to select an entry from CHOICES, promting with PROMPT.
-This function allows to ask the user a multiple-choice question.
+  "Ask user to select an entry from CHOICES, prompting with PROMPT.
+This function is used to ask the user a question with multiple
+choices.
 
 CHOICES should be a list of the form (KEY NAME [DESCRIPTION]).
 KEY is a character the user should type to select the entry.
@@ -162,8 +163,10 @@ dialogs.  Otherwise, the function will always use text-mode dialogs.
 
 The return value is the matching entry from the CHOICES list.
 
-If LONG-FORM, do a `completing-read' over the NAME elements in
-CHOICES instead.
+If LONG-FORM is non-nil, do a `completing-read' over the NAME elements
+in CHOICES instead.  In this case, GUI dialog is not used, regardless
+of the value of `use-dialog-box' and whether the function was invoked
+via a mouse gesture.
 
 Usage example:
 
@@ -177,8 +180,9 @@ Usage example:
      prompt choices help-string show-help)))
 
 (defun read-multiple-choice--short-answers (prompt choices help-string show-help)
-  (let* ((prompt-choices
-          (if show-help choices (append choices '((?? "?")))))
+  (let* ((dialog-p (use-dialog-box-p))
+         (prompt-choices
+          (if (or show-help dialog-p) choices (append choices '((?? "?")))))
          (altered-names (mapcar #'rmc--add-key-description prompt-choices))
          (full-prompt
           (format
@@ -192,16 +196,14 @@ Usage example:
             (setq buf (rmc--show-help prompt help-string show-help
                                       choices altered-names)))
 	(while (not tchar)
-	  (message "%s%s"
-                   (if wrong-char
-                       "Invalid choice.  "
-                     "")
-                   full-prompt)
+          (unless dialog-p
+	    (message "%s%s"
+                     (if wrong-char
+                         "Invalid choice.  "
+                       "")
+                     full-prompt))
           (setq tchar
-                (if (and (display-popup-menus-p)
-                         last-input-event ; not during startup
-                         (consp last-nonmenu-event)
-                         use-dialog-box)
+                (if dialog-p
                     (x-popup-dialog
                      t
                      (cons prompt

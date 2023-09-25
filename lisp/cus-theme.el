@@ -1,6 +1,6 @@
 ;;; cus-theme.el --- custom theme creation user interface  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -32,17 +32,15 @@
 (eval-when-compile
   (require 'wid-edit))
 
-(defvar custom-new-theme-mode-map
-  (let ((map (make-keymap)))
-    (set-keymap-parent map (make-composed-keymap widget-keymap
-						 special-mode-map))
-    (suppress-keymap map)
-    (define-key map "\C-x\C-s" 'custom-theme-write)
-    (define-key map "q" 'Custom-buffer-done)
-    (define-key map "n" 'widget-forward)
-    (define-key map "p" 'widget-backward)
-    map)
-  "Keymap for `custom-new-theme-mode'.")
+(defvar-keymap custom-new-theme-mode-map
+  :doc "Keymap for `custom-new-theme-mode'."
+  :full t
+  :suppress t
+  :parent (make-composed-keymap widget-keymap special-mode-map)
+  "C-x C-s" #'custom-theme-write
+  "q"       #'Custom-buffer-done
+  "n"       #'widget-forward
+  "p"       #'widget-backward)
 
 (define-derived-mode custom-new-theme-mode nil "Custom-Theme"
   "Major mode for editing Custom themes.
@@ -66,13 +64,20 @@ Do not call this mode function yourself.  It is meant for internal use."
   variable-pitch escape-glyph homoglyph
   minibuffer-prompt highlight region
   shadow secondary-selection trailing-whitespace
-  font-lock-builtin-face font-lock-comment-delimiter-face
-  font-lock-comment-face font-lock-constant-face
-  font-lock-doc-face font-lock-doc-markup-face font-lock-function-name-face
+  font-lock-bracket-face font-lock-builtin-face
+  font-lock-comment-delimiter-face font-lock-comment-face
+  font-lock-constant-face font-lock-delimiter-face
+  font-lock-doc-face font-lock-doc-markup-face
+  font-lock-escape-face font-lock-function-call-face
+  font-lock-function-name-face
   font-lock-keyword-face font-lock-negation-char-face
-  font-lock-preprocessor-face font-lock-regexp-grouping-backslash
-  font-lock-regexp-grouping-construct font-lock-string-face
-  font-lock-type-face font-lock-variable-name-face
+  font-lock-number-face font-lock-misc-punctuation-face
+  font-lock-operator-face font-lock-preprocessor-face
+  font-lock-property-name-face font-lock-property-use-face
+  font-lock-punctuation-face
+  font-lock-regexp-grouping-backslash font-lock-regexp-grouping-construct
+  font-lock-string-face font-lock-type-face font-lock-variable-name-face
+  font-lock-variable-use-face
   font-lock-warning-face button link link-visited fringe
   header-line tooltip mode-line mode-line-buffer-id
   mode-line-emphasis mode-line-highlight mode-line-inactive
@@ -485,6 +490,29 @@ It includes all faces in list FACES."
     (with-current-buffer standard-output
       (describe-theme-1 theme))))
 
+(defun describe-theme-from-file (theme &optional file short)
+  "Describe THEME from its FILE without loading it.
+
+If FILE is nil try to look in `custom-theme-load-path' for the
+theme's file using the theme's name.
+If SHORT is non-nil, show only the first line of thene's documentation."
+    (let ((file (or file
+                  (locate-file (concat (symbol-name theme) "-theme.el")
+			       (custom-theme--load-path)
+			       '("" "c")))))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (catch 'found
+          (let (sexp)
+            (while (setq sexp (let ((read-circle nil))
+	                        (condition-case nil
+		                    (read (current-buffer))
+		                  (end-of-file nil))))
+              (when (eq (car-safe sexp) 'deftheme)
+	        (throw 'found (if short
+                                  (car (split-string (nth 2 sexp) "\n"))
+                                (nth 2 sexp))))))))))
+
 (defun describe-theme-1 (theme)
   (prin1 theme)
   (princ " is a custom theme")
@@ -505,16 +533,9 @@ It includes all faces in list FACES."
 	    (princ "It is loaded but disabled."))
 	  (setq doc (get theme 'theme-documentation)))
       (princ "It is not loaded.")
-      ;; Attempt to grab the theme documentation
+      ;; Attempt to grab the theme documentation from file.
       (when fn
-	(with-temp-buffer
-	  (insert-file-contents fn)
-	  (let ((sexp (let ((read-circle nil))
-			(condition-case nil
-			    (read (current-buffer))
-			  (end-of-file nil)))))
-            (and (eq (car-safe sexp) 'deftheme)
-		 (setq doc (nth 2 sexp)))))))
+	(setq doc (describe-theme-from-file theme fn))))
     (princ "\n\nDocumentation:\n")
     (princ (if (stringp doc)
 	       (substitute-command-keys doc)
@@ -534,17 +555,15 @@ It includes all faces in list FACES."
   :type 'boolean
   :group 'custom-buffer)
 
-(defvar custom-theme-choose-mode-map
-  (let ((map (make-keymap)))
-    (set-keymap-parent map (make-composed-keymap widget-keymap
-						 special-mode-map))
-    (suppress-keymap map)
-    (define-key map "\C-x\C-s" 'custom-theme-save)
-    (define-key map "n" 'widget-forward)
-    (define-key map "p" 'widget-backward)
-    (define-key map "?" 'custom-describe-theme)
-    map)
-  "Keymap for `custom-theme-choose-mode'.")
+(defvar-keymap custom-theme-choose-mode-map
+  :doc "Keymap for `custom-theme-choose-mode'."
+  :full t
+  :suppress t
+  :parent (make-composed-keymap widget-keymap special-mode-map)
+  "C-x C-s" #'custom-theme-save
+  "n"       #'widget-forward
+  "p"       #'widget-backward
+  "?"       #'custom-describe-theme)
 
 (define-derived-mode custom-theme-choose-mode special-mode "Themes"
   "Major mode for selecting Custom themes.

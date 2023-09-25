@@ -1,6 +1,6 @@
 ;;; image-mode.el --- support for visiting image files  -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 ;;
 ;; Author: Richard Stallman <rms@gnu.org>
 ;; Keywords: multimedia
@@ -69,8 +69,8 @@ Its value should be one of the following:
 Resizing will always preserve the aspect ratio of the image."
   :type '(choice (const :tag "No resizing" nil)
                  (const :tag "Fit to window" fit-window)
-                 (other :tag "Scale down to fit window" t)
-                 (number :tag "Scale factor" 1))
+                 (number :tag "Scale factor" 1)
+                 (other :tag "Scale down to fit window" t))
   :version "29.1"
   :group 'image)
 
@@ -89,7 +89,7 @@ This will always keep the image fit to the window.
 When non-nil, the value should be a number of seconds to wait before
 resizing according to the value specified in `image-auto-resize'."
   :type '(choice (const :tag "No auto-resize on window size change" nil)
-                 (integer :tag "Wait for number of seconds before resize" 1))
+                 (number :tag "Wait for number of seconds before resize" 1))
   :version "27.1"
   :group 'image)
 
@@ -248,8 +248,9 @@ Stop if the right edge of the image is reached."
 	 (image-set-window-hscroll (max 0 (+ (window-hscroll) n))))
 	(t
 	 (let* ((image (image-get-display-property))
-		(edges (window-inside-edges))
-		(win-width (- (nth 2 edges) (nth 0 edges)))
+		(edges (window-edges nil t nil t))
+		(win-width (- (/ (nth 2 edges) (frame-char-width))
+                              (/ (nth 0 edges) (frame-char-width))))
 		(img-width (ceiling (car (image-display-size image)))))
 	   (image-set-window-hscroll (min (max 0 (- img-width win-width))
 					  (+ n (window-hscroll))))))))
@@ -1086,7 +1087,7 @@ Otherwise, display the image by calling `image-mode'."
                   (unwind-protect
                       (progn
                         (setq-local image-fit-to-window-lock t)
-                        (ignore-error 'remote-file-error
+                        (ignore-error remote-file-error
                           (image-toggle-display-image)))
                     (setq image-fit-to-window-lock nil)))))))))))
 

@@ -1,6 +1,6 @@
 /* Support for accessing SQLite databases.
 
-Copyright (C) 2021-2022 Free Software Foundation, Inc.
+Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -23,12 +23,25 @@ YOSHIDA <syohex@gmail.com>, which can be found at:
    https://github.com/syohex/emacs-sqlite3  */
 
 #include <config.h>
+
+#include <c-strcase.h>
 #include "lisp.h"
 #include "coding.h"
 
 #ifdef HAVE_SQLITE3
 
 #include <sqlite3.h>
+
+/* Support for loading SQLite extensions requires the ability to
+   enable and disable loading of extensions (by default this is
+   disabled, and we want to keep it that way).  The required macro is
+   available since SQLite 3.13.  */
+# if defined HAVE_SQLITE3_LOAD_EXTENSION && \
+     defined SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION
+#  define HAVE_LOAD_EXTENSION 1
+# else
+#  define HAVE_LOAD_EXTENSION 0
+# endif
 
 #ifdef WINDOWSNT
 
@@ -52,7 +65,10 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_bind_null, (sqlite3_stmt*, int));
 DEF_DLL_FN (SQLITE_API int, sqlite3_bind_int, (sqlite3_stmt*, int, int));
 DEF_DLL_FN (SQLITE_API int, sqlite3_extended_errcode, (sqlite3*));
 DEF_DLL_FN (SQLITE_API const char*, sqlite3_errmsg, (sqlite3*));
+#if SQLITE_VERSION_NUMBER >= 3007015
 DEF_DLL_FN (SQLITE_API const char*, sqlite3_errstr, (int));
+#endif
+DEF_DLL_FN (SQLITE_API const char*, sqlite3_libversion, (void));
 DEF_DLL_FN (SQLITE_API int, sqlite3_step, (sqlite3_stmt*));
 DEF_DLL_FN (SQLITE_API int, sqlite3_changes, (sqlite3*));
 DEF_DLL_FN (SQLITE_API int, sqlite3_column_count, (sqlite3_stmt*));
@@ -72,11 +88,14 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_exec,
 DEF_DLL_FN (SQLITE_API int, sqlite3_prepare_v2,
 	    (sqlite3*, const char*, int, sqlite3_stmt**, const char**));
 
-# ifdef HAVE_SQLITE3_LOAD_EXTENSION
+# if HAVE_LOAD_EXTENSION
 DEF_DLL_FN (SQLITE_API int, sqlite3_load_extension,
 	    (sqlite3*, const char*, const char*, char**));
 #  undef sqlite3_load_extension
 #  define sqlite3_load_extension fn_sqlite3_load_extension
+DEF_DLL_FN (SQLITE_API int, sqlite3_db_config, (sqlite3*, int, ...));
+#  undef sqlite3_db_config
+#  define sqlite3_db_config fn_sqlite3_db_config
 # endif
 
 # undef sqlite3_finalize
@@ -91,7 +110,10 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_load_extension,
 # undef sqlite3_bind_int
 # undef sqlite3_extended_errcode
 # undef sqlite3_errmsg
-# undef sqlite3_errstr
+# if SQLITE_VERSION_NUMBER >= 3007015
+#  undef sqlite3_errstr
+# endif
+# undef sqlite3_libversion
 # undef sqlite3_step
 # undef sqlite3_changes
 # undef sqlite3_column_count
@@ -117,7 +139,10 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_load_extension,
 # define sqlite3_bind_int fn_sqlite3_bind_int
 # define sqlite3_extended_errcode fn_sqlite3_extended_errcode
 # define sqlite3_errmsg fn_sqlite3_errmsg
-# define sqlite3_errstr fn_sqlite3_errstr
+# if SQLITE_VERSION_NUMBER >= 3007015
+#  define sqlite3_errstr fn_sqlite3_errstr
+# endif
+# define sqlite3_libversion fn_sqlite3_libversion
 # define sqlite3_step fn_sqlite3_step
 # define sqlite3_changes fn_sqlite3_changes
 # define sqlite3_column_count fn_sqlite3_column_count
@@ -146,7 +171,10 @@ load_dll_functions (HMODULE library)
   LOAD_DLL_FN (library, sqlite3_bind_int);
   LOAD_DLL_FN (library, sqlite3_extended_errcode);
   LOAD_DLL_FN (library, sqlite3_errmsg);
+#if SQLITE_VERSION_NUMBER >= 3007015
   LOAD_DLL_FN (library, sqlite3_errstr);
+#endif
+  LOAD_DLL_FN (library, sqlite3_libversion);
   LOAD_DLL_FN (library, sqlite3_step);
   LOAD_DLL_FN (library, sqlite3_changes);
   LOAD_DLL_FN (library, sqlite3_column_count);
@@ -158,8 +186,9 @@ load_dll_functions (HMODULE library)
   LOAD_DLL_FN (library, sqlite3_column_text);
   LOAD_DLL_FN (library, sqlite3_column_name);
   LOAD_DLL_FN (library, sqlite3_exec);
-# ifdef HAVE_SQLITE3_LOAD_EXTENSION
+# if HAVE_LOAD_EXTENSION
   LOAD_DLL_FN (library, sqlite3_load_extension);
+  LOAD_DLL_FN (library, sqlite3_db_config);
 # endif
   LOAD_DLL_FN (library, sqlite3_prepare_v2);
   return true;
@@ -387,7 +416,7 @@ row_to_value (sqlite3_stmt *stmt)
   int len = sqlite3_column_count (stmt);
   Lisp_Object values = Qnil;
 
-  for (int i = 0; i < len; ++i)
+  for (int i = len - 1; i >= 0; i--)
     {
       Lisp_Object v = Qnil;
 
@@ -422,19 +451,33 @@ row_to_value (sqlite3_stmt *stmt)
       values = Fcons (v, values);
     }
 
-  return Fnreverse (values);
+  return values;
 }
 
 static Lisp_Object
 sqlite_prepare_errdata (int code, sqlite3 *sdb)
 {
-  Lisp_Object errstr = build_string (sqlite3_errstr (code));
   Lisp_Object errcode = make_fixnum (code);
-  /* More details about what went wrong.  */
-  Lisp_Object ext_errcode = make_fixnum (sqlite3_extended_errcode (sdb));
   const char *errmsg = sqlite3_errmsg (sdb);
-  return list4 (errstr, errmsg ? build_string (errmsg) : Qnil,
-		errcode, ext_errcode);
+  Lisp_Object lerrmsg = errmsg ? build_string (errmsg) : Qnil;
+  Lisp_Object errstr, ext_errcode;
+
+#if SQLITE_VERSION_NUMBER >= 3007015
+  errstr = build_string (sqlite3_errstr (code));
+#else
+  /* The internet says this is identical to sqlite3_errstr (code).  */
+  errstr = lerrmsg;
+#endif
+
+  /* More details about what went wrong.  */
+#if SQLITE_VERSION_NUMBER >= 3006005
+  ext_errcode = make_fixnum (sqlite3_extended_errcode (sdb));
+#else
+  /* What value to use here?  */
+  ext_errcode = make_fixnum (0);
+#endif
+
+  return list4 (errstr, lerrmsg, errcode, ext_errcode);
 }
 
 DEFUN ("sqlite-execute", Fsqlite_execute, Ssqlite_execute, 2, 3, 0,
@@ -528,14 +571,15 @@ DEFUN ("sqlite-select", Fsqlite_select, Ssqlite_select, 2, 4, 0,
 If VALUES is non-nil, it should be a list or a vector specifying the
 values that will be interpolated into a parameterized statement.
 
-By default, the return value is a list where the first element is a
-list of column names, and the rest of the elements are the matching data.
+By default, the return value is a list, whose contents depend on
+the value of the optional argument RETURN-TYPE.
 
-RETURN-TYPE can be either nil (which means that the matching data
-should be returned as a list of rows), or `full' (the same, but the
-first element in the return list will be the column names), or `set',
-which means that we return a set object that can be queried with
-`sqlite-next' and other functions to get the data.  */)
+If RETURN-TYPE is nil or omitted, the function returns a list of rows
+matching QUERY.  If RETURN-TYPE is `full', the function returns a
+list whose first element is the list of column names, and the rest
+of the elements are the rows matching QUERY.  If RETURN-TYPE is `set',
+the function returns a set object that can be queried with functions
+like `sqlite-next' etc., in order to get the data.  */)
   (Lisp_Object db, Lisp_Object query, Lisp_Object values,
    Lisp_Object return_type)
 {
@@ -642,7 +686,7 @@ DEFUN ("sqlite-pragma", Fsqlite_pragma, Ssqlite_pragma, 2, 2, 0,
 		      SSDATA (concat2 (build_string ("PRAGMA "), pragma)));
 }
 
-#ifdef HAVE_SQLITE3_LOAD_EXTENSION
+#if HAVE_LOAD_EXTENSION
 DEFUN ("sqlite-load-extension", Fsqlite_load_extension,
        Ssqlite_load_extension, 2, 2, 0,
        doc: /* Load an SQlite MODULE into DB.
@@ -657,9 +701,28 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
   CHECK_STRING (module);
 
   /* Add names of useful and free modules here.  */
-  const char *allowlist[3] = { "pcre", "csvtable", NULL };
+  const char *allowlist[] = {
+    "base64",
+    "cksumvfs",
+    "compress",
+    "csv",
+    "csvtable",
+    "fts3",
+    "icu",
+    "pcre",
+    "percentile",
+    "regexp",
+    "rot13",
+    "rtree",
+    "sha1",
+    "uuid",
+    "vfslog",
+    "zipfile",
+    NULL
+  };
   char *name = SSDATA (Ffile_name_nondirectory (module));
-  /* Possibly skip past a common prefix.  */
+  /* Possibly skip past a common prefix (libsqlite3_mod_ is used by
+     Debian, see https://packages.debian.org/source/sid/sqliteodbc).  */
   const char *prefix = "libsqlite3_mod_";
   if (!strncmp (name, prefix, strlen (prefix)))
     name += strlen (prefix);
@@ -667,10 +730,12 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
   bool do_allow = false;
   for (const char **allow = allowlist; *allow; allow++)
     {
-      if (strlen (*allow) < strlen (name)
-	  && !strncmp (*allow, name, strlen (*allow))
-	  && (!strcmp (name + strlen (*allow), ".so")
-	      || !strcmp (name + strlen (*allow), ".DLL")))
+      ptrdiff_t allow_len = strlen (*allow);
+      if (allow_len < strlen (name)
+	  && !strncmp (*allow, name, allow_len)
+	  && (!strcmp (name + allow_len, ".so")
+	      ||!strcmp (name + allow_len, ".dylib")
+	      || !strcasecmp (name + allow_len, ".dll")))
 	{
 	  do_allow = true;
 	  break;
@@ -680,21 +745,35 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
   if (!do_allow)
     xsignal1 (Qsqlite_error, build_string ("Module name not on allowlist"));
 
-  int result = sqlite3_load_extension
-		       (XSQLITE (db)->db,
-			SSDATA (ENCODE_FILE (Fexpand_file_name (module, Qnil))),
-			NULL, NULL);
-  if (result ==  SQLITE_OK)
-    return Qt;
+  /* Expand all Lisp data explicitly, so as to avoid signaling an
+     error while extension loading is enabled -- we don't want to
+     "leak" this outside this function.  */
+  sqlite3 *sdb = XSQLITE (db)->db;
+  char *ext_fn = SSDATA (ENCODE_FILE (Fexpand_file_name (module, Qnil)));
+  /* Temporarily enable loading extensions via the C API.  */
+  int result = sqlite3_db_config (sdb, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, 1,
+				  NULL);
+  if (result == SQLITE_OK)
+    {
+      result = sqlite3_load_extension (sdb, ext_fn, NULL, NULL);
+      /* Disable loading extensions via C API.  */
+      sqlite3_db_config (sdb, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, 0, NULL);
+      if (result == SQLITE_OK)
+	return Qt;
+    }
   return Qnil;
 }
-#endif /* HAVE_SQLITE3_LOAD_EXTENSION */
+#endif /* HAVE_LOAD_EXTENSION */
 
 DEFUN ("sqlite-next", Fsqlite_next, Ssqlite_next, 1, 1, 0,
-       doc: /* Return the next result set from SET.  */)
+       doc: /* Return the next result set from SET.
+Return nil when the statement has finished executing successfully.  */)
   (Lisp_Object set)
 {
   check_sqlite (set, true);
+
+  if (XSQLITE (set)->eof)
+    return Qnil;
 
   int ret = sqlite3_step (XSQLITE (set)->stmt);
   if (ret != SQLITE_ROW && ret != SQLITE_OK && ret != SQLITE_DONE)
@@ -738,6 +817,16 @@ This will free the resources held by SET.  */)
   sqlite3_finalize (XSQLITE (set)->stmt);
   XSQLITE (set)->db = NULL;
   return Qt;
+}
+
+DEFUN ("sqlite-version", Fsqlite_version, Ssqlite_version, 0, 0, 0,
+       doc: /* Return the version string of the SQLite library.
+Signal an error if SQLite support is not available.  */)
+  (void)
+{
+  if (!init_sqlite_functions ())
+    error ("sqlite support is not available");
+  return build_string (sqlite3_libversion ());
 }
 
 #endif /* HAVE_SQLITE3 */
@@ -784,13 +873,14 @@ syms_of_sqlite (void)
   defsubr (&Ssqlite_commit);
   defsubr (&Ssqlite_rollback);
   defsubr (&Ssqlite_pragma);
-#ifdef HAVE_SQLITE3_LOAD_EXTENSION
+#if HAVE_LOAD_EXTENSION
   defsubr (&Ssqlite_load_extension);
 #endif
   defsubr (&Ssqlite_next);
   defsubr (&Ssqlite_columns);
   defsubr (&Ssqlite_more_p);
   defsubr (&Ssqlite_finalize);
+  defsubr (&Ssqlite_version);
   DEFSYM (Qset, "set");
   DEFSYM (Qfull, "full");
 #endif

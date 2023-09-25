@@ -1,6 +1,6 @@
 /* Communication module for window systems using GTK.
 
-Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2022 Free Software
+Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2023 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -376,6 +376,13 @@ mark_pgtkterm (void)
   for (i = 0; i < n; i++)
     {
       union buffered_input_event *ev = &evq->q[i];
+
+      /* Selection requests don't have Lisp object members.  */
+
+      if (ev->ie.kind == SELECTION_REQUEST_EVENT
+	  || ev->ie.kind == SELECTION_CLEAR_EVENT)
+	continue;
+
       mark_object (ev->ie.x);
       mark_object (ev->ie.y);
       mark_object (ev->ie.frame_or_window);
@@ -511,16 +518,16 @@ pgtk_free_frame_resources (struct frame *f)
 
   if (FRAME_X_OUTPUT (f)->scrollbar_foreground_css_provider != NULL)
     {
-      GtkCssProvider *old =
-	FRAME_X_OUTPUT (f)->scrollbar_foreground_css_provider;
+      GtkCssProvider *old
+	= FRAME_X_OUTPUT (f)->scrollbar_foreground_css_provider;
       g_object_unref (old);
       FRAME_X_OUTPUT (f)->scrollbar_foreground_css_provider = NULL;
     }
 
   if (FRAME_X_OUTPUT (f)->scrollbar_background_css_provider != NULL)
     {
-      GtkCssProvider *old =
-	FRAME_X_OUTPUT (f)->scrollbar_background_css_provider;
+      GtkCssProvider *old
+	= FRAME_X_OUTPUT (f)->scrollbar_background_css_provider;
       g_object_unref (old);
       FRAME_X_OUTPUT (f)->scrollbar_background_css_provider = NULL;
     }
@@ -714,40 +721,42 @@ pgtk_set_window_size (struct frame *f, bool change_gravity,
 
 void
 pgtk_iconify_frame (struct frame *f)
-/* --------------------------------------------------------------------------
-     External: Iconify window
-   -------------------------------------------------------------------------- */
 {
+  GtkWindow *window;
+
   /* Don't keep the highlight on an invisible frame.  */
+
   if (FRAME_DISPLAY_INFO (f)->highlight_frame == f)
-    FRAME_DISPLAY_INFO (f)->highlight_frame = 0;
+    FRAME_DISPLAY_INFO (f)->highlight_frame = NULL;
+
+  /* If the frame is already iconified, return.  */
 
   if (FRAME_ICONIFIED_P (f))
     return;
 
-  block_input ();
+  /* Child frames on PGTK have no outer widgets.  In that case, simply
+     refuse to iconify the frame.  */
 
   if (FRAME_GTK_OUTER_WIDGET (f))
     {
       if (!FRAME_VISIBLE_P (f))
 	gtk_widget_show_all (FRAME_GTK_OUTER_WIDGET (f));
 
-      gtk_window_iconify (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)));
-      SET_FRAME_VISIBLE (f, 0);
-      SET_FRAME_ICONIFIED (f, true);
-      unblock_input ();
-      return;
+      window = GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f));
+
+      gtk_window_iconify (window);
+
+      /* Don't make the frame iconified here.  Doing so will cause it
+	 to be skipped by redisplay, until GDK says it is deiconified
+	 (see window_state_event for more details).  However, if the
+	 window server rejects the iconification request, GDK will
+	 never tell Emacs about the iconification not happening,
+	 leading to the frame not being redisplayed until the next
+	 window state change.  */
+
+      /* SET_FRAME_VISIBLE (f, 0);
+	 SET_FRAME_ICONIFIED (f, true); */
     }
-
-  /* Make sure the X server knows where the window should be positioned,
-     in case the user deiconifies with the window manager.  */
-  if (!FRAME_VISIBLE_P (f) && !FRAME_ICONIFIED_P (f))
-    pgtk_set_offset (f, f->left_pos, f->top_pos, 0);
-
-  SET_FRAME_ICONIFIED (f, true);
-  SET_FRAME_VISIBLE (f, 0);
-
-  unblock_input ();
 }
 
 static gboolean
@@ -1319,25 +1328,28 @@ fill_background_by_face (struct frame *f, struct face *face, int x, int y,
 			 int width, int height)
 {
   cairo_t *cr = pgtk_begin_cr_clip (f);
+  double r, g, b, a;
 
+  cairo_set_operator (cr, CAIRO_OPERATOR_SOURCE);
   cairo_rectangle (cr, x, y, width, height);
   cairo_clip (cr);
 
-  double r = ((face->background >> 16) & 0xff) / 255.0;
-  double g = ((face->background >> 8) & 0xff) / 255.0;
-  double b = ((face->background >> 0) & 0xff) / 255.0;
-  cairo_set_source_rgb (cr, r, g, b);
+  r = ((face->background >> 16) & 0xff) / 255.0;
+  g = ((face->background >> 8) & 0xff) / 255.0;
+  b = ((face->background >> 0) & 0xff) / 255.0;
+  a = f->alpha_background;
+  cairo_set_source_rgba (cr, r, g, b, a);
   cairo_paint (cr);
 
   if (face->stipple != 0)
     {
-      cairo_pattern_t *mask =
-	FRAME_DISPLAY_INFO (f)->bitmaps[face->stipple - 1].pattern;
+      cairo_pattern_t *mask
+	= FRAME_DISPLAY_INFO (f)->bitmaps[face->stipple - 1].pattern;
 
-      double r = ((face->foreground >> 16) & 0xff) / 255.0;
-      double g = ((face->foreground >> 8) & 0xff) / 255.0;
-      double b = ((face->foreground >> 0) & 0xff) / 255.0;
-      cairo_set_source_rgb (cr, r, g, b);
+      r = ((face->foreground >> 16) & 0xff) / 255.0;
+      g = ((face->foreground >> 8) & 0xff) / 255.0;
+      b = ((face->foreground >> 0) & 0xff) / 255.0;
+      cairo_set_source_rgba (cr, r, g, b, a);
       cairo_mask (cr, mask);
     }
 
@@ -1604,8 +1616,8 @@ pgtk_draw_glyphless_glyph_string_foreground (struct glyph_string *s)
 
 	  /* It is assured that all LEN characters in STR is ASCII.  */
 	  for (j = 0; j < len; j++)
-	    char2b[j] =
-	      s->font->driver->encode_char (s->font, str[j]) & 0xFFFF;
+	    char2b[j]
+	      = s->font->driver->encode_char (s->font, str[j]) & 0xFFFF;
 	  s->font->driver->draw (s, 0, upper_len,
 				 x + glyph->slice.glyphless.upper_xoff,
 				 s->ybase + glyph->slice.glyphless.upper_yoff,
@@ -2956,8 +2968,9 @@ pgtk_draw_window_cursor (struct window *w, struct glyph_row *glyph_row, int x,
 
       if (w == XWINDOW (f->selected_window))
 	{
-	  int frame_x =
-	    WINDOW_TO_FRAME_PIXEL_X (w, x) + WINDOW_LEFT_FRINGE_WIDTH (w);
+	  int frame_x = (WINDOW_TO_FRAME_PIXEL_X (w, x)
+			 + WINDOW_LEFT_FRINGE_WIDTH (w)
+			 + WINDOW_LEFT_MARGIN_WIDTH (w));
 	  int frame_y = WINDOW_TO_FRAME_PIXEL_Y (w, y);
 	  pgtk_im_set_cursor_location (f, frame_x, frame_y,
 				       w->phys_cursor_width,
@@ -3137,11 +3150,15 @@ pgtk_scroll_run (struct window *w, struct run *run)
 
 /* Icons.  */
 
-/* Make the x-window of frame F use the gnu icon bitmap.  */
-
 static bool
 pgtk_bitmap_icon (struct frame *f, Lisp_Object file)
 {
+  /* This code has never worked anyway for the reason that Wayland
+     uses icons set within desktop files, and has been disabled
+     because leaving it intact would require image.c to retain a
+     reference to a GdkPixbuf (which are no longer used) within new
+     bitmaps.  */
+#if 0
   ptrdiff_t bitmap_id;
 
   if (FRAME_GTK_WIDGET (f) == 0)
@@ -3197,12 +3214,8 @@ pgtk_bitmap_icon (struct frame *f, Lisp_Object file)
       bitmap_id = FRAME_DISPLAY_INFO (f)->icon_bitmap_id;
     }
 
-  if (FRAME_DISPLAY_INFO (f)->bitmaps[bitmap_id - 1].img != NULL)
-    gtk_window_set_icon (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
-			 FRAME_DISPLAY_INFO (f)->bitmaps[bitmap_id - 1].img);
-
   f->output_data.pgtk->icon_bitmap = bitmap_id;
-
+#endif /* 0 */
   return false;
 }
 
@@ -3756,7 +3769,8 @@ pgtk_flash (struct frame *f)
       cairo_rectangle (cr,
 		       flash_left,
 		       (height - flash_height
-			- FRAME_INTERNAL_BORDER_WIDTH (f)),
+			- FRAME_INTERNAL_BORDER_WIDTH (f)
+			- FRAME_BOTTOM_MARGIN_HEIGHT (f)),
 		       width, flash_height);
       cairo_fill (cr);
     }
@@ -4516,16 +4530,29 @@ pgtk_free_pixmap (struct frame *f, Emacs_Pixmap pixmap)
 void
 pgtk_focus_frame (struct frame *f, bool noactivate)
 {
-  struct pgtk_display_info *dpyinfo = FRAME_DISPLAY_INFO (f);
+  struct pgtk_display_info *dpyinfo;
+  GtkWidget *widget;
+  GtkWindow *window;
 
-  GtkWidget *wid = FRAME_WIDGET (f);
+  dpyinfo = FRAME_DISPLAY_INFO (f);
 
-  if (dpyinfo->x_focus_frame != f && wid != NULL)
+  if (FRAME_GTK_OUTER_WIDGET (f) && !noactivate)
     {
-      block_input ();
-      gtk_widget_grab_focus (wid);
-      unblock_input ();
+      /* The user says it is okay to activate the frame.  Call
+	 gtk_window_present_with_time.  If the timestamp specified
+	 (actually a display serial on Wayland) is new enough, then
+	 any Wayland compositor supporting gtk_surface1_present will
+	 cause the frame to be activated.  */
+
+      window = GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f));
+      gtk_window_present_with_time (window, dpyinfo->last_user_time);
+      return;
     }
+
+  widget = FRAME_WIDGET (f);
+
+  if (widget)
+    gtk_widget_grab_focus (widget);
 }
 
 static void
@@ -4924,36 +4951,38 @@ pgtk_clear_under_internal_border (struct frame *f)
       int width = FRAME_PIXEL_WIDTH (f);
       int height = FRAME_PIXEL_HEIGHT (f);
       int margin = FRAME_TOP_MARGIN_HEIGHT (f);
-      int face_id =
-	(FRAME_PARENT_FRAME (f)
-	 ? (!NILP (Vface_remapping_alist)
-	    ? lookup_basic_face (NULL, f, CHILD_FRAME_BORDER_FACE_ID)
-	    : CHILD_FRAME_BORDER_FACE_ID)
-	 : (!NILP (Vface_remapping_alist)
-	    ? lookup_basic_face (NULL, f, INTERNAL_BORDER_FACE_ID)
-	    : INTERNAL_BORDER_FACE_ID));
+      int bottom_margin = FRAME_BOTTOM_MARGIN_HEIGHT (f);
+      int face_id = (FRAME_PARENT_FRAME (f)
+		     ? (!NILP (Vface_remapping_alist)
+			? lookup_basic_face (NULL, f,
+					     CHILD_FRAME_BORDER_FACE_ID)
+			: CHILD_FRAME_BORDER_FACE_ID)
+		     : (!NILP (Vface_remapping_alist)
+			? lookup_basic_face (NULL, f,
+					     INTERNAL_BORDER_FACE_ID)
+			: INTERNAL_BORDER_FACE_ID));
       struct face *face = FACE_FROM_ID_OR_NULL (f, face_id);
 
       block_input ();
 
       if (face)
 	{
-#define x_fill_rectangle(f, gc, x, y, w, h) \
-	    fill_background_by_face (f, face, x, y, w, h)
-	  x_fill_rectangle (f, gc, 0, margin, width, border);
-	  x_fill_rectangle (f, gc, 0, 0, border, height);
-	  x_fill_rectangle (f, gc, width - border, 0, border, height);
-	  x_fill_rectangle (f, gc, 0, height - border, width, border);
-#undef x_fill_rectangle
+	  fill_background_by_face (f, face, 0, margin, width, border);
+	  fill_background_by_face (f, face, 0, 0, border, height);
+	  fill_background_by_face (f, face, width - border, 0, border,
+				   height);
+	  fill_background_by_face (f, face, 0, (height
+						- bottom_margin
+						- border),
+				   width, border);
 	}
       else
 	{
-#define x_clear_area(f, x, y, w, h)  pgtk_clear_area (f, x, y, w, h)
-	  x_clear_area (f, 0, 0, border, height);
-	  x_clear_area (f, 0, margin, width, border);
-	  x_clear_area (f, width - border, 0, border, height);
-	  x_clear_area (f, 0, height - border, width, border);
-#undef x_clear_area
+	  pgtk_clear_area (f, 0, 0, border, height);
+	  pgtk_clear_area (f, 0, margin, width, border);
+	  pgtk_clear_area (f, width - border, 0, border, height);
+	  pgtk_clear_area (f, 0, height - bottom_margin - border,
+			   width, border);
 	}
 
       unblock_input ();
@@ -5142,13 +5171,15 @@ static gboolean
 key_press_event (GtkWidget *widget, GdkEvent *event, gpointer *user_data)
 {
   union buffered_input_event inev;
-  ptrdiff_t nbytes = 0;
+  ptrdiff_t nbytes;
   Mouse_HLInfo *hlinfo;
   struct frame *f;
+  struct pgtk_display_info *dpyinfo;
 
   f = pgtk_any_window_to_frame (gtk_widget_get_window (widget));
   EVENT_INIT (inev.ie);
   hlinfo = MOUSE_HL_INFO (f);
+  nbytes = 0;
 
   /* If mouse-highlight is an integer, input clears out
      mouse highlighting.  */
@@ -5178,6 +5209,12 @@ key_press_event (GtkWidget *widget, GdkEvent *event, gpointer *user_data)
       int modifiers;
       Lisp_Object c;
       guint state;
+
+      dpyinfo = FRAME_DISPLAY_INFO (f);
+
+      /* Set the last user time for pgtk_focus_frame to work
+	 correctly.  */
+      dpyinfo->last_user_time = event->key.time;
 
       state = event->key.state;
 
@@ -5212,8 +5249,8 @@ key_press_event (GtkWidget *widget, GdkEvent *event, gpointer *user_data)
 
       /* Common for all keysym input events.  */
       XSETFRAME (inev.ie.frame_or_window, f);
-      inev.ie.modifiers =
-	pgtk_gtk_to_emacs_modifiers (FRAME_DISPLAY_INFO (f), modifiers);
+      inev.ie.modifiers
+	= pgtk_gtk_to_emacs_modifiers (FRAME_DISPLAY_INFO (f), modifiers);
       inev.ie.timestamp = event->key.time;
 
       /* First deal with keysyms which have defined
@@ -5361,11 +5398,37 @@ done:
   return TRUE;
 }
 
+static struct pgtk_display_info *
+pgtk_display_info_for_display (GdkDisplay *dpy)
+{
+  struct pgtk_display_info *dpyinfo;
+
+  for (dpyinfo = x_display_list; dpyinfo; dpyinfo = dpyinfo->next)
+    {
+      if (dpyinfo->display == dpy)
+	return dpyinfo;
+    }
+
+  return NULL;
+}
+
 static gboolean
 key_release_event (GtkWidget *widget,
 		   GdkEvent *event,
 		   gpointer *user_data)
 {
+  GdkDisplay *display;
+  struct pgtk_display_info *dpyinfo;
+
+  display = gtk_widget_get_display (widget);
+  dpyinfo = pgtk_display_info_for_display (display);
+
+  if (dpyinfo)
+    /* This is needed on Wayland because of some brain dead
+       compositors.  Without them, we would not have to keep track of
+       the serial of key release events.  */
+    dpyinfo->last_user_time = event->key.time;
+
   return TRUE;
 }
 
@@ -5420,9 +5483,7 @@ map_event (GtkWidget *widget,
       /* Check if fullscreen was specified before we where mapped the
          first time, i.e. from the command line.  */
       if (!FRAME_X_OUTPUT (f)->has_been_visible)
-	{
-	  set_fullscreen_state (f);
-	}
+	set_fullscreen_state (f);
 
       if (!iconified)
 	{
@@ -5465,24 +5526,6 @@ window_state_event (GtkWidget *widget,
   inev.ie.kind = NO_EVENT;
   inev.ie.arg = Qnil;
 
-  if (f)
-    {
-      if (new_state & GDK_WINDOW_STATE_FOCUSED)
-	{
-	  if (FRAME_ICONIFIED_P (f))
-	    {
-	      /* Gnome shell does not iconify us when C-z is pressed.
-	         It hides the frame.  So if our state says we aren't
-	         hidden anymore, treat it as deiconified.  */
-	      SET_FRAME_VISIBLE (f, 1);
-	      SET_FRAME_ICONIFIED (f, false);
-	      FRAME_X_OUTPUT (f)->has_been_visible = true;
-	      inev.ie.kind = DEICONIFY_EVENT;
-	      XSETFRAME (inev.ie.frame_or_window, f);
-	    }
-	}
-    }
-
   if (new_state & GDK_WINDOW_STATE_FULLSCREEN)
     store_frame_param (f, Qfullscreen, Qfullboth);
   else if (new_state & GDK_WINDOW_STATE_MAXIMIZED)
@@ -5500,14 +5543,37 @@ window_state_event (GtkWidget *widget,
   else
     store_frame_param (f, Qfullscreen, Qnil);
 
+  /* The Wayland protocol provides no way for the client to know
+     whether or not one of its toplevels has actually been
+     deiconified.  It only provides a request for clients to iconify a
+     toplevel, without even the ability to determine whether or not
+     the iconification request was rejected by the display server.
+
+     GDK computes the iconified state by sending a window state event
+     containing only GDK_WINDOW_STATE_ICONIFIED immediately after
+     gtk_window_iconify is called.  That is error-prone if the request
+     to iconify the frame was rejected by the display server, but is
+     not the main problem here, as Wayland compositors only rarely
+     reject such requests.  GDK also assumes that it can clear the
+     iconified state upon receiving the next toplevel configure event
+     from the display server.  Unfortunately, such events can be sent
+     by Wayland compositors while the frame is iconified, and may also
+     not be sent upon deiconification.  So, no matter what Emacs does,
+     the iconification state of a frame is likely to be wrong under
+     one situation or another.  */
+
   if (new_state & GDK_WINDOW_STATE_ICONIFIED)
-    SET_FRAME_ICONIFIED (f, true);
+    {
+      SET_FRAME_ICONIFIED (f, true);
+      SET_FRAME_VISIBLE (f, false);
+    }
   else
     {
       FRAME_X_OUTPUT (f)->has_been_visible = true;
       inev.ie.kind = DEICONIFY_EVENT;
       XSETFRAME (inev.ie.frame_or_window, f);
       SET_FRAME_ICONIFIED (f, false);
+      SET_FRAME_VISIBLE (f, true);
     }
 
   if (new_state & GDK_WINDOW_STATE_STICKY)
@@ -5899,9 +5965,10 @@ construct_mouse_click (struct input_event *result,
   result->kind = MOUSE_CLICK_EVENT;
   result->code = event->button - 1;
   result->timestamp = event->time;
-  result->modifiers =
-    (pgtk_gtk_to_emacs_modifiers (FRAME_DISPLAY_INFO (f), event->state) |
-     (event->type == GDK_BUTTON_RELEASE ? up_modifier : down_modifier));
+  result->modifiers = (pgtk_gtk_to_emacs_modifiers (FRAME_DISPLAY_INFO (f),
+						    event->state)
+		       | (event->type == GDK_BUTTON_RELEASE
+			  ? up_modifier : down_modifier));
 
   XSETINT (result->x, event->x);
   XSETINT (result->y, event->y);
@@ -5966,6 +6033,10 @@ button_event (GtkWidget *widget, GdkEvent *event,
 	}
     }
 
+  /* Set the last user time, used to activate the frame in
+     pgtk_focus_frame.  */
+  dpyinfo->last_user_time = event->button.time;
+
   if (f)
     {
       /* Is this in the tab-bar?  */
@@ -5984,10 +6055,7 @@ button_event (GtkWidget *widget, GdkEvent *event,
 	      (f, x, y, event->type == GDK_BUTTON_PRESS,
 	       pgtk_gtk_to_emacs_modifiers (dpyinfo, event->button.state));
 	}
-    }
 
-  if (f)
-    {
       if (!(tab_bar_p && NILP (tab_bar_arg)) && !tool_bar_p)
 	{
 	  if (ignore_next_mouse_click_timeout)
@@ -6055,8 +6123,8 @@ scroll_event (GtkWidget *widget, GdkEvent *event, gpointer *user_data)
 
   inev.ie.kind = NO_EVENT;
   inev.ie.timestamp = event->scroll.time;
-  inev.ie.modifiers =
-    pgtk_gtk_to_emacs_modifiers (FRAME_DISPLAY_INFO (f), event->scroll.state);
+  inev.ie.modifiers
+    = pgtk_gtk_to_emacs_modifiers (FRAME_DISPLAY_INFO (f), event->scroll.state);
   XSETINT (inev.ie.x, event->scroll.x);
   XSETINT (inev.ie.y, event->scroll.y);
   XSETFRAME (inev.ie.frame_or_window, f);
@@ -6594,6 +6662,44 @@ pgtk_selection_event (GtkWidget *widget, GdkEvent *event,
   return FALSE;
 }
 
+/* Display a warning message if the PGTK port is being used under X;
+   that is not supported.  */
+
+static void
+pgtk_display_x_warning (GdkDisplay *display)
+{
+  GtkWidget *dialog_widget, *label, *content_area;
+  GtkDialog *dialog;
+  GtkWindow *window;
+  GdkScreen *screen;
+
+  /* Do this instead of GDK_IS_X11_DISPLAY because the GDK X header
+     pulls in Xlib, which conflicts with definitions in pgtkgui.h.  */
+  if (strcmp (G_OBJECT_TYPE_NAME (display),
+	      "GdkX11Display"))
+    return;
+
+  dialog_widget = gtk_dialog_new ();
+  dialog = GTK_DIALOG (dialog_widget);
+  window = GTK_WINDOW (dialog_widget);
+  screen = gdk_display_get_default_screen (display);
+  content_area = gtk_dialog_get_content_area (dialog);
+
+  gtk_window_set_title (window, "Warning");
+  gtk_window_set_screen (window, screen);
+
+  label = gtk_label_new ("You are trying to run Emacs configured with\n"
+			  " the \"pure-GTK\" interface under the X Window\n"
+			  " System.  That configuration is unsupported and\n"
+			  " will lead to sporadic crashes during transfer of\n"
+			  " large selection data.  It will also lead to\n"
+			  " various problems with keyboard input.\n");
+  gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+  gtk_container_add (GTK_CONTAINER (content_area), label);
+  gtk_widget_show (label);
+  gtk_widget_show (dialog_widget);
+}
+
 /* Open a connection to X display DISPLAY_NAME, and return
    the structure that describes the open display.
    If we cannot contact the display, return null.  */
@@ -6697,6 +6803,9 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
       return 0;
     }
 
+  /* If the PGTK port is being used under X, complain very loudly, as
+     that isn't supported.  */
+  pgtk_display_x_warning (dpy);
 
   dpyinfo = xzalloc (sizeof *dpyinfo);
   pgtk_initialize_display_info (dpyinfo);
@@ -6739,8 +6848,7 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
 
   Lisp_Object system_name = Fsystem_name ();
   ptrdiff_t nbytes;
-  if (INT_ADD_WRAPV (SBYTES (Vinvocation_name), SBYTES (system_name) + 2,
-		     &nbytes))
+  if (ckd_add (&nbytes, SBYTES (Vinvocation_name), SBYTES (system_name) + 2))
     memory_full (SIZE_MAX);
   dpyinfo->x_id = ++x_display_id;
   dpyinfo->x_id_name = xmalloc (nbytes);
@@ -6940,10 +7048,9 @@ pgtk_parse_color (struct frame *f, const char *color_name,
       color->red = rgba.red * 65535;
       color->green = rgba.green * 65535;
       color->blue = rgba.blue * 65535;
-      color->pixel =
-	(color->red >> 8) << 16 |
-	(color->green >> 8) << 8 |
-	(color->blue >> 8) << 0;
+      color->pixel = ((color->red >> 8) << 16
+		      | (color->green >> 8) << 8
+		      | (color->blue >> 8) << 0);
       return 1;
     }
   return 0;
@@ -7072,10 +7179,9 @@ If set to a non-float value, there will be no wait at all.  */);
   Vpgtk_wait_for_event_timeout = make_float (0.1);
 
   DEFVAR_LISP ("pgtk-keysym-table", Vpgtk_keysym_table,
-	       doc: /* Hash table of character codes indexed by X keysym codes.  */);
-  Vpgtk_keysym_table =
-    make_hash_table (hashtest_eql, 900, DEFAULT_REHASH_SIZE,
-		     DEFAULT_REHASH_THRESHOLD, Qnil, false);
+    doc: /* Hash table of character codes indexed by X keysym codes.  */);
+  Vpgtk_keysym_table = make_hash_table (hashtest_eql, 900, DEFAULT_REHASH_SIZE,
+					DEFAULT_REHASH_THRESHOLD, Qnil, false);
 
   window_being_scrolled = Qnil;
   staticpro (&window_being_scrolled);
@@ -7113,13 +7219,13 @@ pgtk_begin_cr_clip (struct frame *f)
 
   if (!cr)
     {
-      cairo_surface_t *surface =
-	gdk_window_create_similar_surface (gtk_widget_get_window
-					   (FRAME_GTK_WIDGET (f)),
-					   CAIRO_CONTENT_COLOR_ALPHA,
-					   FRAME_CR_SURFACE_DESIRED_WIDTH (f),
-					   FRAME_CR_SURFACE_DESIRED_HEIGHT
-					   (f));
+      cairo_surface_t *surface
+	= gdk_window_create_similar_surface (gtk_widget_get_window
+					     (FRAME_GTK_WIDGET (f)),
+					     CAIRO_CONTENT_COLOR_ALPHA,
+					     FRAME_CR_SURFACE_DESIRED_WIDTH (f),
+					     FRAME_CR_SURFACE_DESIRED_HEIGHT
+					     (f));
 
       cr = FRAME_CR_CONTEXT (f) = cairo_create (surface);
       cairo_surface_destroy (surface);

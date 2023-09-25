@@ -1,6 +1,6 @@
 ;;; cl-preloaded.el --- Preloaded part of the CL library  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2022  Free Software Foundation, Inc
+;; Copyright (C) 2015-2023  Free Software Foundation, Inc
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -78,6 +78,9 @@
     (font-spec atom) (font-entity atom) (font-object atom)
     (vector array sequence atom)
     (user-ptr atom)
+    (tree-sitter-parser atom)
+    (tree-sitter-node atom)
+    (tree-sitter-compiled-query atom)
     ;; Plus, really hand made:
     (null symbol list sequence atom))
   "Alist of supertypes.
@@ -110,6 +113,7 @@ supertypes from the most specific to least specific.")
         (record 'cl-slot-descriptor
                 name initform type props)))
 
+;; In use by comp.el
 (defun cl--struct-get-class (name)
   (or (if (not (symbolp name)) name)
       (cl--find-class name)
@@ -155,7 +159,9 @@ supertypes from the most specific to least specific.")
   (cl-check-type name (satisfies cl--struct-name-p))
   (unless type
     ;; Legacy defstruct, using tagged vectors.  Enable backward compatibility.
-    (cl-old-struct-compat-mode 1))
+    (with-suppressed-warnings ((obsolete cl-old-struct-compat-mode))
+      (message "cl-old-struct-compat-mode is obsolete!")
+      (cl-old-struct-compat-mode 1)))
   (if (eq type 'record)
       ;; Defstruct using record objects.
       (setq type nil))
@@ -173,6 +179,7 @@ supertypes from the most specific to least specific.")
                        (i 0)
                        (offset (if type 0 1)))
                    (dolist (slot slots)
+                     (put (car slot) 'slot-name t)
                      (let* ((props (cl--plist-to-alist (cddr slot)))
                             (typep (assq :type props))
                             (type (if (null typep) t

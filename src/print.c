@@ -1,6 +1,6 @@
 /* Lisp object printing and output streams.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -45,6 +45,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef WINDOWSNT
 # include <sys/socket.h> /* for F_DUPFD_CLOEXEC */
+#endif
+
+#ifdef HAVE_TREE_SITTER
+#include "treesit.h"
 #endif
 
 struct terminal;
@@ -755,8 +759,7 @@ For instance:
 
   (prin1 object nil \\='((length . 100) (circle . t))).
 
-See the manual entry `(elisp)Output Overrides' for a list of possible
-values.
+See Info node `(elisp)Output Overrides' for a list of possible values.
 
 As a special case, OVERRIDES can also simply be the symbol t, which
 means "use default values for all the print-related settings".  */)
@@ -1909,12 +1912,17 @@ print_vectorlike (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag,
 	      print_c_string ("#<font-entity", printcharfun);
 	    for (int i = 0; i < FONT_SPEC_MAX; i++)
 	      {
-		printchar (' ', printcharfun);
-		if (i < FONT_WEIGHT_INDEX || i > FONT_WIDTH_INDEX)
-		  print_object (AREF (obj, i), printcharfun, escapeflag);
-		else
-		  print_object (font_style_symbolic (obj, i, 0),
-				printcharfun, escapeflag);
+		/* FONT_EXTRA_INDEX can contain private information in
+		   font entities which isn't safe to print.  */
+		if (i != FONT_EXTRA_INDEX || !FONT_ENTITY_P (obj))
+		  {
+		    printchar (' ', printcharfun);
+		    if (i < FONT_WEIGHT_INDEX || i > FONT_WIDTH_INDEX)
+		      print_object (AREF (obj, i), printcharfun, escapeflag);
+		    else
+		      print_object (font_style_symbolic (obj, i, 0),
+				    printcharfun, escapeflag);
+		  }
 	      }
 	  }
 	else
@@ -2007,6 +2015,50 @@ print_vectorlike (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag,
       }
       break;
 #endif
+
+#ifdef HAVE_TREE_SITTER
+    case PVEC_TS_PARSER:
+      print_c_string ("#<treesit-parser for ", printcharfun);
+      Lisp_Object language = XTS_PARSER (obj)->language_symbol;
+      /* No need to print the buffer because it's not that useful: we
+	 usually know which buffer a parser belongs to.  */
+      print_string (Fsymbol_name (language), printcharfun);
+      printchar ('>', printcharfun);
+      break;
+    case PVEC_TS_NODE:
+      /* Prints #<treesit-node (identifier) in 12-15> or
+         #<treesit-node "keyword" in 28-31>. */
+      print_c_string ("#<treesit-node", printcharfun);
+      if (!treesit_node_uptodate_p (obj))
+	{
+	  print_c_string ("-outdated>", printcharfun);
+	  break;
+	}
+      printchar (' ', printcharfun);
+      /* Now the node must be up-to-date, and calling functions like
+	 Ftreesit_node_start will not signal.  */
+      bool named = treesit_named_node_p (XTS_NODE (obj)->node);
+      /* We used to use () as delimiters for named nodes, but that
+	 confuses pretty-printing a tad bit.  There might be more
+	 little breakages here and there if we print parenthesizes
+	 inside an object, so I guess better not do it.
+	 (bug#60696)  */
+      const char *delim1 = named ? "" : "\"";
+      const char *delim2 = named ? "" : "\"";
+      print_c_string (delim1, printcharfun);
+      print_string (Ftreesit_node_type (obj), printcharfun);
+      print_c_string (delim2, printcharfun);
+      print_c_string (" in ", printcharfun);
+      print_object (Ftreesit_node_start (obj), printcharfun, escapeflag);
+      printchar ('-', printcharfun);
+      print_object (Ftreesit_node_end (obj), printcharfun, escapeflag);
+      printchar ('>', printcharfun);
+      break;
+    case PVEC_TS_COMPILED_QUERY:
+      print_c_string ("#<treesit-compiled-query>", printcharfun);
+      break;
+#endif
+
     case PVEC_SQLITE:
       {
 	print_c_string ("#<sqlite ", printcharfun);
@@ -2017,8 +2069,8 @@ print_vectorlike (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag,
 	    i = sprintf (buf, " stmt=%p", XSQLITE (obj)->stmt);
 	    strout (buf, i, i, printcharfun);
 	  }
-	i = sprintf (buf, " name=%s", XSQLITE (obj)->name);
-	strout (buf, i, i, printcharfun);
+	print_c_string (" name=", printcharfun);
+	print_c_string (XSQLITE (obj)->name, printcharfun);
 	printchar ('>', printcharfun);
       }
       break;
@@ -2154,9 +2206,9 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
   char buf[max (sizeof "from..to..in " + 2 * INT_STRLEN_BOUND (EMACS_INT),
 		max (sizeof " . #" + INT_STRLEN_BOUND (intmax_t),
 		     max ((sizeof " with data 0x"
-			   + (sizeof (uintmax_t) * CHAR_BIT + 4 - 1) / 4),
+			   + (UINTMAX_WIDTH + 4 - 1) / 4),
 			  40)))];
-  current_thread->stack_top = buf;
+  current_thread->stack_top = NEAR_STACK_TOP (buf);
 
  print_obj:
   maybe_quit ();

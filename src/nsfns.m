@@ -1,6 +1,6 @@
 /* Functions for the NeXT/Open/GNUstep and macOS window system.
 
-Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2022 Free Software
+Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2023 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -634,8 +634,15 @@ ns_change_tab_bar_height (struct frame *f, int height)
 {
   int unit = FRAME_LINE_HEIGHT (f);
   int old_height = FRAME_TAB_BAR_HEIGHT (f);
-  int lines = (height + unit - 1) / unit;
-  Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
+  /* This differs from the tool bar code in that the tab bar height is
+     not rounded up.  Otherwise, if redisplay_tab_bar decides to grow
+     the tab bar by even 1 pixel, FRAME_TAB_BAR_LINES will be changed,
+     leading to the tab bar height being incorrectly set upon the next
+     call to x_set_font.  (bug#59285) */
+  int lines = height / unit;
+  if (lines == 0 && height != 0)
+    lines = 1;
 
   /* Make sure we redisplay all windows in this frame.  */
   fset_redisplay (f);
@@ -656,6 +663,8 @@ ns_change_tab_bar_height (struct frame *f, int height)
 
   if (!f->tab_bar_resized)
     {
+      Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
       /* As long as tab_bar_resized is false, effectively try to change
 	 F's native height.  */
       if (NILP (fullscreen) || EQ (fullscreen, Qfullwidth))
@@ -674,6 +683,12 @@ ns_change_tab_bar_height (struct frame *f, int height)
      here.  */
   adjust_frame_glyphs (f);
   SET_FRAME_GARBAGED (f);
+}
+
+void
+ns_make_frame_key_window (struct frame *f)
+{
+  [[FRAME_NS_VIEW (f) window] makeKeyWindow];
 }
 
 /* tabbar support */
@@ -697,8 +712,10 @@ ns_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
     ns_change_tab_bar_height (f, nlines * FRAME_LINE_HEIGHT (f));
 }
 
+
 
-/* toolbar support */
+/* Tool bar support.  */
+
 static void
 ns_set_tool_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 {
@@ -751,7 +768,16 @@ ns_set_tool_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 }
 
 static void
-ns_set_child_frame_border_width (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+ns_set_tool_bar_position (struct frame *f, Lisp_Object arg,
+			  Lisp_Object oldval)
+{
+  if (!EQ (arg, Qtop))
+    error ("Tool bar position must be `top'");
+}
+
+static void
+ns_set_child_frame_border_width (struct frame *f, Lisp_Object arg,
+				 Lisp_Object oldval)
 {
   int border;
 
@@ -771,6 +797,26 @@ ns_set_child_frame_border_width (struct frame *f, Lisp_Object arg, Lisp_Object o
 
       SET_FRAME_GARBAGED (f);
     }
+}
+
+static void
+ns_set_inhibit_double_buffering (struct frame *f,
+                                 Lisp_Object new_value,
+                                 Lisp_Object old_value)
+{
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+  if (!EQ (new_value, old_value))
+    {
+      FRAME_DOUBLE_BUFFERED (f) = NILP (new_value);
+
+      /* If the view or layer haven't been created yet this will be a
+         noop.  */
+      [(EmacsLayer *)[FRAME_NS_VIEW (f) layer]
+          setDoubleBuffered:FRAME_DOUBLE_BUFFERED (f)];
+
+      SET_FRAME_GARBAGED (f);
+    }
+#endif
 }
 
 static void
@@ -1046,8 +1092,8 @@ frame_parm_handler ns_frame_parm_handlers[] =
   gui_set_font_backend, /* generic OK */
   gui_set_alpha,
   0, /* x_set_sticky */
-  0, /* x_set_tool_bar_position */
-  0, /* x_set_inhibit_double_buffering */
+  ns_set_tool_bar_position,
+  ns_set_inhibit_double_buffering,
   ns_set_undecorated,
   ns_set_parent_frame,
   0, /* x_set_skip_taskbar */
@@ -1434,6 +1480,14 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          "BufferPredicate", RES_TYPE_SYMBOL);
   gui_default_parameter (f, parms, Qtitle, Qnil, "title", "Title",
                          RES_TYPE_STRING);
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+  tem = gui_display_get_arg (dpyinfo, parms, Qinhibit_double_buffering, NULL, NULL,
+                             RES_TYPE_BOOLEAN);
+  FRAME_DOUBLE_BUFFERED (f) = NILP (tem) || EQ (tem, Qunbound);
+  store_frame_param (f, Qinhibit_double_buffering,
+                     FRAME_DOUBLE_BUFFERED (f) ? Qnil : Qt);
+#endif
 
   parms = get_geometry_from_preferences (dpyinfo, parms);
   window_prompting = gui_figure_window_size (f, parms, false, true);
@@ -3776,6 +3830,27 @@ all_nonzero_ascii (unsigned char *str, ptrdiff_t n)
   return true;
 }
 
+/* Count the number of characters in STR, NBYTES long.
+   The string must be valid UTF-8.  */
+static ptrdiff_t
+count_utf8_chars (const char *str, ptrdiff_t nbytes)
+{
+  /* This is faster than parse_str_as_multibyte, and much faster than
+     [NSString lengthOfBytesUsingEncoding: NSUTF32StringEncoding].  */
+  const char *end = str + nbytes;
+  ptrdiff_t nc = 0;
+  while (str < end)
+    {
+      nc++;
+      unsigned char c = *str;
+      str += (  c <= 0x7f ? 1    // 0xxxxxxx
+              : c <= 0xdf ? 2    // 110xxxxx 10xxxxxx
+              : c <= 0xef ? 3    // 1110xxxx 10xxxxxx 10xxxxxx
+              :             4);  // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+    }
+  return nc;
+}
+
 @implementation NSString (EmacsString)
 /* Make an NSString from a Lisp string.  STRING must not be in an
    encoded form (e.g. UTF-8).  */
@@ -3820,7 +3895,11 @@ all_nonzero_ascii (unsigned char *str, ptrdiff_t n)
 /* Make a Lisp string from an NSString.  */
 - (Lisp_Object)lispString
 {
-  return build_string ([self UTF8String]);
+  /* If the input string includes unpaired surrogates, then the result
+     will be an empty string.  */
+  const char *utf8 = [self UTF8String];
+  ptrdiff_t bytes = [self lengthOfBytesUsingEncoding: NSUTF8StringEncoding];
+  return make_multibyte_string (utf8, count_utf8_chars (utf8, bytes), bytes);
 }
 @end
 

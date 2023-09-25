@@ -1,6 +1,6 @@
 ;;; winner.el --- Restore old window configurations  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1997-1998, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Ivar Rummelhoff <ivarru@math.uio.no>
 ;; Created: 27 Feb 1997
@@ -327,6 +327,12 @@ You may want to include buffer names such as *Help*, *Apropos*,
       (define-key map [(control c) right] #'winner-redo))
     map)
   "Keymap for Winner mode.")
+
+(defvar-keymap winner-repeat-map
+  :doc "Keymap to repeat winner key sequences.  Used in `repeat-mode'."
+  :repeat t
+  "<left>"  #'winner-undo
+  "<right>" #'winner-redo)
 
 
 ;;;###autoload

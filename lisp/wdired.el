@@ -1,6 +1,6 @@
 ;;; wdired.el --- Rename files editing their names in dired buffers -*- coding: utf-8; lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2023 Free Software Foundation, Inc.
 
 ;; Filename: wdired.el
 ;; Author: Juan León Lahoz García <juanleon1@gmail.com>
@@ -455,6 +455,7 @@ non-nil means return old filename."
   (setq major-mode 'dired-mode)
   (setq mode-name "Dired")
   (dired-advertise)
+  (dired-hide-details-update-invisibility-spec)
   (remove-hook 'kill-buffer-hook #'wdired-check-kill-buffer t)
   (remove-hook 'before-change-functions #'wdired--before-change-fn t)
   (remove-hook 'after-change-functions #'wdired--restore-properties t)
@@ -469,6 +470,8 @@ non-nil means return old filename."
     (insert wdired--old-content)
     (goto-char wdired--old-point))
   (wdired-change-to-dired-mode)
+  ;; Update markers in `dired-subdir-alist'
+  (dired-build-subdir-alist)
   (set-buffer-modified-p nil)
   (setq buffer-undo-list nil)
   (message "Changes aborted"))
@@ -553,8 +556,24 @@ non-nil means return old filename."
                         ;; been modified with their new name keeping
                         ;; the ones that are unmodified at the same place.
                         (cl-loop for f in (cdr dired-directory)
-                                 collect (or (assoc-default f files-renamed)
-                                             f))))))
+                                 collect
+                                 (or (assoc-default f files-renamed)
+                                     ;; F could be relative or
+                                     ;; abbreviated, whereas
+                                     ;; files-renamed always consists
+                                     ;; of absolute file names.
+                                     (let ((relative
+                                            (not (file-name-absolute-p f)))
+                                           (match
+                                            (assoc-default (expand-file-name f)
+                                                           files-renamed)))
+                                       (cond
+                                        ;; If it was relative, convert
+                                        ;; the new name back to relative.
+                                        ((and match relative)
+                                         (file-relative-name match))
+                                        (t match)))
+                                     f))))))
 	  ;; Re-sort the buffer.
 	  (revert-buffer)
 	  (let ((inhibit-read-only t))

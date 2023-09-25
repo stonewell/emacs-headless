@@ -1,13 +1,13 @@
 ;;; remember.el --- a mode for quickly jotting down things to remember  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2001, 2003-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2001, 2003-2023 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
 ;; Created: 29 Mar 1999
 ;; Old-Version: 2.0
 ;; Keywords: data memory todo pim
-;; URL: http://gna.org/projects/remember-el/
+;; URL: http://gna.org/projects/remember-el/ [dead link]
 
 ;; This file is part of GNU Emacs.
 

@@ -1,6 +1,6 @@
 ;;; url-vars.el --- Variables for Uniform Resource Locator tool  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
 ;; Keywords: comm, data, processes, hypermedia
 
@@ -331,7 +331,7 @@ undefined."
 (defcustom url-max-redirections 30
   "The maximum number of redirection requests to honor in a HTTP connection.
 A negative number means to honor an unlimited number of redirection requests."
-  :type 'natnum
+  :type 'integer
   :group 'url)
 
 (defcustom url-confirmation-func 'y-or-n-p

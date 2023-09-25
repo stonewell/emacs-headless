@@ -1,5 +1,5 @@
 /* Primitive operations on Lisp data types for GNU Emacs Lisp interpreter.
-   Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2022 Free Software
+   Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2023 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -261,12 +261,19 @@ for example, (type-of 1) returns `integer'.  */)
           return Qxwidget;
         case PVEC_XWIDGET_VIEW:
           return Qxwidget_view;
+	case PVEC_TS_PARSER:
+	  return Qtreesit_parser;
+	case PVEC_TS_NODE:
+	  return Qtreesit_node;
+	case PVEC_TS_COMPILED_QUERY:
+	  return Qtreesit_compiled_query;
         case PVEC_SQLITE:
           return Qsqlite;
+        case PVEC_SUB_CHAR_TABLE:
+          return Qsub_char_table;
         /* "Impossible" cases.  */
 	case PVEC_MISC_PTR:
         case PVEC_OTHER:
-        case PVEC_SUB_CHAR_TABLE:
         case PVEC_FREE: ;
         }
       emacs_abort ();
@@ -677,7 +684,7 @@ global value outside of any lexical scope.  */)
   switch (sym->u.s.redirect)
     {
     case SYMBOL_PLAINVAL: valcontents = SYMBOL_VAL (sym); break;
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_LOCALIZED:
       {
 	struct Lisp_Buffer_Local_Value *blv = SYMBOL_BLV (sym);
@@ -767,7 +774,10 @@ DEFUN ("symbol-plist", Fsymbol_plist, Ssymbol_plist, 1, 1, 0,
 }
 
 DEFUN ("symbol-name", Fsymbol_name, Ssymbol_name, 1, 1, 0,
-       doc: /* Return SYMBOL's name, a string.  */)
+       doc: /* Return SYMBOL's name, a string.
+
+Warning: never alter the string returned by `symbol-name'.
+Doing that might make Emacs dysfunctional, and might even crash Emacs.  */)
   (register Lisp_Object symbol)
 {
   register Lisp_Object name;
@@ -834,7 +844,9 @@ the position will be taken.  */)
 }
 
 DEFUN ("fset", Ffset, Sfset, 2, 2, 0,
-       doc: /* Set SYMBOL's function definition to DEFINITION, and return DEFINITION.  */)
+       doc: /* Set SYMBOL's function definition to DEFINITION, and return DEFINITION.
+If the resulting chain of function definitions would contain a loop,
+signal a `cyclic-function-indirection' error.  */)
   (register Lisp_Object symbol, Lisp_Object definition)
 {
   CHECK_SYMBOL (symbol);
@@ -846,10 +858,16 @@ DEFUN ("fset", Ffset, Sfset, 2, 2, 0,
 
   eassert (valid_lisp_object_p (definition));
 
+  /* Ensure non-circularity.  */
+  for (Lisp_Object s = definition; SYMBOLP (s) && !NILP (s);
+       s = XSYMBOL (s)->u.s.function)
+    if (EQ (s, symbol))
+      xsignal1 (Qcyclic_function_indirection, symbol);
+
 #ifdef HAVE_NATIVE_COMP
   register Lisp_Object function = XSYMBOL (symbol)->u.s.function;
 
-  if (comp_enable_subr_trampolines
+  if (!NILP (Vnative_comp_enable_subr_trampolines)
       && SUBRP (function)
       && !SUBR_NATIVE_COMPILEDP (function))
     CALLN (Ffuncall, Qcomp_subr_trampoline_install, symbol);
@@ -868,7 +886,7 @@ add_to_function_history (Lisp_Object symbol, Lisp_Object olddef)
   Lisp_Object past = Fget (symbol, Qfunction_history);
   Lisp_Object file = Qnil;
   /* FIXME: Sadly, `Vload_file_name` gives less precise information
-     (it's sometimes non-nil when it shoujld be nil).  */
+     (it's sometimes non-nil when it should be nil).  */
   Lisp_Object tail = Vcurrent_load_list;
   FOR_EACH_TAIL_SAFE (tail)
     if (NILP (XCDR (tail)) && STRINGP (XCAR (tail)))
@@ -1072,7 +1090,7 @@ If CMD is not a command, the return value is nil.
 Value, if non-nil, is a list (interactive SPEC).  */)
   (Lisp_Object cmd)
 {
-  Lisp_Object fun = indirect_function (cmd); /* Check cycles.  */
+  Lisp_Object fun = indirect_function (cmd);
   bool genfun = false;
 
   if (NILP (fun))
@@ -1162,7 +1180,7 @@ If COMMAND is not a command, the return value is nil.
 The value, if non-nil, is a list of mode name symbols.  */)
   (Lisp_Object command)
 {
-  Lisp_Object fun = indirect_function (command); /* Check cycles.  */
+  Lisp_Object fun = indirect_function (command);
 
   if (NILP (fun))
     return Qnil;
@@ -1232,51 +1250,20 @@ The value, if non-nil, is a list of mode name symbols.  */)
 		Getting and Setting Values of Symbols
  ***********************************************************************/
 
-/* Return the symbol holding SYMBOL's value.  Signal
-   `cyclic-variable-indirection' if SYMBOL's chain of variable
-   indirections contains a loop.  */
-
-struct Lisp_Symbol *
-indirect_variable (struct Lisp_Symbol *symbol)
-{
-  struct Lisp_Symbol *tortoise, *hare;
-
-  hare = tortoise = symbol;
-
-  while (hare->u.s.redirect == SYMBOL_VARALIAS)
-    {
-      hare = SYMBOL_ALIAS (hare);
-      if (hare->u.s.redirect != SYMBOL_VARALIAS)
-	break;
-
-      hare = SYMBOL_ALIAS (hare);
-      tortoise = SYMBOL_ALIAS (tortoise);
-
-      if (hare == tortoise)
-	{
-	  Lisp_Object tem;
-	  XSETSYMBOL (tem, symbol);
-	  xsignal1 (Qcyclic_variable_indirection, tem);
-	}
-    }
-
-  return hare;
-}
-
-
 DEFUN ("indirect-variable", Findirect_variable, Sindirect_variable, 1, 1, 0,
        doc: /* Return the variable at the end of OBJECT's variable chain.
 If OBJECT is a symbol, follow its variable indirections (if any), and
 return the variable at the end of the chain of aliases.  See Info node
 `(elisp)Variable Aliases'.
 
-If OBJECT is not a symbol, just return it.  If there is a loop in the
-chain of aliases, signal a `cyclic-variable-indirection' error.  */)
+If OBJECT is not a symbol, just return it.  */)
   (Lisp_Object object)
 {
   if (SYMBOLP (object))
     {
-      struct Lisp_Symbol *sym = indirect_variable (XSYMBOL (object));
+      struct Lisp_Symbol *sym = XSYMBOL (object);
+      while (sym->u.s.redirect == SYMBOL_VARALIAS)
+	sym = SYMBOL_ALIAS (sym);
       XSETSYMBOL (object, sym);
     }
   return object;
@@ -1565,7 +1552,7 @@ find_symbol_value (Lisp_Object symbol)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: return SYMBOL_VAL (sym);
     case SYMBOL_LOCALIZED:
       {
@@ -1620,8 +1607,6 @@ set_internal (Lisp_Object symbol, Lisp_Object newval, Lisp_Object where,
   bool voide = BASE_EQ (newval, Qunbound);
 
   /* If restoring in a dead buffer, do nothing.  */
-  /* if (BUFFERP (where) && NILP (XBUFFER (where)->name))
-      return; */
 
   CHECK_SYMBOL (symbol);
   struct Lisp_Symbol *sym = XSYMBOL (symbol);
@@ -1654,7 +1639,7 @@ set_internal (Lisp_Object symbol, Lisp_Object newval, Lisp_Object where,
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: SET_SYMBOL_VAL (sym , newval); return;
     case SYMBOL_LOCALIZED:
       {
@@ -1908,7 +1893,7 @@ default_value (Lisp_Object symbol)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: return SYMBOL_VAL (sym);
     case SYMBOL_LOCALIZED:
       {
@@ -2002,7 +1987,7 @@ set_default_internal (Lisp_Object symbol, Lisp_Object value,
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: set_internal (symbol, value, Qnil, bindflag); return;
     case SYMBOL_LOCALIZED:
       {
@@ -2140,7 +2125,7 @@ See also `defvar-local'.  */)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL:
       forwarded = 0; valcontents.value = SYMBOL_VAL (sym);
       if (BASE_EQ (valcontents.value, Qunbound))
@@ -2208,7 +2193,7 @@ Instead, use `add-hook' and specify t for the LOCAL argument.  */)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL:
       forwarded = 0; valcontents.value = SYMBOL_VAL (sym); break;
     case SYMBOL_LOCALIZED:
@@ -2226,17 +2211,18 @@ Instead, use `add-hook' and specify t for the LOCAL argument.  */)
   if (sym->u.s.trapped_write == SYMBOL_NOWRITE)
     xsignal1 (Qsetting_constant, variable);
 
-  if (blv ? blv->local_if_set
-      : (forwarded && BUFFER_OBJFWDP (valcontents.fwd)))
-    {
-      tem = Fboundp (variable);
-      /* Make sure the symbol has a local value in this particular buffer,
-	 by setting it to the same value it already has.  */
-      Fset (variable, (EQ (tem, Qt) ? Fsymbol_value (variable) : Qunbound));
-      return variable;
-    }
   if (!blv)
     {
+      if (forwarded && BUFFER_OBJFWDP (valcontents.fwd))
+        {
+          int offset = XBUFFER_OBJFWD (valcontents.fwd)->offset;
+          int idx = PER_BUFFER_IDX (offset);
+          eassert (idx);
+          if (idx > 0)
+            /* If idx < 0, it's always buffer local, like `mode-name`.  */
+            SET_PER_BUFFER_VALUE_P (current_buffer, idx, true);
+          return variable;
+        }
       blv = make_blv (sym, forwarded, valcontents);
       sym->u.s.redirect = SYMBOL_LOCALIZED;
       SET_SYMBOL_BLV (sym, blv);
@@ -2294,7 +2280,7 @@ From now on the default value will apply in this buffer.  Return VARIABLE.  */)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: return variable;
     case SYMBOL_FORWARDED:
       {
@@ -2361,7 +2347,7 @@ Also see `buffer-local-boundp'.*/)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: return Qnil;
     case SYMBOL_LOCALIZED:
       {
@@ -2411,7 +2397,7 @@ value in BUFFER, or if VARIABLE is automatically buffer-local (see
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: return Qnil;
     case SYMBOL_LOCALIZED:
       {
@@ -2446,7 +2432,7 @@ If the current binding is global (the default), the value is nil.  */)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: return Qnil;
     case SYMBOL_FORWARDED:
       {
@@ -2476,55 +2462,22 @@ If the current binding is global (the default), the value is nil.  */)
 
 /* If OBJECT is a symbol, find the end of its function chain and
    return the value found there.  If OBJECT is not a symbol, just
-   return it.  If there is a cycle in the function chain, signal a
-   cyclic-function-indirection error.
-
-   This is like Findirect_function, except that it doesn't signal an
-   error if the chain ends up unbound.  */
+   return it.  */
 Lisp_Object
-indirect_function (register Lisp_Object object)
+indirect_function (Lisp_Object object)
 {
-  Lisp_Object tortoise, hare;
-
-  hare = tortoise = object;
-
-  for (;;)
-    {
-      if (!SYMBOLP (hare) || NILP (hare))
-	break;
-      hare = XSYMBOL (hare)->u.s.function;
-      if (!SYMBOLP (hare) || NILP (hare))
-	break;
-      hare = XSYMBOL (hare)->u.s.function;
-
-      tortoise = XSYMBOL (tortoise)->u.s.function;
-
-      if (EQ (hare, tortoise))
-	xsignal1 (Qcyclic_function_indirection, object);
-    }
-
-  return hare;
+  while (SYMBOLP (object) && !NILP (object))
+    object = XSYMBOL (object)->u.s.function;
+  return object;
 }
 
 DEFUN ("indirect-function", Findirect_function, Sindirect_function, 1, 2, 0,
        doc: /* Return the function at the end of OBJECT's function chain.
 If OBJECT is not a symbol, just return it.  Otherwise, follow all
-function indirections to find the final function binding and return it.
-Signal a cyclic-function-indirection error if there is a loop in the
-function chain of symbols.  */)
-  (register Lisp_Object object, Lisp_Object noerror)
+function indirections to find the final function binding and return it.  */)
+  (Lisp_Object object, Lisp_Object noerror)
 {
-  Lisp_Object result;
-
-  /* Optimize for no indirection.  */
-  result = object;
-  if (SYMBOLP (result) && !NILP (result)
-      && (result = XSYMBOL (result)->u.s.function, SYMBOLP (result)))
-    result = indirect_function (result);
-  if (!NILP (result))
-    return result;
-
-  return Qnil;
+  return indirect_function (object);
 }
 
 /* Extract and set vector and string elements.  */
@@ -2613,6 +2566,7 @@ bool-vector.  IDX starts at 0.  */)
     }
   else if (RECORDP (array))
     {
+      CHECK_IMPURE (array, XVECTOR (array));
       if (idxval < 0 || idxval >= PVSIZE (array))
 	args_out_of_range (array, idx);
       ASET (array, idxval, newelt);
@@ -3078,7 +3032,8 @@ If the base used is not 10, STRING is always parsed as an integer.  */)
     p++;
 
   Lisp_Object val = string_to_number (p, b, 0);
-  return NILP (val) ? make_fixnum (0) : val;
+  return ((IEEE_FLOATING_POINT ? NILP (val) : !NUMBERP (val))
+	  ? make_fixnum (0) : val);
 }
 
 enum arithop
@@ -3236,9 +3191,9 @@ arith_driver (enum arithop code, ptrdiff_t nargs, Lisp_Object *args,
 	intmax_t a;
 	switch (code)
 	  {
-	  case Aadd : overflow = INT_ADD_WRAPV (accum, next, &a); break;
-	  case Amult: overflow = INT_MULTIPLY_WRAPV (accum, next, &a); break;
-	  case Asub : overflow = INT_SUBTRACT_WRAPV (accum, next, &a); break;
+	  case Aadd : overflow = ckd_add (&a, accum, next); break;
+	  case Amult: overflow = ckd_mul (&a, accum, next); break;
+	  case Asub : overflow = ckd_sub (&a, accum, next); break;
 	  case Adiv:
 	    if (next == 0)
 	      xsignal0 (Qarith_error);
@@ -4154,7 +4109,14 @@ syms_of_data (void)
   DEFSYM (Qunevalled, "unevalled");
   DEFSYM (Qmany, "many");
 
+  DEFSYM (Qcar, "car");
   DEFSYM (Qcdr, "cdr");
+  DEFSYM (Qnth, "nth");
+  DEFSYM (Qelt, "elt");
+  DEFSYM (Qsetcar, "setcar");
+  DEFSYM (Qsetcdr, "setcdr");
+  DEFSYM (Qaref, "aref");
+  DEFSYM (Qaset, "aset");
 
   error_tail = pure_cons (Qerror, Qnil);
 
@@ -4232,10 +4194,11 @@ syms_of_data (void)
   Fput (Qrecursion_error, Qerror_message, build_pure_c_string
 	("Excessive recursive calling error"));
 
-  PUT_ERROR (Qexcessive_variable_binding, recursion_tail,
-	     "Variable binding depth exceeds max-specpdl-size");
   PUT_ERROR (Qexcessive_lisp_nesting, recursion_tail,
 	     "Lisp nesting exceeds `max-lisp-eval-depth'");
+  /* Error obsolete (from 29.1), kept for compatibility.  */
+  PUT_ERROR (Qexcessive_variable_binding, recursion_tail,
+	     "Variable binding depth exceeds max-specpdl-size");
 
   /* Types that type-of returns.  */
   DEFSYM (Qinteger, "integer");
@@ -4260,6 +4223,7 @@ syms_of_data (void)
   DEFSYM (Qvector, "vector");
   DEFSYM (Qrecord, "record");
   DEFSYM (Qchar_table, "char-table");
+  DEFSYM (Qsub_char_table, "sub-char-table");
   DEFSYM (Qbool_vector, "bool-vector");
   DEFSYM (Qhash_table, "hash-table");
   DEFSYM (Qthread, "thread");
@@ -4271,6 +4235,9 @@ syms_of_data (void)
   DEFSYM (Qterminal, "terminal");
   DEFSYM (Qxwidget, "xwidget");
   DEFSYM (Qxwidget_view, "xwidget-view");
+  DEFSYM (Qtreesit_parser, "treesit-parser");
+  DEFSYM (Qtreesit_node, "treesit-node");
+  DEFSYM (Qtreesit_compiled_query, "treesit-compiled-query");
 
   DEFSYM (Qdefun, "defun");
 
@@ -4399,8 +4366,6 @@ syms_of_data (void)
   defsubr (&Sbool_vector_subsetp);
   defsubr (&Sbool_vector_count_consecutive);
   defsubr (&Sbool_vector_count_population);
-
-  set_symbol_function (Qwholenump, XSYMBOL (Qnatnump)->u.s.function);
 
   DEFVAR_LISP ("most-positive-fixnum", Vmost_positive_fixnum,
 	       doc: /* The greatest integer that is represented efficiently.

@@ -1,6 +1,6 @@
 ;;; gnus-group.el --- group mode commands for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -393,17 +393,15 @@ variables in the Lisp expression:
   "Add Icons to your group buffer."
   :group 'gnus-group-visual)
 
-(defcustom gnus-group-icon-list
-  nil
+(defcustom gnus-group-icon-list nil
   "Controls the insertion of icons into group buffer lines.
 
 Below is a list of `Form'/`File' pairs.  When deciding how a
 particular group line should be displayed, each form is evaluated.
 The icon from the file field after the first true form is used.  You
 can change how those group lines are displayed by editing the file
-field.  The File will either be found in the
-`gnus-group-glyph-directory' or by designating absolute name of the
-file.
+field.  The File will either be found in the `image-load-path'
+or by specifying the absolute name of the file.
 
 It is also possible to change and add form fields, but currently that
 requires an understanding of Lisp expressions.  Hopefully this will
@@ -4197,7 +4195,8 @@ If DONT-SCAN is non-nil, scan non-activated groups as well."
 	  (let ((info (gnus-get-info group))
 		(active (gnus-active group)))
 	    (when info
-	      (gnus-request-update-info info method))
+              (gnus-request-update-info info method)
+              (setq active (gnus-active group)))
 	    (gnus-get-unread-articles-in-group info active)
 	    (unless (gnus-virtual-group-p group)
 	      (gnus-close-group group))

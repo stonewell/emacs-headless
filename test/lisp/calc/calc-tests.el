@@ -1,6 +1,6 @@
 ;;; calc-tests.el --- tests for calc                 -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2014-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2023 Free Software Foundation, Inc.
 
 ;; Author: Leo Liu <sdl.web@gmail.com>
 ;; Keywords: maint
@@ -698,8 +698,8 @@ An existing calc stack is reused, otherwise a new one is created."
                      (calc-tests--not x w)))
 
       (dolist (n '(0 1 4 16 32 -1 -4 -16 -32))
-        (equal (calcFunc-clip x n)
-               (calc-tests--clip x n)))
+        (should (equal (calcFunc-clip x n)
+                       (calc-tests--clip x n))))
 
       (dolist (y '(0 1 #x1234 #x8000 #xabcd #xffff
                      #x12345678 #xabcdef12 #x80000000 #xffffffff

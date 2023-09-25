@@ -1,6 +1,6 @@
 ;;; sqlite-tests.el --- Tests for sqlite.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -36,6 +36,7 @@
 (declare-function sqlite-select "sqlite.c")
 (declare-function sqlite-open "sqlite.c")
 (declare-function sqlite-load-extension "sqlite.c")
+(declare-function sqlite-version "sqlite.c")
 
 (ert-deftest sqlite-select ()
   (skip-unless (sqlite-available-p))
@@ -196,10 +197,13 @@
      (sqlite-load-extension db "/usr/lib/sqlite3/"))
     (should-error
      (sqlite-load-extension db "/usr/lib/sqlite3"))
-    (should
-     (memq
-      (sqlite-load-extension db "/usr/lib/sqlite3/pcre.so")
-      '(nil t)))
+    (if (eq system-type 'windows-nt)
+        (should
+         (eq (sqlite-load-extension db "/usr/lib/sqlite3/pcre.dll")
+             (file-readable-p "/usr/lib/sqlite3/pcre.dll")))
+      (should
+       (eq (sqlite-load-extension db "/usr/lib/sqlite3/pcre.so")
+           (file-readable-p "/usr/lib/sqlite3/pcre.so"))))
 
     (should-error
      (sqlite-load-extension
@@ -210,11 +214,13 @@
     (should-error
      (sqlite-load-extension
       db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtable"))
-    (should
-     (memq
-      (sqlite-load-extension
-       db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtable.so")
-      '(nil t)))))
+    (if (eq system-type 'windows-nt)
+        (should
+         (eq (sqlite-load-extension db "/usr/lib/sqlite3/csvtable.dll")
+             (file-readable-p "/usr/lib/sqlite3/csvtable.dll")))
+      (should
+       (eq (sqlite-load-extension db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtable.so")
+           (file-readable-p "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtable.so"))))))
 
 (ert-deftest sqlite-blob ()
   (skip-unless (sqlite-available-p))
@@ -243,6 +249,7 @@
 
 (ert-deftest sqlite-returning ()
   (skip-unless (sqlite-available-p))
+  (skip-unless (version<= "3.35" (sqlite-version)))
   (let (db)
     (progn
       (setq db (sqlite-open))

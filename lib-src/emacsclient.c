@@ -1,6 +1,6 @@
 /* Client process that communicates with GNU Emacs acting as server.
 
-Copyright (C) 1986-2022 Free Software Foundation, Inc.
+Copyright (C) 1986-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -568,6 +568,7 @@ decode_options (int argc, char **argv)
         case 't':
 	  tty = true;
 	  create_frame = true;
+	  reuse_frame = false;
           break;
 
         case 'c':
@@ -576,7 +577,8 @@ decode_options (int argc, char **argv)
 
 	case 'r':
 	  create_frame = true;
-	  reuse_frame = true;
+	  if (!tty)
+	    reuse_frame = true;
 	  break;
 
 	case 'p':
@@ -616,6 +618,7 @@ decode_options (int argc, char **argv)
      display in DISPLAY (if any).  */
   if (create_frame && !tty && !display)
     {
+#ifndef HAVE_ANDROID
       /* Set these here so we use a default_display only when the user
          didn't give us an explicit display.  */
 #if defined (NS_IMPL_COCOA)
@@ -624,14 +627,22 @@ decode_options (int argc, char **argv)
       alt_display = "w32";
 #elif defined (HAVE_HAIKU)
       alt_display = "be";
-#endif
+#endif /* NS_IMPL_COCOA */
 
 #ifdef HAVE_PGTK
       display = egetenv ("WAYLAND_DISPLAY");
       alt_display = egetenv ("DISPLAY");
-#else
+#else /* !HAVE_PGTK */
       display = egetenv ("DISPLAY");
-#endif
+#endif /* HAVE_PGTK */
+#else /* HAVE_ANDROID */
+      /* Disregard the DISPLAY environment variable under Android.
+         Several terminal emulator programs furnish their own X
+         servers and set DISPLAY, but an Android build is incapable of
+         displaying X frames.  */
+      alt_display = NULL;
+      display = "android";
+#endif /* !HAVE_ANDROID */
     }
 
   if (!display)
@@ -689,7 +700,7 @@ The following OPTIONS are accepted:\n\
 			Set the parameters of a new frame\n\
 -e, --eval    		Evaluate the FILE arguments as ELisp expressions\n\
 -n, --no-wait		Don't wait for the server to return\n\
--w, --timeout		Seconds to wait before timing out\n\
+-w, --timeout=SECONDS	Seconds to wait before timing out\n\
 -q, --quiet		Don't display messages on success\n\
 -u, --suppress-output   Don't display return values from the server\n\
 -d DISPLAY, --display=DISPLAY\n\
@@ -2240,7 +2251,7 @@ main (int argc, char **argv)
               char *str = unquote_argument (p + strlen ("-error "));
               if (!skiplf)
                 printf ("\n");
-              fprintf (stderr, "*ERROR*: %s", str);
+	      message (true, "*ERROR*: %s", str);
               if (str[0])
 	        skiplf = str[strlen (str) - 1] == '\n';
               exit_status = EXIT_FAILURE;

@@ -1,6 +1,6 @@
 /* Emacs regular expression matching and search
 
-   Copyright (C) 1993-2022 Free Software Foundation, Inc.
+   Copyright (C) 1993-2023 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -47,12 +47,8 @@
 /* Make syntax table lookup grant data in gl_state.  */
 #define SYNTAX(c) syntax_property (c, 1)
 
-/* Convert the pointer to the char to BEG-based offset from the start.  */
-#define PTR_TO_OFFSET(d) POS_AS_IN_BUFFER (POINTER_TO_OFFSET (d))
-/* Strings are 0-indexed, buffers are 1-indexed; pun on the boolean
-   result to get the right base index.  */
-#define POS_AS_IN_BUFFER(p)                                    \
-  ((p) + (NILP (gl_state.object) || BUFFERP (gl_state.object)))
+/* Explicit syntax lookup using the buffer-local table.  */
+#define BUFFER_SYNTAX(c) syntax_property (c, 0)
 
 #define RE_MULTIBYTE_P(bufp) ((bufp)->multibyte)
 #define RE_TARGET_MULTIBYTE_P(bufp) ((bufp)->target_multibyte)
@@ -139,18 +135,22 @@
 
 #define ISLOWER(c) lowercasep (c)
 
+#define ISUPPER(c) uppercasep (c)
+
+/* The following predicates use the buffer-local syntax table and
+   ignore syntax properties, for consistency with the up-front
+   assumptions made at compile time.  */
+
 #define ISPUNCT(c) (IS_REAL_ASCII (c)				\
 		    ? ((c) > ' ' && (c) < 0177			\
 		       && !(((c) >= 'a' && (c) <= 'z')		\
 		            || ((c) >= 'A' && (c) <= 'Z')	\
 		            || ((c) >= '0' && (c) <= '9')))	\
-		    : SYNTAX (c) != Sword)
+		    : BUFFER_SYNTAX (c) != Sword)
 
-#define ISSPACE(c) (SYNTAX (c) == Swhitespace)
+#define ISSPACE(c) (BUFFER_SYNTAX (c) == Swhitespace)
 
-#define ISUPPER(c) uppercasep (c)
-
-#define ISWORD(c) (SYNTAX (c) == Sword)
+#define ISWORD(c) (BUFFER_SYNTAX (c) == Sword)
 
 /* Use alloca instead of malloc.  This is because using malloc in
    re_search* or re_match* could cause memory leaks when C-g is used
@@ -223,7 +223,7 @@ typedef enum
 	   is followed by a range table:
 	       2 bytes of flags for character sets (low 8 bits, high 8 bits)
 		   See RANGE_TABLE_WORK_BITS below.
-	       2 bytes, the number of pairs that follow (upto 32767)
+	       2 bytes, the number of pairs that follow (up to 32767)
 	       pairs, each 2 multibyte characters,
 		   each multibyte character represented as 3 bytes.  */
   charset,
@@ -561,7 +561,7 @@ print_partial_compiled_pattern (re_char *start, re_char *end)
 	    fprintf (stderr, "/charset [%s",
 		     (re_opcode_t) *(p - 1) == charset_not ? "^" : "");
 
-	    if (p + *p >= pend)
+	    if (p + (*p & 0x7f) >= pend)
 	      fputs (" !extends past end of pattern! ", stderr);
 
 	    for (c = 0; c < 256; c++)
@@ -1723,7 +1723,8 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 
   /* Address of start of the most recently finished expression.
      This tells, e.g., postfix * where to find the start of its
-     operand.  Reset at the beginning of groups and alternatives.  */
+     operand.  Reset at the beginning of groups and alternatives,
+     and after ^ and \` for dusty-deck compatibility.  */
   unsigned char *laststart = 0;
 
   /* Address of beginning of regexp, or inside of last group.  */
@@ -1854,12 +1855,16 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 	case '^':
 	  if (! (p == pattern + 1 || at_begline_loc_p (pattern, p)))
 	    goto normal_char;
+	  /* Special case for compatibility: postfix ops after ^ become
+	     literals.  */
+	  laststart = 0;
 	  BUF_PUSH (begline);
 	  break;
 
 	case '$':
 	  if (! (p == pend || at_endline_loc_p (p, pend)))
 	    goto normal_char;
+	  laststart = b;
 	  BUF_PUSH (endline);
 	  break;
 
@@ -1899,7 +1904,7 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 
 	    /* Star, etc. applied to an empty pattern is equivalent
 	       to an empty pattern.  */
-	    if (!laststart || laststart == b)
+	    if (laststart == b)
 	      break;
 
 	    /* Now we know whether or not zero matches is allowed
@@ -1918,12 +1923,22 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 
 		    if (!zero_times_ok && simple)
 		      { /* Since simple * loops can be made faster by using
-			   on_failure_keep_string_jump, we turn simple P+
-			   into PP* if P is simple.  */
+			   on_failure_keep_string_jump, we turn P+ into PP*
+                           if P is simple.
+			   We can't use `top: <BODY>; OFJS exit; J top; exit:`
+			   because the OFJS needs to be at the beginning
+			   so we can replace
+			       top: OFJS exit; <BODY>; J top; exit
+			   with
+			       OFKSJ exit; loop: <BODY>; J loop; exit
+			   i.e. a single OFJ at the beginning of the loop
+			   rather than once per iteration.  */
 			unsigned char *p1, *p2;
 			startoffset = b - laststart;
 			GET_BUFFER_SPACE (startoffset);
 			p1 = b; p2 = laststart;
+			/* We presume that the code skipped
+			   by `skip_one_char` is position-independent.  */
 			while (p2 < p1)
 			  *b++ = *p2++;
 			zero_times_ok = 1;
@@ -2049,13 +2064,6 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 		       a flag.  Exceptions are is_blank, is_digit, is_cntrl, and
 		       is_xdigit, since they can only match ASCII characters.
 		       We don't need to handle them for multibyte.  */
-
-		    /* Setup the gl_state object to its buffer-defined value.
-		       This hardcodes the buffer-global syntax-table for ASCII
-		       chars, while the other chars will obey syntax-table
-		       properties.  It's not ideal, but it's the way it's been
-		       done until now.  */
-		    SETUP_BUFFER_SYNTAX_TABLE ();
 
 		    for (c = 0; c < 0x80; ++c)
 		      if (re_iswctype (c, cc))
@@ -2209,9 +2217,8 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 				FALLTHROUGH;
 			      case '1': case '2': case '3': case '4':
 			      case '5': case '6': case '7': case '8': case '9':
-				if (INT_MULTIPLY_WRAPV (regnum, 10, &regnum)
-				    || INT_ADD_WRAPV (regnum, c - '0',
-						      &regnum))
+				if (ckd_mul (&regnum, regnum, 10)
+				    || ckd_add (&regnum, regnum, c - '0'))
 				  FREE_STACK_RETURN (REG_ESIZE);
 				break;
 			      default:
@@ -2552,18 +2559,24 @@ regex_compile (re_char *pattern, ptrdiff_t size,
               break;
 
 	    case 'b':
+	      laststart = b;
 	      BUF_PUSH (wordbound);
 	      break;
 
 	    case 'B':
+	      laststart = b;
 	      BUF_PUSH (notwordbound);
 	      break;
 
 	    case '`':
+	      /* Special case for compatibility: postfix ops after \` become
+		 literals, as for ^ (see above).  */
+	      laststart = 0;
 	      BUF_PUSH (begbuf);
 	      break;
 
 	    case '\'':
+	      laststart = b;
 	      BUF_PUSH (endbuf);
 	      break;
 
@@ -2605,7 +2618,7 @@ regex_compile (re_char *pattern, ptrdiff_t size,
 
 	      /* If followed by a repetition operator.  */
 	      || (p != pend
-		  && (*p == '*' || *p == '+' || *p == '?' || *p == '^'))
+		  && (*p == '*' || *p == '+' || *p == '?'))
 	      || (p + 1 < pend && p[0] == '\\' && p[1] == '{'))
 	    {
 	      /* Start building a new exactn.  */
@@ -3065,8 +3078,10 @@ analyze_first (re_char *p, re_char *pend, char *fastmap, bool multibyte)
 	  continue;
 
 	case succeed_n:
-	  /* If N == 0, it should be an on_failure_jump_loop instead.  */
-	  DEBUG_STATEMENT (EXTRACT_NUMBER (j, p + 2); eassert (j > 0));
+	  /* If N == 0, it should be an on_failure_jump_loop instead.
+	     `j` can be negative because `EXTRACT_NUMBER` extracts a
+	     signed number whereas `succeed_n` treats it as unsigned.  */
+	  DEBUG_STATEMENT (EXTRACT_NUMBER (j, p + 2); eassert (j != 0));
 	  p += 4;
 	  /* We only care about one iteration of the loop, so we don't
 	     need to consider the case where this behaves like an
@@ -3258,12 +3273,7 @@ re_search_2 (struct re_pattern_buffer *bufp, const char *str1, ptrdiff_t size1,
   /* See whether the pattern is anchored.  */
   anchored_start = (bufp->buffer[0] == begline);
 
-  gl_state.object = re_match_object; /* Used by SYNTAX_TABLE_BYTE_TO_CHAR. */
-  {
-    ptrdiff_t charpos = SYNTAX_TABLE_BYTE_TO_CHAR (POS_AS_IN_BUFFER (startpos));
-
-    SETUP_SYNTAX_TABLE_FOR_OBJECT (re_match_object, charpos, 1);
-  }
+  RE_SETUP_SYNTAX_TABLE_FOR_OBJECT (re_match_object, startpos);
 
   /* Loop through the string, looking for a place to start matching.  */
   for (;;)
@@ -3645,17 +3655,150 @@ execute_charset (re_char **pp, int c, int corig, bool unibyte,
   return not;
 }
 
-/* True if "p1 matches something" implies "p2 fails".  */
+/* Case where `p2` points to an `exactn`.  */
 static bool
-mutually_exclusive_p (struct re_pattern_buffer *bufp, re_char *p1,
-		      re_char *p2)
+mutually_exclusive_exactn (struct re_pattern_buffer *bufp, re_char *p1,
+		           re_char *p2)
+{
+  bool multibyte = RE_MULTIBYTE_P (bufp);
+  int c
+    = (re_opcode_t) *p2 == endline ? '\n'
+      : RE_STRING_CHAR (p2 + 2, multibyte);
+
+  if ((re_opcode_t) *p1 == exactn)
+    {
+      if (c != RE_STRING_CHAR (p1 + 2, multibyte))
+	{
+	  DEBUG_PRINT ("  '%c' != '%c' => fast loop.\n", c, p1[2]);
+	  return true;
+	}
+    }
+
+  else if ((re_opcode_t) *p1 == charset
+	   || (re_opcode_t) *p1 == charset_not)
+    {
+      if (!execute_charset (&p1, c, c, !multibyte || ASCII_CHAR_P (c),
+                            Qnil))
+	{
+	  DEBUG_PRINT ("	 No match => fast loop.\n");
+	  return true;
+	}
+    }
+  else if ((re_opcode_t) *p1 == anychar
+	   && c == '\n')
+    {
+      DEBUG_PRINT ("   . != \\n => fast loop.\n");
+      return true;
+    }
+  return false;
+}
+
+/* Case where `p2` points to an `charset`.  */
+static bool
+mutually_exclusive_charset (struct re_pattern_buffer *bufp, re_char *p1,
+		            re_char *p2)
+{
+  /* It is hard to list up all the character in charset
+     P2 if it includes multibyte character.  Give up in
+     such case.  */
+  if (!RE_MULTIBYTE_P (bufp) || !CHARSET_RANGE_TABLE_EXISTS_P (p2))
+    {
+      /* Now, we are sure that P2 has no range table.
+	     So, for the size of bitmap in P2, 'p2[1]' is
+	     enough.  But P1 may have range table, so the
+	     size of bitmap table of P1 is extracted by
+	     using macro 'CHARSET_BITMAP_SIZE'.
+
+	     In a multibyte case, we know that all the character
+	     listed in P2 is ASCII.  In a unibyte case, P1 has only a
+	     bitmap table.  So, in both cases, it is enough to test
+	     only the bitmap table of P1.  */
+
+      if ((re_opcode_t) *p1 == charset)
+	{
+	  int idx;
+	  /* We win if the charset inside the loop
+		 has no overlap with the one after the loop.  */
+	  for (idx = 0;
+		(idx < (int) p2[1]
+		 && idx < CHARSET_BITMAP_SIZE (p1));
+		idx++)
+	    if ((p2[2 + idx] & p1[2 + idx]) != 0)
+	      break;
+
+	  if (idx == p2[1]
+	      || idx == CHARSET_BITMAP_SIZE (p1))
+	    {
+	      DEBUG_PRINT ("	 No match => fast loop.\n");
+	      return true;
+	    }
+	}
+      else if ((re_opcode_t) *p1 == charset_not)
+	{
+	  int idx;
+	  /* We win if the charset_not inside the loop lists
+		 every character listed in the charset after.  */
+	  for (idx = 0; idx < (int) p2[1]; idx++)
+	    if (! (p2[2 + idx] == 0
+		   || (idx < CHARSET_BITMAP_SIZE (p1)
+		       && ((p2[2 + idx] & ~ p1[2 + idx]) == 0))))
+	      break;
+
+	  if (idx == p2[1])
+	    {
+	      DEBUG_PRINT ("	 No match => fast loop.\n");
+	      return true;
+	    }
+	}
+    }
+  return false;
+}
+
+/* True if "p1 matches something" implies "p2 fails".  */
+/* We're trying to follow all paths reachable from `p2`, but since some
+   loops can match the empty string, this can loop back to `p2`.
+
+   To avoid inf-looping, we take advantage of the fact that
+   the bytecode we generate is made of syntactically nested loops, more
+   specifically, every loop has a single entry point and single exit point.
+
+   The function takes 2 more arguments (`loop_entry` and `loop_exit`).
+   `loop_entry` points to the sole entry point of the current loop and
+   `loop_exit` points to its sole exit point (when non-NULL).
+
+   Jumps outside of `loop_entry..exit` should not occur.
+   The function can assume that `loop_exit` is "mutually exclusive".
+   The same holds for `loop_entry` except when `p2 == loop_entry`.
+
+   To guarantee termination, recursive calls should make sure that either
+   `loop_entry` is larger, or it's unchanged but `p2` is larger.
+
+   FIXME: This is failsafe (can't return true when it shouldn't)
+   but it could be too conservative if we start generating bytecode
+   with a different shape, so maybe we should bite the bullet and
+   replace done_beg/end with an actual list of positions we've
+   already processed.  */
+static bool
+mutually_exclusive_aux (struct re_pattern_buffer *bufp, re_char *p1,
+		        re_char *p2, re_char *loop_entry, re_char *loop_exit)
 {
   re_opcode_t op2;
-  bool multibyte = RE_MULTIBYTE_P (bufp);
   unsigned char *pend = bufp->buffer + bufp->used;
+  re_char *p2_orig = p2;
 
   eassert (p1 >= bufp->buffer && p1 < pend
 	   && p2 >= bufp->buffer && p2 <= pend);
+
+  if (p2 == loop_exit)
+    return true;          /* Presumably already checked elsewhere.  */
+  eassert (loop_entry && p2 >= loop_entry);
+  if (p2 < loop_entry || (loop_exit && p2 > loop_exit))
+    { /* The assumptions about the shape of the code aren't true :-(  */
+#ifdef ENABLE_CHECKING
+      error ("Broken assumption in regex.c:mutually_exclusive_aux");
+#endif
+      return false;
+    }
 
   /* Skip over open/close-group commands.
      If what follows this loop is a ...+ construct,
@@ -3685,98 +3828,14 @@ mutually_exclusive_p (struct re_pattern_buffer *bufp, re_char *p1,
 
     case endline:
     case exactn:
-      {
-	int c
-	  = (re_opcode_t) *p2 == endline ? '\n'
-	  : RE_STRING_CHAR (p2 + 2, multibyte);
-
-	if ((re_opcode_t) *p1 == exactn)
-	  {
-	    if (c != RE_STRING_CHAR (p1 + 2, multibyte))
-	      {
-		DEBUG_PRINT ("  '%c' != '%c' => fast loop.\n", c, p1[2]);
-		return true;
-	      }
-	  }
-
-	else if ((re_opcode_t) *p1 == charset
-		 || (re_opcode_t) *p1 == charset_not)
-	  {
-	    if (!execute_charset (&p1, c, c, !multibyte || ASCII_CHAR_P (c),
-                                  Qnil))
-	      {
-		DEBUG_PRINT ("	 No match => fast loop.\n");
-		return true;
-	      }
-	  }
-	else if ((re_opcode_t) *p1 == anychar
-		 && c == '\n')
-	  {
-	    DEBUG_PRINT ("   . != \\n => fast loop.\n");
-	    return true;
-	  }
-      }
-      break;
+      return mutually_exclusive_exactn (bufp, p1, p2);
 
     case charset:
       {
 	if ((re_opcode_t) *p1 == exactn)
-	  /* Reuse the code above.  */
-	  return mutually_exclusive_p (bufp, p2, p1);
-
-      /* It is hard to list up all the character in charset
-	 P2 if it includes multibyte character.  Give up in
-	 such case.  */
-      else if (!multibyte || !CHARSET_RANGE_TABLE_EXISTS_P (p2))
-	{
-	  /* Now, we are sure that P2 has no range table.
-	     So, for the size of bitmap in P2, 'p2[1]' is
-	     enough.  But P1 may have range table, so the
-	     size of bitmap table of P1 is extracted by
-	     using macro 'CHARSET_BITMAP_SIZE'.
-
-	     In a multibyte case, we know that all the character
-	     listed in P2 is ASCII.  In a unibyte case, P1 has only a
-	     bitmap table.  So, in both cases, it is enough to test
-	     only the bitmap table of P1.  */
-
-	  if ((re_opcode_t) *p1 == charset)
-	    {
-	      int idx;
-	      /* We win if the charset inside the loop
-		 has no overlap with the one after the loop.  */
-	      for (idx = 0;
-		   (idx < (int) p2[1]
-		    && idx < CHARSET_BITMAP_SIZE (p1));
-		   idx++)
-		if ((p2[2 + idx] & p1[2 + idx]) != 0)
-		  break;
-
-	      if (idx == p2[1]
-		  || idx == CHARSET_BITMAP_SIZE (p1))
-		{
-		  DEBUG_PRINT ("	 No match => fast loop.\n");
-		  return true;
-		}
-	    }
-	  else if ((re_opcode_t) *p1 == charset_not)
-	    {
-	      int idx;
-	      /* We win if the charset_not inside the loop lists
-		 every character listed in the charset after.  */
-	      for (idx = 0; idx < (int) p2[1]; idx++)
-		if (! (p2[2 + idx] == 0
-		       || (idx < CHARSET_BITMAP_SIZE (p1)
-			   && ((p2[2 + idx] & ~ p1[2 + idx]) == 0))))
-		  break;
-
-	      if (idx == p2[1])
-		{
-		  DEBUG_PRINT ("	 No match => fast loop.\n");
-		  return true;
-		}
-	      }
-	  }
+	  return mutually_exclusive_exactn (bufp, p2, p1);
+	else
+	  return mutually_exclusive_charset (bufp, p1, p2);
       }
       break;
 
@@ -3784,9 +3843,9 @@ mutually_exclusive_p (struct re_pattern_buffer *bufp, re_char *p1,
       switch (*p1)
 	{
 	case exactn:
+	  return mutually_exclusive_exactn (bufp, p2, p1);
 	case charset:
-	  /* Reuse the code above.  */
-	  return mutually_exclusive_p (bufp, p2, p1);
+	  return mutually_exclusive_charset (bufp, p2, p1);
 	case charset_not:
 	  /* When we have two charset_not, it's very unlikely that
 	     they don't overlap.  The union of the two sets of excluded
@@ -3822,6 +3881,54 @@ mutually_exclusive_p (struct re_pattern_buffer *bufp, re_char *p1,
     case notcategoryspec:
       return ((re_opcode_t) *p1 == categoryspec && p1[1] == p2[1]);
 
+    case on_failure_jump_nastyloop:
+    case on_failure_jump_smart:
+    case on_failure_jump_loop:
+    case on_failure_keep_string_jump:
+    case on_failure_jump:
+      {
+        int mcnt;
+	p2++;
+	EXTRACT_NUMBER_AND_INCR (mcnt, p2);
+	re_char *p2_other = p2 + mcnt, *tmp;
+	/* For `+` loops, we often have an `on_failure_jump` that skips forward
+	   over a subsequent `jump` for lack of an `on_failure_dont_jump`
+	   kind of thing.  Recognize this pattern since that subsequent
+	   `jump` is the one that jumps to the loop-entry.  */
+	if ((re_opcode_t) p2[0] == jump && mcnt == 3)
+	  {
+	    EXTRACT_NUMBER (mcnt, p2 + 1);
+	    p2 += mcnt + 3;
+	  }
+
+	/* We have to check that both destinations are safe.
+	   Arrange for `p2` to be the smaller of the two.  */
+	if (p2 > p2_other)
+	  (tmp = p2, p2 = p2_other, p2_other = tmp);
+
+	if (p2_other <= p2_orig /* Both destinations go backward!  */
+	    || !mutually_exclusive_aux (bufp, p1, p2_other,
+	                                loop_entry, loop_exit))
+	  return false;
+
+	/* Now that we know that `p2_other` is a safe (i.e. mutually-exclusive)
+	   position, let's check `p2`.  */
+	if (p2 == loop_entry)
+	  /* If we jump backward to the entry point of the current loop
+	     it means it's a zero-length cycle through that loop, so
+	     this cycle itself does not break mutual-exclusion.  */
+	  return true;
+	else if (p2 > p2_orig)
+	  /* Boring forward jump.  */
+	  return mutually_exclusive_aux (bufp, p1, p2, loop_entry, loop_exit);
+	else if (loop_entry < p2 && p2 < p2_orig)
+	  /* We jump backward to a new loop, nested within the current one.
+	     `p2` is the entry point and `p2_other` the exit of that inner.  */
+	  return mutually_exclusive_aux (bufp, p1, p2, p2, p2_other);
+	else
+	  return false;
+      }
+
     default:
       ;
     }
@@ -3830,6 +3937,12 @@ mutually_exclusive_p (struct re_pattern_buffer *bufp, re_char *p1,
   return false;
 }
 
+static bool
+mutually_exclusive_p (struct re_pattern_buffer *bufp, re_char *p1,
+		      re_char *p2)
+{
+  return mutually_exclusive_aux (bufp, p1, p2, bufp->buffer, NULL);
+}
 
 /* Matching routines.  */
 
@@ -3853,10 +3966,7 @@ re_match_2 (struct re_pattern_buffer *bufp,
 {
   ptrdiff_t result;
 
-  ptrdiff_t charpos;
-  gl_state.object = re_match_object; /* Used by SYNTAX_TABLE_BYTE_TO_CHAR. */
-  charpos = SYNTAX_TABLE_BYTE_TO_CHAR (POS_AS_IN_BUFFER (pos));
-  SETUP_SYNTAX_TABLE_FOR_OBJECT (re_match_object, charpos, 1);
+  RE_SETUP_SYNTAX_TABLE_FOR_OBJECT (re_match_object, pos);
 
   result = re_match_2_internal (bufp, (re_char *) string1, size1,
 				(re_char *) string2, size2,
@@ -4788,8 +4898,8 @@ re_match_2_internal (struct re_pattern_buffer *bufp,
 		int c1, c2;
 		int s1, s2;
 		int dummy;
-                ptrdiff_t offset = PTR_TO_OFFSET (d);
-                ptrdiff_t charpos = SYNTAX_TABLE_BYTE_TO_CHAR (offset) - 1;
+                ptrdiff_t offset = POINTER_TO_OFFSET (d);
+                ptrdiff_t charpos = RE_SYNTAX_TABLE_BYTE_TO_CHAR (offset) - 1;
 		UPDATE_SYNTAX_TABLE (charpos);
 		GET_CHAR_BEFORE_2 (c1, d, string1, end1, string2, end2);
 		nchars++;
@@ -4828,8 +4938,8 @@ re_match_2_internal (struct re_pattern_buffer *bufp,
 	      int c1, c2;
 	      int s1, s2;
 	      int dummy;
-	      ptrdiff_t offset = PTR_TO_OFFSET (d);
-	      ptrdiff_t charpos = SYNTAX_TABLE_BYTE_TO_CHAR (offset);
+	      ptrdiff_t offset = POINTER_TO_OFFSET (d);
+	      ptrdiff_t charpos = RE_SYNTAX_TABLE_BYTE_TO_CHAR (offset);
 	      UPDATE_SYNTAX_TABLE (charpos);
 	      PREFETCH ();
 	      GET_CHAR_AFTER (c2, d, dummy);
@@ -4871,8 +4981,8 @@ re_match_2_internal (struct re_pattern_buffer *bufp,
 	      int c1, c2;
 	      int s1, s2;
 	      int dummy;
-              ptrdiff_t offset = PTR_TO_OFFSET (d);
-              ptrdiff_t charpos = SYNTAX_TABLE_BYTE_TO_CHAR (offset) - 1;
+              ptrdiff_t offset = POINTER_TO_OFFSET (d);
+              ptrdiff_t charpos = RE_SYNTAX_TABLE_BYTE_TO_CHAR (offset) - 1;
 	      UPDATE_SYNTAX_TABLE (charpos);
 	      GET_CHAR_BEFORE_2 (c1, d, string1, end1, string2, end2);
 	      nchars++;
@@ -4913,8 +5023,8 @@ re_match_2_internal (struct re_pattern_buffer *bufp,
 		 is the character at D, and S2 is the syntax of C2.  */
 	      int c1, c2;
 	      int s1, s2;
-	      ptrdiff_t offset = PTR_TO_OFFSET (d);
-	      ptrdiff_t charpos = SYNTAX_TABLE_BYTE_TO_CHAR (offset);
+	      ptrdiff_t offset = POINTER_TO_OFFSET (d);
+	      ptrdiff_t charpos = RE_SYNTAX_TABLE_BYTE_TO_CHAR (offset);
 	      UPDATE_SYNTAX_TABLE (charpos);
 	      PREFETCH ();
 	      c2 = RE_STRING_CHAR (d, target_multibyte);
@@ -4954,8 +5064,8 @@ re_match_2_internal (struct re_pattern_buffer *bufp,
 		 is the character at D, and S2 is the syntax of C2.  */
 	      int c1, c2;
 	      int s1, s2;
-              ptrdiff_t offset = PTR_TO_OFFSET (d);
-              ptrdiff_t charpos = SYNTAX_TABLE_BYTE_TO_CHAR (offset) - 1;
+              ptrdiff_t offset = POINTER_TO_OFFSET (d);
+              ptrdiff_t charpos = RE_SYNTAX_TABLE_BYTE_TO_CHAR (offset) - 1;
 	      UPDATE_SYNTAX_TABLE (charpos);
 	      GET_CHAR_BEFORE_2 (c1, d, string1, end1, string2, end2);
 	      nchars++;
@@ -4990,8 +5100,8 @@ re_match_2_internal (struct re_pattern_buffer *bufp,
 			 mcnt);
 	    PREFETCH ();
 	    {
-	      ptrdiff_t offset = PTR_TO_OFFSET (d);
-	      ptrdiff_t pos1 = SYNTAX_TABLE_BYTE_TO_CHAR (offset);
+	      ptrdiff_t offset = POINTER_TO_OFFSET (d);
+	      ptrdiff_t pos1 = RE_SYNTAX_TABLE_BYTE_TO_CHAR (offset);
 	      UPDATE_SYNTAX_TABLE (pos1);
 	    }
 	    {

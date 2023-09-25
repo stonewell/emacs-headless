@@ -1,6 +1,6 @@
 ;;; indian.el --- Quail packages for inputting Indian  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 ;; Author: KAWABATA, Taichi <kawabata@m17n.org>
 
@@ -154,8 +154,8 @@ strings that describe how to insert CONSONANT."
   (setq consonants
      (sort consonants
          (lambda (x y)
-           (or (seq-position (car x) quail-tamil-itrans--consonant-order) 1000)
-           (or (seq-position (car y) quail-tamil-itrans--consonant-order) 1000))))
+           (< (or (seq-position quail-tamil-itrans--consonant-order (car x)) 1000)
+              (or (seq-position quail-tamil-itrans--consonant-order (car y)) 1000)))))
   (let ((virama #x0BCD)
 	clm)
     (with-temp-buffer
@@ -371,9 +371,9 @@ Full key sequences are listed below:")
 ;;; Tamil phonetic input method
 ;;;
 
-;; Define the input method straightaway.
+;; Define the input method straight away.
 (quail-define-package "tamil-phonetic" "Tamil" "ழ" t
- "Customisable Tamil phonetic input method.
+ "Customizable Tamil phonetic input method.
 To change the translation rules of the input method, customize
 `tamil-translation-rules'.
 

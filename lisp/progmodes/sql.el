@@ -1,6 +1,6 @@
 ;;; sql.el --- specialized comint.el for SQL interpreters  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2023 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: Michael Mauger <michael@mauger.com>
@@ -234,10 +234,6 @@
 (require 'thingatpt)
 (require 'view)
 (eval-when-compile (require 'subr-x))   ; string-empty-p
-
-(defvar font-lock-keyword-face)
-(defvar font-lock-set-defaults)
-(defvar font-lock-string-face)
 
 ;;; Allow customization
 
@@ -781,7 +777,7 @@ host key."
       ;; Perform search
       (dolist (s (auth-source-search :max 1000))
         (when (and
-               ;; Is PRODUCT specified, in the enty, and they are equal
+               ;; Is PRODUCT specified, in the entry, and they are equal
                (if product
                    (if (plist-member s :product)
                        (equal (plist-get s :product) product)
@@ -1191,12 +1187,11 @@ Starts `sql-interactive-mode' after doing some setup."
 
 (defcustom sql-postgres-options '("-P" "pager=off")
   "List of additional options for `sql-postgres-program'.
-The default setting includes the -P option which breaks older versions
-of the psql client (such as version 6.5.3).  The -P option is equivalent
-to the --pset option.  If you want the psql to prompt you for a user
-name, add the string \"-u\" to the list of options.  If you want to
-provide a user name on the command line (newer versions such as 7.1),
-add your name with a \"-U\" prefix (such as \"-Umark\") to the list."
+The default -P option is equivalent to the --pset option.  If you
+want psql to prompt you for a user name, add the string \"-u\" to
+the list of options.  If you want to provide a user name on the
+command line, add your name with a \"-U\" prefix (such as
+\"-Umark\") to the list."
   :type '(repeat string)
   :version "20.8")
 
@@ -1358,37 +1353,33 @@ specified, it's `sql-product' or `sql-connection' must match."
 
 ;; Keymap for sql-interactive-mode.
 
-(defvar sql-interactive-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map comint-mode-map)
-    (define-key map (kbd "C-j") 'sql-accumulate-and-indent)
-    (define-key map (kbd "C-c C-w") 'sql-copy-column)
-    (define-key map (kbd "O") 'sql-magic-go)
-    (define-key map (kbd "o") 'sql-magic-go)
-    (define-key map (kbd ";") 'sql-magic-semicolon)
-    (define-key map (kbd "C-c C-l a") 'sql-list-all)
-    (define-key map (kbd "C-c C-l t") 'sql-list-table)
-    map)
-  "Mode map used for `sql-interactive-mode'.
-Based on `comint-mode-map'.")
+(defvar-keymap sql-interactive-mode-map
+  :doc "Mode map used for `sql-interactive-mode'.
+Based on `comint-mode-map'."
+  :parent comint-mode-map
+  "C-j"       #'sql-accumulate-and-indent
+  "C-c C-w"   #'sql-copy-column
+  "O"         #'sql-magic-go
+  "o"         #'sql-magic-go
+  ";"         #'sql-magic-semicolon
+  "C-c C-l a" #'sql-list-all
+  "C-c C-l t" #'sql-list-table)
 
 ;; Keymap for sql-mode.
 
-(defvar sql-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-c") 'sql-send-paragraph)
-    (define-key map (kbd "C-c C-r") 'sql-send-region)
-    (define-key map (kbd "C-c C-s") 'sql-send-string)
-    (define-key map (kbd "C-c C-b") 'sql-send-buffer)
-    (define-key map (kbd "C-c C-n") 'sql-send-line-and-next)
-    (define-key map (kbd "C-c C-i") 'sql-product-interactive)
-    (define-key map (kbd "C-c C-z") 'sql-show-sqli-buffer)
-    (define-key map (kbd "C-c C-l a") 'sql-list-all)
-    (define-key map (kbd "C-c C-l t") 'sql-list-table)
-    (define-key map [remap beginning-of-defun] 'sql-beginning-of-statement)
-    (define-key map [remap end-of-defun] 'sql-end-of-statement)
-    map)
-  "Mode map used for `sql-mode'.")
+(defvar-keymap sql-mode-map
+  :doc "Mode map used for `sql-mode'."
+  "C-c C-c"   #'sql-send-paragraph
+  "C-c C-r"   #'sql-send-region
+  "C-c C-s"   #'sql-send-string
+  "C-c C-b"   #'sql-send-buffer
+  "C-c C-n"   #'sql-send-line-and-next
+  "C-c C-i"   #'sql-product-interactive
+  "C-c C-z"   #'sql-show-sqli-buffer
+  "C-c C-l a" #'sql-list-all
+  "C-c C-l t" #'sql-list-table
+  "<remap> <beginning-of-defun>" #'sql-beginning-of-statement
+  "<remap> <end-of-defun>"       #'sql-end-of-statement)
 
 ;; easy menu for sql-mode.
 
@@ -2196,14 +2187,17 @@ to add functions and PL/SQL keywords.")
 
      ;; Postgres Data Types
      (sql-font-lock-keywords-builder 'font-lock-type-face nil
-"bigint" "bigserial" "bit" "bool" "boolean" "box" "bytea" "char"
-"character" "cidr" "circle" "date" "decimal" "double" "float4"
-"float8" "inet" "int" "int2" "int4" "int8" "integer" "interval" "line"
-"lseg" "macaddr" "money" "name" "numeric" "path" "point" "polygon"
-"precision" "real" "serial" "serial4" "serial8" "sequences" "smallint" "text"
-"time" "timestamp" "timestamptz" "timetz" "tsquery" "tsvector"
-"txid_snapshot" "unknown" "uuid" "varbit" "varchar" "varying" "without"
-"xml" "zone"
+ "bigint" "bigserial" "bit" "bool" "boolean" "box" "bytea" "char" "character"
+"cidr" "circle" "date" "daterange" "decimal" "double" "float4" "float8" "inet"
+"int" "int2" "int4" "int4range" "int8" "int8range" "integer" "interval"
+"jsonb" "jsonpath" "line" "lseg" "macaddr" "macaddr8" "money" "name" "numeric"
+"numrange" "oid" "path" "point" "polygon" "precision" "real" "regclass"
+"regcollation" "regconfig" "regdictionary" "regnamespace " "regoper"
+"regoperator" "regproc" "regprocedure" "regrole" "regtype" "sequences"
+"serial" "serial4" "serial8" "smallint" "smallserial" "text" "time"
+"timestamp" "timestamptz" "timetz" "tsquery" "tsrange" "tstzrange" "tsvector"
+"txid_snapshot" "unknown" "uuid" "varbit" "varchar" "varying" "without" "xml"
+"zone"
 )))
 
   "Postgres SQL keywords used by font-lock.
@@ -3030,9 +3024,10 @@ displayed."
 
     ;; Our start must be between them
     (goto-char last)
-    ;; Find a beginning-of-stmt that's not in a comment
+    ;; Find a beginning-of-stmt that's not in a string or comment
     (while (and (re-search-forward regexp next t 1)
-                (nth 7 (syntax-ppss)))
+                (or (nth 3 (syntax-ppss))
+                    (nth 7 (syntax-ppss))))
       (goto-char (match-end 0)))
     (goto-char
      (if (match-data)
@@ -3062,8 +3057,9 @@ displayed."
       ;; If we found another end-of-stmt
       (if (not (apply re-search term nil t n nil))
           (setq arg 0)
-        ;; count it if we're not in a comment
-        (unless (nth 7 (syntax-ppss))
+        ;; count it if we're not in a string or comment
+        (unless (or (nth 3 (syntax-ppss))
+                    (nth 7 (syntax-ppss)))
           (setq arg (- arg (cl-signum arg))))))
     (goto-char (if (match-data)
                    (match-end 0)
@@ -3095,9 +3091,7 @@ displayed."
 (defun sql-accumulate-and-indent ()
   "Continue SQL statement on the next line."
   (interactive)
-  (if (fboundp 'comint-accumulate)
-      (comint-accumulate)
-    (newline))
+  (comint-accumulate)
   (indent-according-to-mode))
 
 (defun sql-help-list-products (indent freep)
@@ -4032,7 +4026,7 @@ The list is maintained in SQL interactive buffers.")
 (defun sql--completion-table (string pred action)
   (when sql-completion-sqlbuf
     (with-current-buffer sql-completion-sqlbuf
-      (let ((schema (and (string-match "\\`\\(\\sw\\(:?\\sw\\|\\s_\\)*\\)[.]" string)
+      (let ((schema (and (string-match "\\`\\(\\sw\\(?:\\sw\\|\\s_\\)*\\)[.]" string)
                          (downcase (match-string 1 string)))))
 
         ;; If we haven't loaded any object name yet, load local schema
@@ -4199,7 +4193,7 @@ must tell Emacs.  Here's how to do that in your init file:
 
 (put 'sql-interactive-mode 'mode-class 'special)
 (put 'sql-interactive-mode 'custom-mode-group 'SQL)
-;; FIXME: Why not use `define-derived-mode'?
+
 (define-derived-mode sql-interactive-mode comint-mode "SQLi[?]"
   "Major mode to use a SQL interpreter interactively.
 
@@ -4528,7 +4522,8 @@ optionally is saved to the user's init file."
   "Run PRODUCT interpreter as an inferior process.
 
 If buffer `*SQL*' exists but no process is running, make a new process.
-If buffer exists and a process is running, just switch to buffer `*SQL*'.
+If buffer exists and a process is running, just make sure buffer `*SQL*'
+is displayed.
 
 To specify the SQL product, prefix the call with
 \\[universal-argument].  To set the buffer name as well, prefix

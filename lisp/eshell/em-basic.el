@@ -1,6 +1,6 @@
 ;;; em-basic.el --- basic shell builtin commands  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -53,9 +53,10 @@
 
 ;;; Code:
 
-(require 'esh-util)
-(require 'eshell)
+(require 'esh-cmd)
+(require 'esh-io)
 (require 'esh-opt)
+(require 'esh-util)
 
 ;;;###autoload
 (progn
@@ -132,7 +133,8 @@ or `eshell-printn' for display."
      ;; bug#27361.
      (when (equal output-newline '(nil))
        (display-warning
-        :warning "To terminate with a newline, you should use -N instead."))
+        '(eshell echo)
+        "To terminate with a newline, you should use -N instead."))
      (eshell-echo args output-newline))))
 
 (defun eshell/printnl (&rest args)
@@ -185,6 +187,38 @@ or `eshell-printn' for display."
    nil))
 
 (put 'eshell/umask 'eshell-no-numeric-conversions t)
+
+(defun eshell/eshell-debug (&rest args)
+  "A command for toggling certain debug variables."
+  (eshell-eval-using-options
+   "eshell-debug" args
+   '((?h "help" nil nil "display this usage message")
+     :usage "[KIND]...
+This command is used to aid in debugging problems related to Eshell
+itself.  It is not useful for anything else.  The recognized `kinds'
+are:
+
+   error       stops Eshell from trapping errors
+   form        shows command form manipulation in `*eshell last cmd*'
+   process     shows process events in `*eshell last cmd*'")
+   (if args
+       (dolist (kind args)
+         (if (equal kind "error")
+             (setq eshell-handle-errors (not eshell-handle-errors))
+           (let ((kind-sym (intern kind)))
+             (if (memq kind-sym eshell-debug-command)
+                 (setq eshell-debug-command
+                       (delq kind-sym eshell-debug-command))
+               (push kind-sym eshell-debug-command)))))
+     ;; Output the currently-enabled debug kinds.
+     (unless eshell-handle-errors
+       (eshell-print "errors\n"))
+     (dolist (kind eshell-debug-command)
+       (eshell-printn (symbol-name kind))))))
+
+(defun pcomplete/eshell-mode/eshell-debug ()
+  "Completion for the `debug' command."
+  (while (pcomplete-here '("error" "form" "process"))))
 
 (provide 'em-basic)
 

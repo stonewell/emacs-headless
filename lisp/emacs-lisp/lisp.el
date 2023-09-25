@@ -1,6 +1,6 @@
 ;;; lisp.el --- Lisp editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1994, 2000-2022 Free Software Foundation,
+;; Copyright (C) 1985-1986, 1994, 2000-2023 Free Software Foundation,
 ;; Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -92,12 +92,22 @@ report errors as appropriate for this kind of usage."
   (forward-sexp (- arg) interactive))
 
 (defun mark-sexp (&optional arg allow-extend)
-  "Set mark ARG sexps from point.
-The place mark goes is the same place \\[forward-sexp] would
-move to with the same argument.
-Interactively, if this command is repeated
-or (in Transient Mark mode) if the mark is active,
-it marks the next ARG sexps after the ones already marked.
+  "Set mark ARG sexps from point or move mark one sexp.
+When called from Lisp with ALLOW-EXTEND ommitted or nil, mark is
+set ARG sexps from point.
+With ARG and ALLOW-EXTEND both non-nil (interactively, with prefix
+argument), the place to which mark goes is the same place \\[forward-sexp]
+would move to with the same argument; if the mark is active, it moves
+ARG sexps from its current position, otherwise it is set ARG sexps
+from point.
+When invoked interactively without a prefix argument and no active
+region, mark moves one sexp forward.
+When invoked interactively without a prefix argument, and region
+is active, mark moves one sexp away of point (i.e., forward
+if mark is at or after point, back if mark is before point), thus
+extending the region by one sexp.  Since the direction of region
+extension depends on the relative position of mark and point, you
+can change the direction by \\[exchange-point-and-mark].
 This command assumes point is not in a string or comment."
   (interactive "P\np")
   (cond ((and allow-extend
@@ -375,7 +385,10 @@ does not move to the beginning of the line when `defun-prompt-regexp'
 is non-nil.
 
 If variable `beginning-of-defun-function' is non-nil, its value
-is called as a function to find the defun's beginning."
+is called as a function to find the defun's beginning.
+
+Return non-nil if this function successfully found the beginning
+of a defun, nil if it failed to find one."
   (interactive "^p")   ; change this to "P", maybe, if we ever come to pass ARG
                       ; to beginning-of-defun-function.
   (unless arg (setq arg 1))
@@ -516,6 +529,7 @@ major mode's decisions about context.")
   "Return the \"far end\" position of the buffer, in direction ARG.
 If ARG is positive, that's the end of the buffer.
 Otherwise, that's the beginning of the buffer."
+  (declare (side-effect-free error-free))
   (if (> arg 0) (point-max) (point-min)))
 
 (defun end-of-defun (&optional arg interactive)
@@ -543,6 +557,7 @@ report errors as appropriate for this kind of usage."
         (push-mark))
     (if (or (null arg) (= arg 0)) (setq arg 1))
     (let ((pos (point))
+          (success nil)
           (beg (progn (when end-of-defun-moves-to-eol
                         (end-of-line 1))
                       (beginning-of-defun-raw 1) (point)))
@@ -567,9 +582,12 @@ report errors as appropriate for this kind of usage."
             (setq arg (1- arg))
           ;; We started from after the end of the previous function.
           (goto-char pos))
+        ;; At this point, point either didn't move (because we started
+        ;; in between two defun's), or is at the end of a defun
+        ;; (because we started in the middle of a defun).
         (unless (zerop arg)
-          (beginning-of-defun-raw (- arg))
-          (funcall end-of-defun-function)))
+          (when (setq success (beginning-of-defun-raw (- arg)))
+            (funcall end-of-defun-function))))
        ((< arg 0)
         ;; Moving backward.
         (if (< (point) pos)
@@ -579,16 +597,18 @@ report errors as appropriate for this kind of usage."
           ;; We started from inside a function.
           (goto-char beg))
         (unless (zerop arg)
-          (beginning-of-defun-raw (- arg))
-	  (setq beg (point))
-          (funcall end-of-defun-function))))
+          (when (setq success (beginning-of-defun-raw (- arg)))
+            (setq beg (point))
+            (funcall end-of-defun-function)))))
       (funcall skip)
-      (while (and (< arg 0) (>= (point) pos))
+      (while (and (< arg 0) (>= (point) pos) success)
         ;; We intended to move backward, but this ended up not doing so:
         ;; Try harder!
         (goto-char beg)
-        (beginning-of-defun-raw (- arg))
-        (if (>= (point) beg)
+        (setq success (beginning-of-defun-raw (- arg)))
+        ;; If we successfully moved pass point, or there is no further
+        ;; defun beginnings anymore, stop.
+        (if (or (>= (point) beg) (not success))
 	    (setq arg 0)
 	  (setq beg (point))
           (funcall end-of-defun-function)
@@ -868,7 +888,7 @@ The option `delete-pair-blink-delay' can disable blinking."
   "Raise N sexps one level higher up the tree.
 
 This function removes the sexp enclosing the form which follows
-point, and then re-inserts N sexps that originally followe point,
+point, and then re-inserts N sexps that originally followed point,
 thus raising those N sexps one level up.
 
 Interactively, N is the numeric prefix argument, and defaults to 1.

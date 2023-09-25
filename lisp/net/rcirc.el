@@ -1,6 +1,6 @@
 ;;; rcirc.el --- default, simple IRC client          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 ;; Author: Ryan Yeske <rcyeske@gmail.com>
 ;; Maintainers: Ryan Yeske <rcyeske@gmail.com>,
@@ -584,7 +584,7 @@ If ARG is non-nil, instead prompt for connection parameters."
                   (condition-case nil
                       (let ((process (rcirc-connect server port nick user-name
                                                     full-name channels password encryption
-                                                    client-cert server-alias)))
+                                                    server-alias client-cert)))
                         (when rcirc-display-server-buffer
                           (pop-to-buffer-same-window (process-buffer process))))
                     (quit (message "Quit connecting to %s"
@@ -680,7 +680,7 @@ See `rcirc-connect' for more details on these variables.")
 ;;;###autoload
 (defun rcirc-connect (server &optional port nick user-name
                              full-name startup-channels password encryption
-                             certfp server-alias)
+                             server-alias certfp)
   "Connect to SERVER.
 The arguments PORT, NICK, USER-NAME, FULL-NAME, PASSWORD,
 ENCRYPTION, CERTFP, SERVER-ALIAS are interpreted as in
@@ -859,6 +859,7 @@ If QUIET is non-nil, no not emit a message."
       (if (rcirc--connection-open-p process)
           (throw 'exit (or quiet (message "Server process is alive")))
         (delete-process process))
+      (setq rcirc-user-authenticated nil)
       (let ((conn-info rcirc-connection-info))
         (setf (nth 5 conn-info)
               (cl-remove-if-not #'rcirc-channel-p
@@ -1233,9 +1234,9 @@ If SILENT is non-nil, do not print the message in any irc buffer."
   (let ((response (if noticep "NOTICE" "PRIVMSG")))
     (rcirc-get-buffer-create process target)
     (dolist (msg (rcirc-split-message message))
-      (rcirc-send-string process response target : msg)
       (unless silent
-        (rcirc-print process (rcirc-nick process) response target msg)))))
+        (rcirc-print process (rcirc-nick process) response target msg))
+      (rcirc-send-string process response target : msg))))
 
 (defvar-local rcirc-input-ring nil
   "Ring object for input.")
@@ -1353,10 +1354,10 @@ inserting the new one."
     (if (use-region-p)
         (let ((beg (region-beginning)))
           (goto-char (region-end))
-          (insert "")
+          (insert "\^O")
           (goto-char beg)
           (insert pre))
-      (insert pre "")))
+      (insert pre "\^O")))
   (when (or (not (region-active-p)) (< (point) (mark)))
     (forward-char (length pre))))
 
@@ -1364,11 +1365,11 @@ inserting the new one."
   "Remove the closes formatting found closes to the current point."
   (interactive)
   (save-excursion
-    (when (and (search-backward-regexp (rx (or "" "" "" "" ""))
+    (when (and (search-backward-regexp (rx (or "\^B" "\^]" "\^_" "\^^" "\^Q"))
                                        rcirc-prompt-end-marker t)
-               (looking-at (rx (group (or "" "" "" "" ""))
+               (looking-at (rx (group (or "\^B" "\^]" "\^_" "\^^" "\^Q"))
                                (*? nonl)
-                               (group ""))))
+                               (group "\^O"))))
       (replace-match "" nil nil nil 2)
       (replace-match "" nil nil nil 1))))
 
@@ -1378,7 +1379,7 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the bold formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^B" replace))
 
 (defun rcirc-format-italic (replace)
   "Insert italic formatting.
@@ -1386,7 +1387,7 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the italic formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^]" replace))
 
 (defun rcirc-format-underline (replace)
   "Insert underlining formatting.
@@ -1394,15 +1395,15 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the underline formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^_" replace))
 
-(defun rcirc-format-strike-trough (replace)
-  "Insert strike-trough formatting.
+(defun rcirc-format-strike-through (replace)
+  "Insert strike-through formatting.
 If REPLACE is non-nil or a prefix argument is given, any prior
-formatting will be replaced before the strike-trough formatting
+formatting will be replaced before the strike-through formatting
 is inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^^" replace))
 
 (defun rcirc-format-fixed-width (replace)
   "Insert fixed-width formatting.
@@ -1410,7 +1411,7 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the fixed width formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^Q" replace))
 
 (defvar-keymap rcirc-mode-map
   :doc "Keymap for rcirc mode."
@@ -1421,7 +1422,7 @@ inserted."
   "C-c C-f C-b" #'rcirc-format-bold
   "C-c C-f C-i" #'rcirc-format-italic
   "C-c C-f C-u" #'rcirc-format-underline
-  "C-c C-f C-s" #'rcirc-format-strike-trough
+  "C-c C-f C-s" #'rcirc-format-strike-through
   "C-c C-f C-f" #'rcirc-format-fixed-width
   "C-c C-f C-t" #'rcirc-format-fixed-width ;as in AucTeX
   "C-c C-f C-d" #'rcirc-unformat
@@ -1807,7 +1808,7 @@ extracted."
   "C-c C-f C-b" #'rcirc-format-bold
   "C-c C-f C-i" #'rcirc-format-italic
   "C-c C-f C-u" #'rcirc-format-underline
-  "C-c C-f C-s" #'rcirc-format-strike-trough
+  "C-c C-f C-s" #'rcirc-format-strike-through
   "C-c C-f C-f" #'rcirc-format-fixed-width
   "C-c C-f C-t" #'rcirc-format-fixed-width ;as in AucTeX
   "C-c C-f C-d" #'rcirc-unformat
@@ -2034,7 +2035,7 @@ connection."
                (not (string= sender (rcirc-nick process))))
     (let* ((buffer (rcirc-target-buffer process sender response target text))
            (time (if-let ((time (rcirc-get-tag "time")))
-                     (parse-iso8601-time-string time)
+                     (parse-iso8601-time-string time t)
                    (current-time)))
            (inhibit-read-only t))
       (with-current-buffer buffer
@@ -2059,14 +2060,14 @@ connection."
                              (point-min)))
               (when (let ((then (get-text-property (point) 'rcirc-time)))
                       (and then (not (time-less-p time then))))
-                (next-single-property-change (point) 'hard)
+                (goto-char (next-single-property-change (point) 'hard))
                 (forward-char 1)
                 (throw 'exit nil))))
+          (goto-char (line-beginning-position))
           (set-marker-insertion-type rcirc-prompt-start-marker t)
           (set-marker-insertion-type rcirc-prompt-end-marker t)
 
           ;; run markup functions
-          (cl-assert (bolp))
           (save-excursion
             (save-restriction
               (narrow-to-region (point) (point))
@@ -2204,7 +2205,7 @@ The message is logged in `rcirc-log', and is later written to
 disk.  PROCESS is the process object for the current connection."
   (let ((filename (funcall rcirc-log-filename-function process target))
         (time (and-let* ((time (rcirc-get-tag "time")))
-                (parse-iso8601-time-string time))))
+                (parse-iso8601-time-string time t))))
     (unless (null filename)
       (let ((cell (assoc-string filename rcirc-log-alist))
             (line (concat (format-time-string rcirc-time-format time)
@@ -2370,9 +2371,11 @@ This function does not alter the INPUT string."
   "C-c C-@"   #'rcirc-next-active-buffer
   "C-c C-SPC" #'rcirc-next-active-buffer)
 
-(defcustom rcirc-track-abbrevate-flag t
+(define-obsolete-variable-alias 'rcirc-track-abbrevate-flag
+  'rcirc-track-abbreviate-flag "30.1")
+(defcustom rcirc-track-abbreviate-flag t
   "Non-nil means `rcirc-track-minor-mode' should abbreviate names."
-  :version "28.1"
+  :version "30.1"
   :type 'boolean)
 
 ;;;###autoload
@@ -2558,7 +2561,7 @@ activity.  Only run if the buffer is not visible and
     (funcall rcirc-channel-filter
              (replace-regexp-in-string
               "@.*?\\'" ""
-              (or (and rcirc-track-abbrevate-flag
+              (or (and rcirc-track-abbreviate-flag
                        rcirc-short-buffer-name)
                   (buffer-name))))))
 
@@ -2996,7 +2999,7 @@ If ARG is given, opens the URL in a new browser window."
   "Insert a timestamp."
   (goto-char (point-min))
   (let ((time (and-let* ((time (rcirc-get-tag "time")))
-                (parse-iso8601-time-string time))))
+                (parse-iso8601-time-string time t))))
     (insert (rcirc-facify (format-time-string rcirc-time-format time)
                           'rcirc-timestamp))))
 
@@ -4000,6 +4003,9 @@ PROCESS is the process object for the current connection."
            when (and (= (length setting) 2)
                      (string-equal (downcase (car setting)) parameter))
            return (cadr setting)))
+
+(define-obsolete-function-alias 'rcirc-format-strike-trough
+  'rcirc-format-strike-through "30.1")
 
 (provide 'rcirc)
 

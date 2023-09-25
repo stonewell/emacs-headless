@@ -1,6 +1,6 @@
 ;;; cc-cmds.el --- user level commands for CC Mode -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1987, 1992-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2023 Free Software Foundation, Inc.
 
 ;; Authors:    2003- Alan Mackenzie
 ;;             1998- Martin Stjernholm
@@ -1456,7 +1456,7 @@ keyword on the line, the keyword is not inserted inside a literal, and
 
 (defun c-align-cpp-indent-to-body ()
   "Align a \"#pragma\" line under the previous line.
-This function is intented for use as a member of `c-special-indent-hook'."
+This function is intended for use as a member of `c-special-indent-hook'."
   (when (assq 'cpp-macro c-syntactic-context)
     (when
 	(save-excursion
@@ -5143,6 +5143,41 @@ details."
 	  (c-context-line-break))
       (goto-char here)
       (delete-char 1))))
+
+
+
+;; Text conversion support.
+
+(defun c-post-text-conversion ()
+  "Notice that the character `last-command-event' has been inserted.
+If said character is an electric character such as `*' or `{', delete
+it, then call the appropriate CC Mode function to electrically insert
+it again."
+  (cond ((eq last-command-event ?#)
+	 (delete-char -1)
+	 (c-electric-pound nil) t)
+	((memq last-command-event '(?{ ?}))
+	 (delete-char -1)
+	 (c-electric-brace nil) t)
+	((memq last-command-event '(?\( ?\)))
+	 (delete-char -1)
+	 (c-electric-paren nil) t)
+	((eq last-command-event ?*)
+	 (delete-char -1)
+	 (c-electric-star nil) t)
+	((eq last-command-event ?/)
+	 (delete-char -1)
+	 (c-electric-slash nil) t)
+	((memq last-command-event '(?\; ?,))
+	 (delete-char -1)
+	 (c-electric-semi&comma nil) t)
+	((eq last-command-event ?:)
+	 (delete-char -1)
+	 (c-electric-colon nil) t)
+	((memq last-command-event '(?> ?<))
+	 (delete-char -1)
+	 (c-electric-lt-gt nil) t)))
+
 
 
 (cc-provide 'cc-cmds)

@@ -1,6 +1,6 @@
 ;;; man.el --- browse UNIX manual pages -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1994, 1996-1997, 2001-2022 Free Software
+;; Copyright (C) 1993-1994, 1996-1997, 2001-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Barry A. Warsaw <bwarsaw@cen.com>
@@ -96,6 +96,14 @@
   :prefix "Man-"
   :group 'external
   :group 'help)
+
+(defcustom Man-prefer-synchronous-call nil
+  "Whether to call the Un*x \"man\" program synchronously.
+When this is non-nil, call the \"man\" program synchronously
+(rather than asynchronously, which is the default behavior)."
+  :type 'boolean
+  :group 'man
+  :version "30.1")
 
 (defcustom Man-filter-list nil
   "Manpage cleaning filter command phrases.
@@ -307,7 +315,7 @@ If this is nil, `man' will use `locale-coding-system'."
   :type 'hook
   :group 'man)
 
-(defvar Man-name-regexp "[-[:alnum:]_­+][-[:alnum:]_.:­+]*"
+(defvar Man-name-regexp "[-[:alnum:]_­+[@][-[:alnum:]_.:­+]*"
   "Regular expression describing the name of a manpage (without section).")
 
 (defvar Man-section-regexp "[0-9][a-zA-Z0-9+]*\\|[LNln]"
@@ -331,7 +339,7 @@ This regexp should not start with a `^' character.")
 ;; This used to have leading space [ \t]*, but was removed because it
 ;; causes false page splits on an occasional NAME with leading space
 ;; inside a manpage.  And `Man-heading-regexp' doesn't have [ \t]* anyway.
-(defvar Man-first-heading-regexp "^NAME$\\|^[ \t]*No manual entry fo.*$"
+(defvar Man-first-heading-regexp "^NAME$\\|^[ \t]*No manual entry for.*$"
   "Regular expression describing first heading on a manpage.
 This regular expression should start with a `^' character.")
 
@@ -451,50 +459,45 @@ Otherwise, the value is whatever the function
     table)
   "Syntax table used in Man mode buffers.")
 
-(defvar Man-mode-map
-  (let ((map (make-sparse-keymap)))
-    (suppress-keymap map)
-    (set-keymap-parent map
-      (make-composed-keymap button-buffer-map special-mode-map))
+(defvar-keymap Man-mode-map
+  :doc "Keymap for Man mode."
+  :suppress t
+  :parent (make-composed-keymap button-buffer-map special-mode-map)
+  "n"   #'Man-next-section
+  "p"   #'Man-previous-section
+  "M-n" #'Man-next-manpage
+  "M-p" #'Man-previous-manpage
+  "."   #'beginning-of-buffer
+  "r"   #'Man-follow-manual-reference
+  "g"   #'Man-goto-section
+  "s"   #'Man-goto-see-also-section
+  "k"   #'Man-kill
+  "u"   #'Man-update-manpage
+  "m"   #'man
+  ;; Not all the man references get buttons currently.  The text in the
+  ;; manual page can contain references to other man pages
+  "RET" #'man-follow
 
-    (define-key map "n"    'Man-next-section)
-    (define-key map "p"    'Man-previous-section)
-    (define-key map "\en"  'Man-next-manpage)
-    (define-key map "\ep"  'Man-previous-manpage)
-    (define-key map "."    'beginning-of-buffer)
-    (define-key map "r"    'Man-follow-manual-reference)
-    (define-key map "g"    'Man-goto-section)
-    (define-key map "s"    'Man-goto-see-also-section)
-    (define-key map "k"    'Man-kill)
-    (define-key map "u"    'Man-update-manpage)
-    (define-key map "m"    'man)
-    ;; Not all the man references get buttons currently.  The text in the
-    ;; manual page can contain references to other man pages
-    (define-key map "\r"   'man-follow)
-
-    (easy-menu-define nil map
-      "`Man-mode' menu."
-      '("Man"
-        ["Next Section" Man-next-section t]
-        ["Previous Section" Man-previous-section t]
-        ["Go To Section..." Man-goto-section t]
-        ["Go To \"SEE ALSO\" Section" Man-goto-see-also-section
-         :active (cl-member Man-see-also-regexp Man--sections
-                            :test #'string-match-p)]
-        ["Follow Reference..." Man-follow-manual-reference
-         :active Man--refpages
-         :help "Go to a manpage referred to in the \"SEE ALSO\" section"]
-        "--"
-        ["Next Manpage" Man-next-manpage
-         :active (> (length Man-page-list) 1)]
-        ["Previous Manpage" Man-previous-manpage
-         :active (> (length Man-page-list) 1)]
-        "--"
-        ["Man..." man t]
-        ["Kill Buffer" Man-kill t]
-        ["Quit" quit-window t]))
-    map)
-  "Keymap for Man mode.")
+  :menu
+  '("Man"
+    ["Next Section" Man-next-section t]
+    ["Previous Section" Man-previous-section t]
+    ["Go To Section..." Man-goto-section t]
+    ["Go To \"SEE ALSO\" Section" Man-goto-see-also-section
+     :active (cl-member Man-see-also-regexp Man--sections
+                        :test #'string-match-p)]
+    ["Follow Reference..." Man-follow-manual-reference
+     :active Man--refpages
+     :help "Go to a manpage referred to in the \"SEE ALSO\" section"]
+    "--"
+    ["Next Manpage" Man-next-manpage
+     :active (> (length Man-page-list) 1)]
+    ["Previous Manpage" Man-previous-manpage
+     :active (> (length Man-page-list) 1)]
+    "--"
+    ["Man..." man t]
+    ["Kill Buffer" Man-kill t]
+    ["Quit" quit-window t]))
 
 ;; buttons
 (define-button-type 'Man-abstract-xref-man-page
@@ -934,7 +937,16 @@ foo(sec)[, bar(sec) [, ...]] [other stuff] - description"
                          "-k" (concat (when (or Man-man-k-use-anchor
                                                 (string-equal prefix ""))
                                         "^")
-                                      prefix))))
+                                      (if (string-equal prefix "")
+                                          prefix
+                                        ;; FIXME: shell-quote-argument
+                                        ;; is not entirely
+                                        ;; appropriate: we actually
+                                        ;; need to quote ERE here.
+                                        ;; But we don't have that, and
+                                        ;; shell-quote-argument does
+                                        ;; the job...
+                                        (shell-quote-argument prefix))))))
               (setq table (Man-parse-man-k)))))
 	;; Cache the table for later reuse.
         (when table
@@ -1082,13 +1094,13 @@ to auto-complete your input based on the installed manual pages."
     ;; unless COLUMNS or MANWIDTH is set.  This isn't a problem on
     ;; a tty.  man(1) says:
     ;;        MANWIDTH
-    ;;               If $MANWIDTH is set, its value is used as the  line
-    ;;               length  for which manual pages should be formatted.
-    ;;               If it is not set, manual pages  will  be  formatted
-    ;;               with  a line length appropriate to the current ter-
-    ;;               minal (using an ioctl(2) if available, the value of
-    ;;               $COLUMNS,  or falling back to 80 characters if nei-
-    ;;               ther is available).
+    ;;               If $MANWIDTH is set, its value is used as the line
+    ;;               length for which manual pages should be formatted.
+    ;;               If it is not set, manual pages will be formatted
+    ;;               with a line length appropriate to the current
+    ;;               terminal (using an ioctl(2) if available, the value
+    ;;               of $COLUMNS, or falling back to 80 characters if
+    ;;               neither is available).
     (when (or window-system
 	      (not (or (getenv "MANWIDTH") (getenv "COLUMNS"))))
       ;; Since the page buffer is displayed beforehand,
@@ -1123,7 +1135,8 @@ Return the buffer in which the manpage will appear."
 					"[cleaning...]")
 				      'face 'mode-line-emphasis)))
 	(Man-start-calling
-	 (if (fboundp 'make-process)
+	 (if (and (fboundp 'make-process)
+                  (not Man-prefer-synchronous-call))
 	     (let ((proc (start-process
 			  manual-program buffer
 			  (if (memq system-type '(cygwin windows-nt))
@@ -1267,21 +1280,21 @@ Same for the ANSI bold and normal escape sequences."
 	(progn
 	  (goto-char (point-min))
 	  (while (and (search-forward "__\b\b" nil t) (not (eobp)))
-	    (backward-delete-char 4)
+	    (delete-char -4)
             (put-text-property (point) (1+ (point))
                                'font-lock-face 'Man-underline))
 	  (goto-char (point-min))
 	  (while (search-forward "\b\b__" nil t)
-	    (backward-delete-char 4)
+	    (delete-char -4)
             (put-text-property (1- (point)) (point)
                                'font-lock-face 'Man-underline))))
     (goto-char (point-min))
     (while (and (search-forward "_\b" nil t) (not (eobp)))
-      (backward-delete-char 2)
+      (delete-char -2)
       (put-text-property (point) (1+ (point)) 'font-lock-face 'Man-underline))
     (goto-char (point-min))
     (while (search-forward "\b_" nil t)
-      (backward-delete-char 2)
+      (delete-char -2)
       (put-text-property (1- (point)) (point) 'font-lock-face 'Man-underline))
     (goto-char (point-min))
     (while (re-search-forward "\\(.\\)\\(\b+\\1\\)+" nil t)
@@ -1299,7 +1312,7 @@ Same for the ANSI bold and normal escape sequences."
     ;; condense it to a shorter line interspersed with ^H.  Remove ^H with
     ;; their preceding chars (but don't put Man-overstrike).  (Bug#5566)
     (goto-char (point-min))
-    (while (re-search-forward ".\b" nil t) (backward-delete-char 2))
+    (while (re-search-forward ".\b" nil t) (delete-char -2))
     (goto-char (point-min))
     ;; Try to recognize common forms of cross references.
     (Man-highlight-references)
@@ -1380,9 +1393,9 @@ script would have done them."
   (if (or interactive (not Man-sed-script))
       (progn
 	(goto-char (point-min))
-	(while (search-forward "_\b" nil t) (backward-delete-char 2))
+	(while (search-forward "_\b" nil t) (delete-char -2))
 	(goto-char (point-min))
-	(while (search-forward "\b_" nil t) (backward-delete-char 2))
+	(while (search-forward "\b_" nil t) (delete-char -2))
 	(goto-char (point-min))
 	(while (re-search-forward "\\(.\\)\\(\b\\1\\)+" nil t)
 	  (replace-match "\\1"))
@@ -1397,7 +1410,7 @@ script would have done them."
   ;; condense it to a shorter line interspersed with ^H.  Remove ^H with
   ;; their preceding chars (but don't put Man-overstrike).  (Bug#5566)
   (goto-char (point-min))
-  (while (re-search-forward ".\b" nil t) (backward-delete-char 2))
+  (while (re-search-forward ".\b" nil t) (delete-char -2))
   (Man-softhyphen-to-minus))
 
 (defun Man-bgproc-filter (process string)

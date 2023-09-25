@@ -1,6 +1,6 @@
 ;;; calc.el --- the GNU Emacs calculator  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 ;; Keywords: convenience, extensions
@@ -1188,8 +1188,12 @@ Used by `calc-user-invocation'.")
   "Start the Calculator."
   (let ((key (calc-read-key-sequence
 	      (if calc-dispatch-help
-		  "Calc options: Calc, Keypad, Quick, Embed; eXit; Info, Tutorial; Grab; ?=more"
-		(format "%s  (Type ? for a list of Calc options)"
+		  (substitute-command-keys
+                   (concat
+                    "Calc options: \\`c'alc, \\`k'eypad, \\`q'uick, \\`e'mbed; "
+                    "e\\`x'it; \\`i'nfo, \\`t'utorial; \\`g'rab; \\`?'=more"))
+		(format (substitute-command-keys
+                         "%s  (Type \\`?' for a list of Calc options)")
 			(key-description (this-command-keys))))
 	      calc-dispatch-map)))
     (setq key (lookup-key calc-dispatch-map key))
@@ -1282,16 +1286,17 @@ the trail buffer."
 (defun calc-mode ()
   "Calculator major mode.
 
-This is an RPN calculator featuring arbitrary-precision integer, rational,
-floating-point, complex, matrix, and symbolic arithmetic.
+This is a Reverse Polish notation (RPN) calculator featuring
+arbitrary-precision integer, rational, floating-point, complex,
+matrix, and symbolic arithmetic.
 
 RPN calculation:  2 RET 3 +    produces 5.
 Algebraic style:  \\=' 2+3 RET    produces 5.
 
 Basic operators are +, -, *, /, ^, & (reciprocal), % (modulo), n (change-sign).
 
-Press ? repeatedly for more complete help.  Press `h i' to read the
-Calc manual on-line, `h s' to read the summary, or `h t' for the tutorial.
+Press \\`?' repeatedly for more complete help.  Press \\`h i' to read the
+Calc manual, \\`h s' to read the summary, or \\`h t' for the tutorial.
 
 Notations:  3.14e6     3.14 * 10^6
             _23        negative number -23 (or type `23 n')
@@ -1352,7 +1357,10 @@ Notations:  3.14e6     3.14 * 10^6
   (calc-set-mode-line)
   (calc-check-defines)
   (if calc-buffer-list (setq calc-stack (copy-sequence calc-stack)))
-  (add-to-list 'calc-buffer-list (current-buffer) t))
+  (add-to-list 'calc-buffer-list (current-buffer) t)
+  ;; While Calc buffers are read only, the on screen keyboard should
+  ;; be displayed in order to accept user input.
+  (setq-local touch-screen-display-keyboard t))
 
 (defvar calc-check-defines 'calc-check-defines)  ; Suitable for run-hooks.
 (defun calc-check-defines ()
@@ -1446,49 +1454,54 @@ See `window-dedicated-p' for what that means."
 	    (calc-grab-region (region-beginning) (region-end) nil)
 	  (when (= (prefix-numeric-value arg) -2)
 	    (calc-keypad))))
-    (when (get-buffer-window "*Calc Keypad*")
-      (calc-keypad)
-      (set-buffer (window-buffer)))
-    (if (derived-mode-p 'calc-mode)
-	(calc-quit)
-      (calc-create-buffer)
-      (setq calc-was-keypad-mode nil)
-      (if (or (eq full-display t)
-              (and (null full-display) calc-full-mode))
-          (switch-to-buffer (current-buffer) t)
-        (if (get-buffer-window (current-buffer))
-            (select-window (get-buffer-window (current-buffer)))
-          (if calc-window-hook
-              (run-hooks 'calc-window-hook)
-            (let ((w (get-largest-window)))
-              (if (and pop-up-windows
-                       (> (window-height w)
-                          (+ window-min-height calc-window-height 2)))
-                  (progn
-                    (setq w (split-window w
-                                          (- (window-height w)
-                                             calc-window-height 2)
-                                          nil))
-                    (set-window-buffer w (current-buffer))
-                    (select-window w))
-                (pop-to-buffer (current-buffer)))))))
-      (with-current-buffer (calc-trail-buffer)
-        (and calc-display-trail
-             (calc-trail-display 1 t)))
-      (message (substitute-command-keys
-                (concat "Welcome to the GNU Emacs Calculator!  \\<calc-mode-map>"
-                        "Press \\[calc-help] or \\[calc-help-prefix] for help, \\[calc-quit] to quit")))
-      (run-hooks 'calc-start-hook)
-      (and (windowp full-display)
-           (window-point full-display)
-           (select-window full-display))
-      (and calc-make-windows-dedicated
-           (set-window-dedicated-p nil t))
-      (calc-check-defines)
-      (when (and calc-said-hello interactive)
-        (sit-for 2)
-        (message ""))
-      (setq calc-said-hello t))))
+    ;; If the selected window changes here, Emacs may think that the
+    ;; selected window is read only, and no on screen keyboard should
+    ;; be displayed.  Make sure that any active on screen keyboard is
+    ;; not hidden by accident.
+    (let ((touch-screen-display-keyboard t))
+      (when (get-buffer-window "*Calc Keypad*")
+        (calc-keypad)
+        (set-buffer (window-buffer)))
+      (if (derived-mode-p 'calc-mode)
+	  (calc-quit)
+        (calc-create-buffer)
+        (setq calc-was-keypad-mode nil)
+        (if (or (eq full-display t)
+                (and (null full-display) calc-full-mode))
+            (switch-to-buffer (current-buffer) t)
+          (if (get-buffer-window (current-buffer))
+              (select-window (get-buffer-window (current-buffer)))
+            (if calc-window-hook
+                (run-hooks 'calc-window-hook)
+              (let ((w (get-largest-window)))
+                (if (and pop-up-windows
+                         (> (window-height w)
+                            (+ window-min-height calc-window-height 2)))
+                    (progn
+                      (setq w (split-window w
+                                            (- (window-height w)
+                                               calc-window-height 2)
+                                            nil))
+                      (set-window-buffer w (current-buffer))
+                      (select-window w))
+                  (pop-to-buffer (current-buffer)))))))
+        (with-current-buffer (calc-trail-buffer)
+          (and calc-display-trail
+               (calc-trail-display 1 t)))
+        (message (substitute-command-keys
+                  (concat "Welcome to the GNU Emacs Calculator!  \\<calc-mode-map>"
+                          "Press \\[calc-help] or \\[calc-help-prefix] for help, \\[calc-quit] to quit")))
+        (run-hooks 'calc-start-hook)
+        (and (windowp full-display)
+             (window-point full-display)
+             (select-window full-display))
+        (and calc-make-windows-dedicated
+             (set-window-dedicated-p nil t))
+        (calc-check-defines)
+        (when (and calc-said-hello interactive)
+          (sit-for 2)
+          (message ""))
+        (setq calc-said-hello t)))))
 
 ;;;###autoload
 (defun full-calc (&optional interactive)
@@ -2477,7 +2490,8 @@ the United States."
   (interactive)
   (cond ((eq last-command 'calcDigit-start)
 	 (erase-buffer))
-	(t (backward-delete-char 1)))
+	(t (with-suppressed-warnings ((interactive-only backward-delete-char))
+             (backward-delete-char 1))))
   (if (= (calc-minibuffer-size) 0)
       (progn
 	(setq last-command-event 13)

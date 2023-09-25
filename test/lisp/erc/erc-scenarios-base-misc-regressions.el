@@ -1,22 +1,23 @@
 ;;; erc-scenarios-base-misc-regressions.el --- misc regressions scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
-;;
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+
 ;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Code:
 
 (require 'ert-x)
 (eval-and-compile
@@ -122,5 +123,49 @@ Originally from scenario rebuffed/gapless as explained in Bug#48598:
     (ert-info ("Channel buffer #chan revived")
       (with-current-buffer (erc-d-t-wait-for 5 (get-buffer "#chan"))
         (erc-d-t-search-for 10 "and be prosperous")))))
+
+;; This defends against a partial regression in which an /MOTD caused
+;; 376 and 422 handlers in erc-networks to run.
+
+(ert-deftest erc-cmd-MOTD ()
+  :tags '(:expensive-test)
+  (erc-scenarios-common-with-cleanup
+      ((erc-scenarios-common-dialog "base/commands")
+       (erc-server-flood-penalty 0.1)
+       (dumb-server (erc-d-run "localhost" t 'motd))
+       (port (process-contact dumb-server :service))
+       (expect (erc-d-t-make-expecter)))
+
+    (ert-info ("Connect to server")
+      (with-current-buffer (erc :server "127.0.0.1"
+                                :port port
+                                :nick "tester"
+                                :full-name "tester")
+        (funcall expect 10 "This is the default Ergo MOTD")
+        (funcall expect 10 "debug mode")))
+
+    (ert-info ("Send plain MOTD")
+      (with-current-buffer "foonet"
+        (erc-cmd-MOTD)
+        (funcall expect -0.2 "Unexpected state detected")
+        (funcall expect 10 "This is the default Ergo MOTD")))
+
+    (ert-info ("Send MOTD with known target")
+      (with-current-buffer "foonet"
+        (erc-scenarios-common-say "/MOTD irc1.foonet.org")
+        (funcall expect -0.2 "Unexpected state detected")
+        (funcall expect 10 "This is the default Ergo MOTD")))
+
+    (ert-info ("Send MOTD with erroneous target")
+      (with-current-buffer "foonet"
+        (erc-scenarios-common-say "/MOTD fake.foonet.org")
+        (funcall expect -0.2 "Unexpected state detected")
+        (funcall expect 10 "No such server")
+        ;; Message may show up before the handler runs.
+        (erc-d-t-wait-for 10
+            (not (local-variable-p 'erc-server-402-functions)))
+        (should-not (local-variable-p 'erc-server-376-functions))
+        (should-not (local-variable-p 'erc-server-422-functions))
+        (erc-cmd-QUIT "")))))
 
 ;;; erc-scenarios-base-misc-regressions.el ends here

@@ -1,6 +1,6 @@
 /* Random utility Lisp functions.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -26,6 +26,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <intprops.h>
 #include <vla.h>
 #include <errno.h>
+#include <ctype.h>
 
 #include "lisp.h"
 #include "bignum.h"
@@ -37,6 +38,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "window.h"
 #include "puresize.h"
 #include "gnutls.h"
+
+#ifdef HAVE_TREE_SITTER
+#include "treesit.h"
+#endif
 
 enum equal_kind { EQUAL_NO_QUIT, EQUAL_PLAIN, EQUAL_INCLUDING_PROPERTIES };
 static bool internal_equal (Lisp_Object, Lisp_Object,
@@ -136,6 +141,10 @@ efficient.  */)
 
   if (STRINGP (sequence))
     val = SCHARS (sequence);
+  else if (CONSP (sequence))
+    val = list_length (sequence);
+  else if (NILP (sequence))
+    val = 0;
   else if (VECTORP (sequence))
     val = ASIZE (sequence);
   else if (CHAR_TABLE_P (sequence))
@@ -144,10 +153,6 @@ efficient.  */)
     val = bool_vector_size (sequence);
   else if (COMPILEDP (sequence) || RECORDP (sequence))
     val = PVSIZE (sequence);
-  else if (CONSP (sequence))
-    val = list_length (sequence);
-  else if (NILP (sequence))
-    val = 0;
   else
     wrong_type_argument (Qsequencep, sequence);
 
@@ -334,7 +339,9 @@ Letter-case is significant, but text properties are ignored. */)
 DEFUN ("string-equal", Fstring_equal, Sstring_equal, 2, 2, 0,
        doc: /* Return t if two strings have identical contents.
 Case is significant, but text properties are ignored.
-Symbols are also allowed; their print names are used instead.  */)
+Symbols are also allowed; their print names are used instead.
+
+See also `string-equal-ignore-case'.  */)
   (register Lisp_Object s1, Lisp_Object s2)
 {
   if (SYMBOLP (s1))
@@ -433,20 +440,31 @@ If string STR1 is greater, the value is a positive number N;
 }
 
 /* Check whether the platform allows access to unaligned addresses for
-   size_t integers without trapping or undue penalty (a few cycles is OK).
+   size_t integers without trapping or undue penalty (a few cycles is OK),
+   and that a word-sized memcpy can be used to generate such an access.
 
    This whitelist is incomplete but since it is only used to improve
    performance, omitting cases is safe.  */
-#if defined __x86_64__|| defined __amd64__	\
-    || defined __i386__ || defined __i386	\
-    || defined __arm64__ || defined __aarch64__	\
-    || defined __powerpc__ || defined __powerpc	\
-    || defined __ppc__ || defined __ppc		\
-    || defined __s390__ || defined __s390x__
+#if (defined __x86_64__|| defined __amd64__		\
+     || defined __i386__ || defined __i386		\
+     || defined __arm64__ || defined __aarch64__	\
+     || defined __powerpc__ || defined __powerpc	\
+     || defined __ppc__ || defined __ppc		\
+     || defined __s390__ || defined __s390x__)		\
+  && defined __OPTIMIZE__
 #define HAVE_FAST_UNALIGNED_ACCESS 1
 #else
 #define HAVE_FAST_UNALIGNED_ACCESS 0
 #endif
+
+/* Load a word from a possibly unaligned address.  */
+static inline size_t
+load_unaligned_size_t (const void *p)
+{
+  size_t x;
+  memcpy (&x, p, sizeof x);
+  return x;
+}
 
 DEFUN ("string-lessp", Fstring_lessp, Sstring_lessp, 2, 2, 0,
        doc: /* Return non-nil if STRING1 is less than STRING2 in lexicographic order.
@@ -491,11 +509,11 @@ Symbols are also allowed; their print names are used instead.  */)
       if (HAVE_FAST_UNALIGNED_ACCESS)
 	{
 	  /* First compare entire machine words.  */
-	  typedef size_t word_t;
-	  int ws = sizeof (word_t);
-	  const word_t *w1 = (const word_t *) SDATA (string1);
-	  const word_t *w2 = (const word_t *) SDATA (string2);
-	  while (b < nb - ws + 1 && w1[b / ws] == w2[b / ws])
+	  int ws = sizeof (size_t);
+	  const char *w1 = SSDATA (string1);
+	  const char *w2 = SSDATA (string2);
+	  while (b < nb - ws + 1 &&    load_unaligned_size_t (w1 + b)
+		                    == load_unaligned_size_t (w2 + b))
 	    b += ws;
 	}
 
@@ -596,8 +614,9 @@ To emulate Unicode-compliant collation on MS-Windows systems,
 bind `w32-collate-ignore-punctuation' to a non-nil value, since
 the codeset part of the locale cannot be \"UTF-8\" on MS-Windows.
 
-If your system does not support a locale environment, this function
-behaves like `string-lessp'.  */)
+Some operating systems do not implement correct collation (in specific
+locale environments or at all).  Then, this functions falls back to
+case-sensitive `string-lessp' and IGNORE-CASE argument is ignored.  */)
   (Lisp_Object s1, Lisp_Object s2, Lisp_Object locale, Lisp_Object ignore_case)
 {
 #if defined __STDC_ISO_10646__ || defined WINDOWSNT
@@ -643,7 +662,8 @@ bind `w32-collate-ignore-punctuation' to a non-nil value, since
 the codeset part of the locale cannot be \"UTF-8\" on MS-Windows.
 
 If your system does not support a locale environment, this function
-behaves like `string-equal'.
+behaves like `string-equal', and in that case the IGNORE-CASE argument
+is ignored.
 
 Do NOT use this function to compare file names for equality.  */)
   (Lisp_Object s1, Lisp_Object s2, Lisp_Object locale, Lisp_Object ignore_case)
@@ -726,7 +746,8 @@ usage: (vconcat &rest SEQUENCES)   */)
 DEFUN ("copy-sequence", Fcopy_sequence, Scopy_sequence, 1, 1, 0,
        doc: /* Return a copy of a list, vector, string, char-table or record.
 The elements of a list, vector or record are not copied; they are
-shared with the original.
+shared with the original.  See Info node `(elisp) Sequence Functions'
+for more details about this sharing and its effects.
 If the original sequence is empty, this function may return
 the same empty object instead of its copy.  */)
   (Lisp_Object arg)
@@ -1947,6 +1968,20 @@ assq_no_quit (Lisp_Object key, Lisp_Object alist)
   return Qnil;
 }
 
+/* Assq but doesn't signal.  Unlike assq_no_quit, this function still
+   detects circular lists; like assq_no_quit, this function does not
+   allow quits and never signals.  If anything goes wrong, it returns
+   Qnil.  */
+Lisp_Object
+assq_no_signal (Lisp_Object key, Lisp_Object alist)
+{
+  Lisp_Object tail = alist;
+  FOR_EACH_TAIL_SAFE (tail)
+    if (CONSP (XCAR (tail)) && EQ (XCAR (XCAR (tail)), key))
+      return XCAR (tail);
+  return Qnil;
+}
+
 DEFUN ("assoc", Fassoc, Sassoc, 2, 3, 0,
        doc: /* Return non-nil if KEY is equal to the car of an element of ALIST.
 The value is actually the first element of ALIST whose car equals KEY.
@@ -2069,7 +2104,27 @@ changing the value of a sequence `foo'.  See also `remove', which
 does not modify the argument.  */)
   (Lisp_Object elt, Lisp_Object seq)
 {
-  if (VECTORP (seq))
+  if (NILP (seq))
+    ;
+  else if (CONSP (seq))
+    {
+      Lisp_Object prev = Qnil, tail = seq;
+
+      FOR_EACH_TAIL (tail)
+	{
+	  if (!NILP (Fequal (elt, XCAR (tail))))
+	    {
+	      if (NILP (prev))
+		seq = XCDR (tail);
+	      else
+		Fsetcdr (prev, XCDR (tail));
+	    }
+	  else
+	    prev = tail;
+	}
+      CHECK_LIST_END (tail, seq);
+    }
+  else if (VECTORP (seq))
     {
       ptrdiff_t n = 0;
       ptrdiff_t size = ASIZE (seq);
@@ -2158,23 +2213,7 @@ does not modify the argument.  */)
 	}
     }
   else
-    {
-      Lisp_Object prev = Qnil, tail = seq;
-
-      FOR_EACH_TAIL (tail)
-	{
-	  if (!NILP (Fequal (elt, XCAR (tail))))
-	    {
-	      if (NILP (prev))
-		seq = XCDR (tail);
-	      else
-		Fsetcdr (prev, XCDR (tail));
-	    }
-	  else
-	    prev = tail;
-	}
-      CHECK_LIST_END (tail, seq);
-    }
+    wrong_type_argument (Qsequencep, seq);
 
   return seq;
 }
@@ -2187,8 +2226,6 @@ This function may destructively modify SEQ to produce the value.  */)
 {
   if (NILP (seq))
     return seq;
-  else if (STRINGP (seq))
-    return Freverse (seq);
   else if (CONSP (seq))
     {
       Lisp_Object prev, tail, next;
@@ -2228,6 +2265,8 @@ This function may destructively modify SEQ to produce the value.  */)
 	  bool_vector_set (seq, size - i - 1, tem);
 	}
     }
+  else if (STRINGP (seq))
+    return Freverse (seq);
   else
     wrong_type_argument (Qarrayp, seq);
   return seq;
@@ -2299,9 +2338,9 @@ See also the function `nreverse', which is used more often.  */)
 
 
 /* Stably sort LIST ordered by PREDICATE using the TIMSORT
-   algorithm. This converts the list to a vector, sorts the vector,
-   and returns the result converted back to a list.  The input list is
-   destructively reused to hold the sorted result.  */
+   algorithm.  This converts the list to a vector, sorts the vector,
+   and returns the result converted back to a list.  The input list
+   is destructively reused to hold the sorted result.  */
 
 static Lisp_Object
 sort_list (Lisp_Object list, Lisp_Object predicate)
@@ -2739,10 +2778,13 @@ internal_equal (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 
   /* A symbol with position compares the contained symbol, and is
      `equal' to the corresponding ordinary symbol.  */
-  if (SYMBOL_WITH_POS_P (o1))
-    o1 = SYMBOL_WITH_POS_SYM (o1);
-  if (SYMBOL_WITH_POS_P (o2))
-    o2 = SYMBOL_WITH_POS_SYM (o2);
+  if (symbols_with_pos_enabled)
+    {
+      if (SYMBOL_WITH_POS_P (o1))
+	o1 = SYMBOL_WITH_POS_SYM (o1);
+      if (SYMBOL_WITH_POS_P (o2))
+	o2 = SYMBOL_WITH_POS_SYM (o2);
+    }
 
   if (BASE_EQ (o1, o2))
     return true;
@@ -2790,8 +2832,8 @@ internal_equal (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 	if (ASIZE (o2) != size)
 	  return false;
 
-	/* Compare bignums, overlays, markers, and boolvectors
-	   specially, by comparing their values.  */
+	/* Compare bignums, overlays, markers, boolvectors, and
+	   symbols with position specially, by comparing their values.  */
 	if (BIGNUMP (o1))
 	  return mpz_cmp (*xbignum_val (o1), *xbignum_val (o2)) == 0;
 	if (OVERLAYP (o1))
@@ -2818,6 +2860,16 @@ internal_equal (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 		    && !memcmp (bool_vector_data (o1), bool_vector_data (o2),
 			        bool_vector_bytes (size)));
 	  }
+
+#ifdef HAVE_TREE_SITTER
+	if (TS_NODEP (o1))
+	  return treesit_node_eq (o1, o2);
+#endif
+	if (SYMBOL_WITH_POS_P(o1)) /* symbols_with_pos_enabled is false.  */
+	  return (BASE_EQ (XSYMBOL_WITH_POS (o1)->sym,
+			   XSYMBOL_WITH_POS (o2)->sym)
+		  && BASE_EQ (XSYMBOL_WITH_POS (o1)->pos,
+			      XSYMBOL_WITH_POS (o2)->pos));
 
 	/* Aside from them, only true vectors, char-tables, compiled
 	   functions, and fonts (font-spec, font-entity, font-object)
@@ -2899,8 +2951,7 @@ ARRAY is a vector, string, char-table, or bool-vector.  */)
 	  else
 	    {
 	      ptrdiff_t product;
-	      if (INT_MULTIPLY_WRAPV (size, len, &product)
-		  || product != size_byte)
+	      if (ckd_mul (&product, size, len) || product != size_byte)
 		error ("Attempt to change byte length of a string");
 	      for (idx = 0; idx < size_byte; idx++)
 		*p++ = str[idx % len];
@@ -3164,25 +3215,32 @@ DEFUN ("yes-or-no-p", Fyes_or_no_p, Syes_or_no_p, 1, 1, 0,
 Return t if answer is yes, and nil if the answer is no.
 
 PROMPT is the string to display to ask the question; `yes-or-no-p'
-adds \"(yes or no) \" to it.  It does not need to end in space, but if
-it does up to one space will be removed.
+appends `yes-or-no-prompt' (default \"(yes or no) \") to it.  If
+PROMPT is a non-empty string, and it ends with a non-space character,
+a space character will be appended to it.
 
 The user must confirm the answer with RET, and can edit it until it
 has been confirmed.
 
 If the `use-short-answers' variable is non-nil, instead of asking for
-\"yes\" or \"no\", this function will ask for \"y\" or \"n\".
+\"yes\" or \"no\", this function will ask for \"y\" or \"n\" (and
+ignore the value of `yes-or-no-prompt').
 
-If dialog boxes are supported, a dialog box will be used
-if `last-nonmenu-event' is nil, and `use-dialog-box' is non-nil.  */)
+If dialog boxes are supported, this function will use a dialog box
+if `use-dialog-box' is non-nil and the last input event was produced
+by a mouse, or by some window-system gesture, or via a menu.  */)
   (Lisp_Object prompt)
 {
-  Lisp_Object ans;
+  Lisp_Object ans, val;
 
   CHECK_STRING (prompt);
 
-  if ((NILP (last_nonmenu_event) || CONSP (last_nonmenu_event))
-      && use_dialog_box && ! NILP (last_input_event))
+  if (!NILP (last_input_event)
+      && (CONSP (last_nonmenu_event)
+	  || (NILP (last_nonmenu_event) && CONSP (last_input_event))
+	  || (val = find_symbol_value (Qfrom__tty_menu_p),
+	      (!NILP (val) && !EQ (val, Qunbound))))
+      && use_dialog_box)
     {
       Lisp_Object pane, menu, obj;
       redisplay_preserve_echo_area (4);
@@ -3196,8 +3254,13 @@ if `last-nonmenu-event' is nil, and `use-dialog-box' is non-nil.  */)
   if (use_short_answers)
     return call1 (intern ("y-or-n-p"), prompt);
 
-  AUTO_STRING (yes_or_no, "(yes or no) ");
-  prompt = CALLN (Fconcat, prompt, yes_or_no);
+  {
+    char *s = SSDATA (prompt);
+    ptrdiff_t len = strlen (s);
+    if ((len > 0) && !isspace (s[len - 1]))
+      prompt = CALLN (Fconcat, prompt, build_string (" "));
+  }
+  prompt = CALLN (Fconcat, prompt, Vyes_or_no_prompt);
 
   specpdl_ref count = SPECPDL_INDEX ();
   specbind (Qenable_recursive_minibuffers, Qt);
@@ -3510,6 +3573,10 @@ The data read from the system are decoded using `locale-coding-system'.  */)
   (Lisp_Object item)
 {
   char *str = NULL;
+
+  /* STR is apparently unused on Android.  */
+  ((void) str);
+
 #ifdef HAVE_LANGINFO_CODESET
   if (EQ (item, Qcodeset))
     {
@@ -3934,7 +4001,7 @@ system.
 If the region can't be decoded, signal an error and don't modify the buffer.
 Optional third argument BASE64URL determines whether to use the URL variant
 of the base 64 encoding, as defined in RFC 4648.
-If optional fourth argument INGORE-INVALID is non-nil invalid characters
+If optional fourth argument IGNORE-INVALID is non-nil invalid characters
 are ignored instead of signaling an error.  */)
      (Lisp_Object beg, Lisp_Object end, Lisp_Object base64url,
       Lisp_Object ignore_invalid)
@@ -5792,8 +5859,9 @@ secure_hash (Lisp_Object algorithm, Lisp_Object object, Lisp_Object start,
 DEFUN ("md5", Fmd5, Smd5, 1, 5, 0,
        doc: /* Return MD5 message digest of OBJECT, a buffer or string.
 
-A message digest is a cryptographic checksum of a document, and the
-algorithm to calculate it is defined in RFC 1321.
+A message digest is the string representation of the cryptographic checksum
+of a document, and the algorithm to calculate it is defined in RFC 1321.
+The MD5 digest is 32-character long.
 
 The two optional arguments START and END are character positions
 specifying for which part of OBJECT the message digest should be
@@ -5827,12 +5895,12 @@ anything security-related.  See `secure-hash' for alternatives.  */)
 DEFUN ("secure-hash", Fsecure_hash, Ssecure_hash, 2, 5, 0,
        doc: /* Return the secure hash of OBJECT, a buffer or string.
 ALGORITHM is a symbol specifying the hash to use:
-- md5    corresponds to MD5
-- sha1   corresponds to SHA-1
-- sha224 corresponds to SHA-2 (SHA-224)
-- sha256 corresponds to SHA-2 (SHA-256)
-- sha384 corresponds to SHA-2 (SHA-384)
-- sha512 corresponds to SHA-2 (SHA-512)
+- md5    corresponds to MD5, produces a 32-character signature
+- sha1   corresponds to SHA-1, produces a 40-character signature
+- sha224 corresponds to SHA-2 (SHA-224), produces a 56-character signature
+- sha256 corresponds to SHA-2 (SHA-256), produces a 64-character signature
+- sha384 corresponds to SHA-2 (SHA-384), produces a 96-character signature
+- sha512 corresponds to SHA-2 (SHA-512), produces a 128-character signature
 
 The two optional arguments START and END are positions specifying for
 which part of OBJECT to compute the hash.  If nil or omitted, uses the
@@ -6103,29 +6171,43 @@ second optional argument ABSOLUTE is non-nil, the value counts the lines
 from the absolute start of the buffer, disregarding the narrowing.  */)
   (register Lisp_Object position, Lisp_Object absolute)
 {
-  ptrdiff_t pos, start = BEGV_BYTE;
+  ptrdiff_t pos_byte, start_byte = BEGV_BYTE;
+
+  if (!BUFFER_LIVE_P (current_buffer))
+    error ("Attempt to count lines in a dead buffer");
 
   if (MARKERP (position))
-    pos = marker_position (position);
+    {
+      /* We don't trust the byte position if the marker's buffer is
+         not the current buffer.  */
+      if (XMARKER (position)->buffer != current_buffer)
+	pos_byte = CHAR_TO_BYTE (marker_position (position));
+      else
+	pos_byte = marker_byte_position (position);
+    }
   else if (NILP (position))
-    pos = PT;
+    pos_byte = PT_BYTE;
   else
     {
       CHECK_FIXNUM (position);
-      pos = XFIXNUM (position);
+      ptrdiff_t pos = XFIXNUM (position);
+      /* Check that POSITION is valid. */
+      if (pos < BEG || pos > Z)
+	args_out_of_range_3 (position, make_int (BEG), make_int (Z));
+      pos_byte = CHAR_TO_BYTE (pos);
     }
 
   if (!NILP (absolute))
-    start = BEG_BYTE;
+    start_byte = BEG_BYTE;
+  else if (NILP (absolute))
+    pos_byte = clip_to_bounds (BEGV_BYTE, pos_byte, ZV_BYTE);
 
-  /* Check that POSITION is in the accessible range of the buffer, or,
-     if we're reporting absolute positions, in the buffer. */
-  if (NILP (absolute) && (pos < BEGV || pos > ZV))
-    args_out_of_range_3 (make_int (pos), make_int (BEGV), make_int (ZV));
-  else if (!NILP (absolute) && (pos < 1 || pos > Z))
-    args_out_of_range_3 (make_int (pos), make_int (1), make_int (Z));
+  /* Check that POSITION is valid. */
+  if (pos_byte < BEG_BYTE || pos_byte > Z_BYTE)
+    args_out_of_range_3 (make_int (BYTE_TO_CHAR (pos_byte)),
+			 make_int (BEG), make_int (Z));
 
-  return make_int (count_lines (start, CHAR_TO_BYTE (pos)) + 1);
+  return make_int (count_lines (start_byte, pos_byte) + 1);
 }
 
 
@@ -6248,8 +6330,14 @@ When non-nil, `yes-or-no-p' will use `y-or-n-p' to read the answer.
 We recommend against setting this variable non-nil, because `yes-or-no-p'
 is intended to be used when users are expected not to respond too
 quickly, but to take their time and perhaps think about the answer.
-The same variable also affects the function `read-answer'.  */);
+The same variable also affects the function `read-answer'.  See also
+`yes-or-no-prompt'.  */);
   use_short_answers = false;
+
+  DEFVAR_LISP ("yes-or-no-prompt", Vyes_or_no_prompt,
+    doc: /* String to append when `yes-or-no-p' asks a question.
+For best results this should end in a space.  */);
+  Vyes_or_no_prompt = make_unibyte_string ("(yes or no) ", strlen ("(yes or no) "));
 
   defsubr (&Sidentity);
   defsubr (&Srandom);
@@ -6334,4 +6422,5 @@ The same variable also affects the function `read-answer'.  */);
   defsubr (&Sbuffer_line_statistics);
 
   DEFSYM (Qreal_this_command, "real-this-command");
+  DEFSYM (Qfrom__tty_menu_p, "from--tty-menu-p");
 }

@@ -1,6 +1,6 @@
 ;;; reftex.el --- minor mode for doing \label, \ref, \cite, \index in LaTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2000, 2003-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <dominik@science.uva.nl>
 ;; Maintainer: auctex-devel@gnu.org
@@ -250,9 +250,6 @@ on the menu bar.
 (defvar LaTeX-label-function)
 (defvar tex-main-file)
 (defvar outline-minor-mode)
-(defvar font-lock-mode)
-(defvar font-lock-keywords)
-(defvar font-lock-fontify-region-function)
 
 ;;; =========================================================================
 ;;;
@@ -442,7 +439,7 @@ the label information is recompiled on next use."
         ;; When it is a symbol, remove all other symbols
         (and (symbolp entry)
              (not (memq entry list))
-             (setq list (reftex-remove-symbols-from-list list)))
+             (setq list (seq-remove #'symbolp list)))
         ;; Add to list unless already member
         (unless (member entry list)
           (setq reftex-tables-dirty t
@@ -477,9 +474,9 @@ will deactivate it."
 		     changed t)
 	       (setq list (delete style list))))
 	    (t
-	     (if (member style list)
-		 (delete style list)
-	       (setq list (append list (list style))))
+             (setq list (if (member style list)
+		            (delete style list)
+                          (append list (list style))))
 	     (setq reftex-tables-dirty t
 		   changed t)))
       (when changed
@@ -1004,10 +1001,13 @@ This enforces rescanning the buffer on next use."
                   reftex-section-levels))
 
     ;; Calculate the regular expressions
-    (let* (
-;          (wbol "\\(\\`\\|[\n\r]\\)[ \t]*")
-           (wbol "\\(^\\)%?[ \t]*") ; Need to keep the empty group because
-                                    ; match numbers are hard coded
+    (let* (;; (wbol "\\(\\`\\|[\n\r]\\)[ \t]*")
+           ;; Need to keep the empty group because match numbers are
+           ;; hard coded
+           (wbol (concat "\\(^\\)"
+                         (when (string-suffix-p ".dtx" (buffer-file-name) t)
+                           "%")
+                         "[ \t]*"))
            (label-re (concat "\\(?:"
 			     (mapconcat #'identity reftex-label-regexps "\\|")
 			     "\\)"))
@@ -1661,11 +1661,6 @@ When DIE is non-nil, throw an error if file not found."
       (pop alist))
     (nreverse out)))
 
-(defun reftex-window-height ()
-  (if (fboundp 'window-displayed-height)
-      (window-displayed-height)
-    (window-height)))
-
 (defun reftex-enlarge-to-fit (buf2 &optional keep-current)
   ;; Enlarge other window displaying buffer to show whole buffer if possible.
   ;; If KEEP-CURRENT in non-nil, current buffer must remain visible.
@@ -1677,7 +1672,7 @@ When DIE is non-nil, throw an error if file not found."
       (unless (and (pos-visible-in-window-p (point-min))
                    (pos-visible-in-window-p (point-max)))
         (enlarge-window (1+ (- (count-lines (point-min) (point-max))
-                               (reftex-window-height))))))
+                               (window-height))))))
     (cond
      ((window-live-p win1) (select-window win1))
      (keep-current
@@ -1702,7 +1697,7 @@ When DIE is non-nil, throw an error if file not found."
           (unless (and (pos-visible-in-window-p (point-min))
                        (pos-visible-in-window-p (point-max)))
             (enlarge-window (1+ (- (count-lines (point-min) (point-max))
-                                   (reftex-window-height)))))
+                                   (window-height)))))
           (setq truncate-lines t))
         (if (and (pos-visible-in-window-p (point-min))
                  (pos-visible-in-window-p (point-max)))
@@ -1823,15 +1818,6 @@ When DIE is non-nil, throw an error if file not found."
           (error "Cannot treat symbol %s in reftex-label-alist"
                  (symbol-name tmp)))))
       (push (pop list) rtn))
-    (nreverse rtn)))
-
-(defun reftex-remove-symbols-from-list (list)
-  ;; Remove all symbols from list
-  (let (rtn)
-    (while list
-      (unless (symbolp (car list))
-        (push (car list) rtn))
-      (setq list (cdr list)))
     (nreverse rtn)))
 
 (defun reftex-uniquify (list &optional sort)
@@ -2029,21 +2015,14 @@ IGNORE-WORDS List of words which should be removed from the string."
 ;;;
 ;;; Fontification and Highlighting
 
-(defun reftex-use-fonts ()
-  ;; Return t if we can and want to use fonts.
-  (and ; window-system
-       reftex-use-fonts
-       (featurep 'font-lock)))
-
 (defun reftex-refontify ()
   ;; Return t if we need to refontify context
-  (and (reftex-use-fonts)
+  (and reftex-use-fonts
        (or (eq t reftex-refontify-context)
            (and (eq 1 reftex-refontify-context)
                 ;; Test of we use the font-lock version of x-symbol
                 (and (featurep 'x-symbol-tex) (not (boundp 'x-symbol-mode)))))))
 
-(defvar font-lock-defaults-computed)
 (defun reftex-fontify-select-label-buffer (parent-buffer)
   ;; Fontify the `*RefTeX Select*' buffer.  Buffer is temporarily renamed to
   ;; start with none-SPC char, because Font-Lock otherwise refuses operation.
@@ -2053,7 +2032,8 @@ IGNORE-WORDS List of words which should be removed from the string."
          (newname (concat "Fontify-me-" oldname)))
     (unwind-protect
         (progn
-          ;; Rename buffer temporarily to start w/o space (because of font-lock)
+          ;; Rename buffer temporarily to start without space (because
+          ;; of font-lock)
           (rename-buffer newname t)
           ;; Good: we have the indirection functions
           (set (make-local-variable 'font-lock-fontify-region-function)
@@ -2270,20 +2250,17 @@ IGNORE-WORDS List of words which should be removed from the string."
 (defun reftex-create-customize-menu ()
   "Create a full customization menu for RefTeX, insert it into the menu."
   (interactive)
-  (if (fboundp 'customize-menu-create)
-      (progn
-        (easy-menu-change
-         '("Ref") "Customize"
-         `(["Browse RefTeX group" reftex-customize t]
-           "--"
-           ,(customize-menu-create 'reftex)
-           ["Set" Custom-set t]
-           ["Save" Custom-save t]
-           ["Reset to Current" Custom-reset-current t]
-           ["Reset to Saved" Custom-reset-saved t]
-           ["Reset to Standard Settings" Custom-reset-standard t]))
-        (message "\"Ref\"-menu now contains full customization menu"))
-    (error "Cannot expand menu (outdated version of cus-edit.el)")))
+  (easy-menu-change
+   '("Ref") "Customize"
+   `(["Browse RefTeX group" reftex-customize t]
+     "--"
+     ,(customize-menu-create 'reftex)
+     ["Set" Custom-set t]
+     ["Save" Custom-save t]
+     ["Reset to Current" Custom-reset-current t]
+     ["Reset to Saved" Custom-reset-saved t]
+     ["Reset to Standard Settings" Custom-reset-standard t]))
+  (message "\"Ref\"-menu now contains full customization menu"))
 
 
 ;;; Misc
@@ -2343,6 +2320,16 @@ Your bug report will be posted to the AUCTeX bug reporting list.
 ;;; That's it! ----------------------------------------------------------------
 
 (setq reftex-tables-dirty t)  ; in case this file is evaluated by hand
+
+(define-obsolete-function-alias 'reftex-window-height #'window-height "30.1")
+
+(defun reftex-use-fonts ()
+  (declare (obsolete "use variable `reftex-use-fonts' instead." "30.1"))
+  reftex-use-fonts)
+
+(defun reftex-remove-symbols-from-list (list)
+  (declare (obsolete seq-remove "30.1"))
+  (seq-remove #'symbolp list))
 
 (provide 'reftex)
 

@@ -1,6 +1,6 @@
 ;;; elisp-mode.el --- Emacs Lisp mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1985-1986, 1999-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: lisp, languages
@@ -52,7 +52,7 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
   :parent lisp-mode-shared-map
   "M-TAB" #'completion-at-point
   "C-M-x" #'eval-defun
-  "C-c C-e" #'elisp-eval-buffer
+  "C-c C-e" #'elisp-eval-region-or-buffer
   "C-c C-f" #'elisp-byte-compile-file
   "C-c C-b" #'elisp-byte-compile-buffer
   "C-M-q" #'indent-pp-sexp)
@@ -84,6 +84,12 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
      :help "Byte-compile the current file (if it has changed), then load compiled code"]
     ["Byte-recompile Directory..." byte-recompile-directory
      :help "Recompile every `.el' file in DIRECTORY that needs recompilation"]
+    ["Native-compile This File" emacs-lisp-native-compile
+     :help "Compile the current file containing the current buffer to native code"
+     :active (native-comp-available-p)]
+    ["Native-compile and Load" emacs-lisp-native-compile-and-load
+     :help "Compile the current file to native code, then load compiled native code"
+     :active (native-comp-available-p)]
     ["Disassemble Byte Compiled Object..." disassemble
      :help "Print disassembled code for OBJECT in a buffer"]
     "---"
@@ -191,7 +197,7 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
   menu)
 
 (defun emacs-lisp-byte-compile ()
-  "Byte compile the file containing the current buffer."
+  "Byte-compile the current buffer's file."
   (interactive nil emacs-lisp-mode)
   (if buffer-file-name
       (byte-compile-file buffer-file-name)
@@ -215,16 +221,28 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
   (load (byte-compile-dest-file buffer-file-name)))
 
 (declare-function native-compile "comp")
+(declare-function comp-write-bytecode-file "comp")
+
+(defun emacs-lisp-native-compile ()
+  "Native-compile synchronously the current file (if it has changed)."
+  (interactive nil emacs-lisp-mode)
+  (emacs-lisp--before-compile-buffer)
+  (let* ((byte+native-compile t)
+         (byte-to-native-output-buffer-file nil)
+         (eln (native-compile buffer-file-name)))
+    (when eln
+      (comp-write-bytecode-file eln))))
+
 (defun emacs-lisp-native-compile-and-load ()
   "Native-compile synchronously the current file (if it has changed).
 Load the compiled code when finished.
 
 Use `emacs-lisp-byte-compile-and-load' in combination with
-`inhibit-automatic-native-compilation' set to nil to achieve
-asynchronous native compilation."
+`native-comp-jit-compilation' set to t to achieve asynchronous
+native compilation."
   (interactive nil emacs-lisp-mode)
-  (emacs-lisp--before-compile-buffer)
-  (load (native-compile buffer-file-name)))
+  (when-let ((byte-file (emacs-lisp-native-compile)))
+    (load (file-name-sans-extension byte-file))))
 
 (defun emacs-lisp-macroexpand ()
   "Macroexpand the form after point.
@@ -249,6 +267,9 @@ Comments in the form will be lost."
       ;; Empty symbol.
       ("##" (0 (unless (nth 8 (syntax-ppss))
                  (string-to-syntax "_"))))
+      ;; Prevent the @ from becoming part of a following symbol.
+      (",@" (0 (unless (nth 8 (syntax-ppss))
+                 (string-to-syntax "'"))))
       ;; Unicode character names.  (The longest name is 88 characters
       ;; long.)
       ("\\?\\\\N{[-A-Za-z0-9 ]\\{,100\\}}"
@@ -280,7 +301,9 @@ Comments in the form will be lost."
   (remove-hook 'electric-pair-mode-hook #'emacs-lisp-set-electric-text-pairs))
 
 (defun elisp-enable-lexical-binding (&optional interactive)
-  "Make the current buffer use `lexical-binding'."
+  "Make the current buffer use `lexical-binding'.
+INTERACTIVE non-nil means ask the user for confirmation; this
+happens in interactive invocations."
   (interactive "p")
   (if lexical-binding
       (when interactive
@@ -360,7 +383,7 @@ be used instead.
 ;;; Completion at point for Elisp
 
 (defun elisp--local-variables-1 (vars sexp)
-  "Return the vars locally bound around the witness, or nil if not found."
+  "Return VARS locally bound around the witness, or nil if not found."
   (let (res)
     (while
         (unless
@@ -406,6 +429,14 @@ be used instead.
 
 (defvar warning-minimum-log-level)
 
+(defvar elisp--local-macroenv
+  `((cl-eval-when . ,(lambda (&rest args) `(progn . ,(cdr args))))
+    (eval-when-compile . ,(lambda (&rest args) `(progn . ,args)))
+    (eval-and-compile . ,(lambda (&rest args) `(progn . ,args))))
+  "Environment to use while tentatively expanding macros.
+This is used to try and avoid the most egregious problems linked to the
+use of `macroexpand-all' as a way to find the \"underlying raw code\".")
+
 (defun elisp--local-variables ()
   "Return a list of locally let-bound variables at point."
   (save-excursion
@@ -421,16 +452,18 @@ be used instead.
                        (car (read-from-string
                              (concat txt "elisp--witness--lisp" closer)))
                      ((invalid-read-syntax end-of-file) nil)))
-             (macroexpand-advice (lambda (expander form &rest args)
-                                   (condition-case nil
-                                       (apply expander form args)
-                                     (error form))))
+             (macroexpand-advice
+              (lambda (expander form &rest args)
+                (condition-case err
+                    (apply expander form args)
+                  ((debug error)
+                   (message "Ignoring macroexpansion error: %S" err) form))))
              (sexp
               (unwind-protect
                   (let ((warning-minimum-log-level :emergency))
-                    (advice-add 'macroexpand :around macroexpand-advice)
-                    (macroexpand-all sexp))
-                (advice-remove 'macroexpand macroexpand-advice)))
+                    (advice-add 'macroexpand-1 :around macroexpand-advice)
+                    (macroexpand-all sexp elisp--local-macroenv))
+                (advice-remove 'macroexpand-1 macroexpand-advice)))
              (vars (elisp--local-variables-1 nil sexp)))
         (delq nil
               (mapcar (lambda (var)
@@ -463,7 +496,7 @@ be used instead.
          lastvars)))))
 
 (defun elisp--expect-function-p (pos)
-  "Return non-nil if the symbol at point is expected to be a function."
+  "Return non-nil if the symbol at position POS is expected to be a function."
   (or
    (and (eq (char-before pos) ?')
         (eq (char-before (1- pos)) ?#))
@@ -941,6 +974,10 @@ namespace but with lower confidence."
                                  cl-defmethod cl-defgeneric)))
             ;; (defun FUNC (... IDENT
             'variable)
+           ((and (eql j 2)
+                 (eq j-head 'defclass))
+            ;; (defclass CLASS (... IDENT
+            'function)
            ((eq j-head 'cond)
             ;; (cond ... (... IDENT
             'variable)
@@ -1232,7 +1269,7 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
   :parent lisp-mode-shared-map
   "C-M-x" #'eval-defun
   "C-M-q" #'indent-pp-sexp
-  "C-c C-e" #'elisp-eval-buffer
+  "C-c C-e" #'elisp-eval-region-or-buffer
   "C-c C-b" #'elisp-byte-compile-buffer
   "M-TAB" #'completion-at-point
   "C-j"   #'eval-print-last-sexp)
@@ -1331,12 +1368,12 @@ Semicolons start comments.
 (defun eval-print-last-sexp (&optional eval-last-sexp-arg-internal)
   "Evaluate sexp before point; print value into current buffer.
 
+Interactively, EVAL-LAST-SEXP-ARG-INTERNAL is the prefix numeric argument.
 Normally, this function truncates long output according to the value
 of the variables `eval-expression-print-length' and
-`eval-expression-print-level'.  With a prefix argument of zero,
-however, there is no such truncation.  Such a prefix argument
-also causes integers to be printed in several additional formats
-\(octal, hexadecimal, and character).
+`eval-expression-print-level'.  But if EVAL-LAST-SEXP-ARG-INTERNAL is zero,
+there is no such truncation, and integers are printed in several additional
+formats (octal, hexadecimal, and character).
 
 If `eval-expression-debug-on-error' is non-nil, which is the default,
 this command arranges for all errors to enter the debugger."
@@ -1353,9 +1390,9 @@ BEG and END are the start and end of the output in current buffer.
 VALUE is the Lisp value printed, ALT1 and ALT2 are strings for the
 alternative printed representations that can be displayed."
   (let ((map (make-sparse-keymap)))
-    (define-key map "\C-m" 'elisp-last-sexp-toggle-display)
-    (define-key map [down-mouse-2] 'mouse-set-point)
-    (define-key map [mouse-2] 'elisp-last-sexp-toggle-display)
+    (define-key map "\C-m" #'elisp-last-sexp-toggle-display)
+    (define-key map [down-mouse-2] #'mouse-set-point)
+    (define-key map [mouse-2] #'elisp-last-sexp-toggle-display)
     (add-text-properties
      beg end
      `(printed-value (,value ,alt1 ,alt2)
@@ -1412,7 +1449,7 @@ If CHAR is not a character, return nil."
 		     (lambda (modif)
 		       (cond ((eq modif 'super) "\\s-")
 			     (t (string ?\\ (upcase (aref (symbol-name modif) 0)) ?-))))
-		     mods "")
+		     mods)
 		    (cond
 		     ((memq c '(?\; ?\( ?\) ?\{ ?\} ?\[ ?\] ?\" ?\' ?\\)) (string ?\\ c))
 		     ((eq c 127) "\\C-?")
@@ -1488,7 +1525,7 @@ If CHAR is not a character, return nil."
                   `(call-interactively
                     (lambda (&rest args) ,expr args))))
 	  expr)))))
-(define-obsolete-function-alias 'preceding-sexp 'elisp--preceding-sexp "25.1")
+(define-obsolete-function-alias 'preceding-sexp #'elisp--preceding-sexp "25.1")
 
 (defun elisp--eval-last-sexp (eval-last-sexp-arg-internal)
   "Evaluate sexp before point; print value in the echo area.
@@ -1557,8 +1594,8 @@ POS specifies the starting position where EXP was found and defaults to point."
 
 (defun eval-last-sexp (eval-last-sexp-arg-internal)
   "Evaluate sexp before point; print value in the echo area.
-Interactively, with a non `-' prefix argument, print output into
-current buffer.
+Interactively, EVAL-LAST-SEXP-ARG-INTERNAL is the prefix argument.
+With a non `-' prefix argument, print output into current buffer.
 
 This commands handles `defvar', `defcustom' and `defface' the
 same way that `eval-defun' does.  See the doc string of that
@@ -1588,7 +1625,7 @@ this command arranges for all errors to enter the debugger."
       (car value))))
 
 (defun elisp--eval-defun-1 (form)
-  "Treat some expressions specially.
+  "Treat some expressions in FORM specially.
 Reset the `defvar' and `defcustom' variables to the initial value.
 \(For `defcustom', use the :set function if there is one.)
 Reinitialize the face according to the `defface' specification."
@@ -1616,9 +1653,8 @@ Reinitialize the face according to the `defface' specification."
 		    ;; The second arg is an expression that evaluates to
 		    ;; an expression.  The second evaluation is the one
 		    ;; normally performed not by normal execution but by
-		    ;; custom-initialize-set (for example), which does not
-		    ;; use lexical-binding.
-		    (eval (eval (nth 2 form) lexical-binding))))
+		    ;; custom-initialize-set (for example).
+		    (eval (eval (nth 2 form) lexical-binding) t)))
 	 form)
 	;; `defface' is macroexpanded to `custom-declare-face'.
 	((eq (car form) 'custom-declare-face)
@@ -1688,15 +1724,21 @@ Return the result of evaluation."
     elisp--eval-defun-result))
 
 (defun eval-defun (edebug-it)
-  "Evaluate the top-level form containing point.
+  "Evaluate top-level form around point and instrument it if EDEBUG-IT is non-nil.
+Interactively, EDEBUG-IT is the prefix argument.
+If `edebug-all-defs' is non-nil, that inverts the meaning of EDEBUG-IT
+and the prefix argument: this function will instrument the form
+unless EDEBUG-IT is non-nil.  The command `edebug-all-defs' toggles
+the value of the variable `edebug-all-defs'.
+
 If point isn't in a top-level form, evaluate the first top-level
 form after point.  If there is no top-level form after point,
-eval the first preceeding top-level form.
+evaluate the first preceding top-level form.
 
 If the current defun is actually a call to `defvar' or `defcustom',
 evaluating it this way resets the variable using its initial value
 expression (using the defcustom's :set function if there is one), even
-if the variable already has some other value.  \(Normally `defvar' and
+if the variable already has some other value.  (Normally `defvar' and
 `defcustom' do not alter the value if there already is one.)  In an
 analogous way, evaluating a `defface' overrides any customizations of
 the face, so that it becomes defined exactly as the `defface' expression
@@ -1704,8 +1746,6 @@ says.
 
 If `eval-expression-debug-on-error' is non-nil, which is the default,
 this command arranges for all errors to enter the debugger.
-
-With a prefix argument, instrument the code for Edebug.
 
 If acting on a `defun' for FUNCTION, and the function was
 instrumented, `Edebug: FUNCTION' is printed in the echo area.  If not
@@ -1734,7 +1774,8 @@ which see."
 ;;; ElDoc Support
 
 (defvar elisp--eldoc-last-data (make-vector 3 nil)
-  "Bookkeeping; elements are as follows:
+  "Bookkeeping.
+Elements are as follows:
   0 - contains the last symbol read from the buffer.
   1 - contains the string last displayed in the echo area for variables,
       or argument string for functions.
@@ -1753,7 +1794,7 @@ which see."
     (or (progn (elisp-eldoc-var-docstring callback) str)
         (progn (elisp-eldoc-funcall callback) str))))
 
-(defalias 'elisp-eldoc-documentation-function 'elisp--documentation-one-liner
+(defalias 'elisp-eldoc-documentation-function #'elisp--documentation-one-liner
   "Return Elisp documentation for the thing at point as one-line string.
 This is meant as a backward compatibility aide to the \"old\"
 Elisp eldoc behavior.  Consider variable docstrings and function
@@ -1766,7 +1807,7 @@ it is preferable to use ElDoc's interfaces directly.")
                "use ElDoc's interfaces instead." "28.1")
 
 (defun elisp-eldoc-funcall (callback &rest _ignored)
-  "Document function call at point.
+  "Document function call at point by calling CALLBACK.
 Intended for `eldoc-documentation-functions' (which see)."
   (let* ((sym-info (elisp--fnsym-in-current-sexp))
          (fn-sym (car sym-info)))
@@ -1778,7 +1819,7 @@ Intended for `eldoc-documentation-functions' (which see)."
                        'font-lock-keyword-face)))))
 
 (defun elisp-eldoc-var-docstring (callback &rest _ignored)
-  "Document variable at point.
+  "Document variable at point by calling CALLBACK.
 Intended for `eldoc-documentation-functions' (which see).
 Also see `elisp-eldoc-var-docstring-with-value'."
   (let* ((sym (elisp--current-symbol))
@@ -1789,7 +1830,7 @@ Also see `elisp-eldoc-var-docstring-with-value'."
                :face 'font-lock-variable-name-face))))
 
 (defun elisp-eldoc-var-docstring-with-value (callback &rest _)
-  "Document variable at point.
+  "Document variable at point by calling CALLBACK.
 Intended for `eldoc-documentation-functions' (which see).
 Compared to `elisp-eldoc-var-docstring', this also includes the
 current variable value and a bigger chunk of the docstring."
@@ -1817,6 +1858,7 @@ current variable value and a bigger chunk of the docstring."
 
 (defun elisp-get-fnsym-args-string (sym &optional index)
   "Return a string containing the parameter list of the function SYM.
+INDEX is the index of the parameter in the returned string to highlight.
 If SYM is a subr and no arglist is obtainable from the docstring
 or elsewhere, return a 1-line docstring."
   (let ((argstring
@@ -1847,7 +1889,8 @@ or elsewhere, return a 1-line docstring."
          sym argstring index))))
 
 (defun elisp--highlight-function-argument (sym args index)
-  "Highlight argument INDEX in ARGS list for function SYM."
+  "Highlight the argument of function SYM whose index is INDEX.
+ARGS is the argument list of function SYM."
   ;; FIXME: This should probably work on the list representation of `args'
   ;; rather than its string representation.
   ;; FIXME: This function is much too long, we need to split it up!
@@ -2203,11 +2246,17 @@ Runs in a batch-mode Emacs.  Interactively use variable
     (terpri)
     (pp collected)))
 
-(defun elisp-eval-buffer ()
-  "Evaluate the forms in the current buffer."
+(defun elisp-eval-region-or-buffer ()
+  "Evaluate the forms in the active region or the whole current buffer.
+In Transient Mark mode when the mark is active, call `eval-region'.
+Otherwise, call `eval-buffer'."
   (interactive)
-  (eval-buffer)
-  (message "Evaluated the %s buffer" (buffer-name)))
+  (if (use-region-p)
+      (eval-region (region-beginning) (region-end))
+    (eval-buffer))
+  (message "Evaluated the %s%s buffer"
+           (if (use-region-p) "region in the " "")
+           (buffer-name)))
 
 (defun elisp-byte-compile-file (&optional load)
   "Byte compile the file the current buffer is visiting.

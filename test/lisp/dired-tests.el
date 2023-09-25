@@ -1,6 +1,6 @@
 ;;; dired-tests.el --- Test suite. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -241,12 +241,12 @@
             (let ((buffers (find-file (concat (file-name-as-directory test-dir)
                                               "*")
                                       t)))
+              (setq allbufs (append buffers allbufs))
               (dolist (buf buffers)
                 (let ((pt (with-current-buffer buf (point))))
                   (switch-to-buffer (find-file-noselect test-dir))
                   (find-file (buffer-name buf))
-                  (should (equal (point) pt))))
-              (append buffers allbufs)))
+                  (should (equal (point) pt))))))
         (dolist (buf allbufs)
           (when (buffer-live-p buf) (kill-buffer buf)))))))
 
@@ -353,6 +353,17 @@
         ;; After revert, the point must be in 'subdir' line.
         (should (equal "subdir" (dired-get-filename 'local t)))))))
 
+
+(ert-deftest dired-test-bug59047 ()
+  "Test for https://debbugs.gnu.org/59047 ."
+  (dired (list (expand-file-name "src" source-directory)
+               "cygw32.c" "alloc.c" "w32xfns.c" "xdisp.c"))
+  (dired-hide-all)
+  (dired-hide-all)
+  (dired-next-line 1)
+  (should (equal 'dired-hide-details-detail
+                 (get-text-property
+                  (1+ (line-beginning-position)) 'invisible))))
 
 (defmacro dired-test-with-temp-dirs (just-empty-dirs &rest body)
   "Helper macro for Bug#27940 test."
@@ -466,9 +477,9 @@
             ;;(should (= 0 (length (directory-files testdir nil "[0-9]" t -1))))
             (should (= 5 (length (directory-files testdir nil "[0-9]" t))))
             (should (= 5 (length (directory-files testdir nil "[0-9]" t 50))))
-            (should-not (directory-empty-p testdir)))
+            (should-not (directory-empty-p testdir))))
 
-          (delete-directory testdir t)))))
+      (delete-directory testdir t))))
 
 (ert-deftest dired-test-directory-files-and-attributes ()
   "Test for `directory-files-and-attributes'."

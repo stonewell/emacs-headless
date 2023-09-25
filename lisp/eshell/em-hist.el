@@ -1,6 +1,6 @@
 ;;; em-hist.el --- history list management  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -59,8 +59,6 @@
 (require 'ring)
 (require 'esh-opt)
 (require 'esh-mode)
-(require 'em-pred)
-(require 'eshell)
 
 ;;;###autoload
 (progn
@@ -82,6 +80,7 @@
      (remove-hook 'kill-emacs-hook 'eshell-save-some-history)))
   "A hook that gets run when `eshell-hist' is unloaded."
   :type 'hook)
+(make-obsolete-variable 'eshell-hist-unload-hook nil "30.1")
 
 (defcustom eshell-history-file-name
   (expand-file-name "history" eshell-directory-name)
@@ -382,20 +381,19 @@ Input is entered into the input history ring, if the value of
 variable `eshell-input-filter' returns non-nil when called on the
 input."
   (when (and (funcall eshell-input-filter input)
-             (if (eq eshell-hist-ignoredups 'erase)
-                 ;; Remove any old occurrences of the input, and put
-                 ;; the new one at the end.
-                 (unless (ring-empty-p eshell-history-ring)
-                   (ring-remove eshell-history-ring
-	                        (ring-member eshell-history-ring input))
-                   t)
-               ;; Always add...
-               (or (null eshell-hist-ignoredups)
-                   ;; ... or add if it's not already present at the
-                   ;; end.
-	           (not (ring-p eshell-history-ring))
-	           (ring-empty-p eshell-history-ring)
-	           (not (string-equal (eshell-get-history 0) input)))))
+             (pcase eshell-hist-ignoredups
+               ('nil t)                 ; Always add to history
+               ('erase                  ; Add, removing any old occurrences
+                (when-let ((old-index (ring-member eshell-history-ring input)))
+                  ;; Remove the old occurence of this input so we can
+                  ;; add it to the end.  FIXME: Should we try to
+                  ;; remove multiple old occurrences, e.g. if the user
+                  ;; recently changed to using `erase'?
+                  (ring-remove eshell-history-ring old-index))
+                t)
+               (_                       ; Add if not already the latest entry
+                (or (ring-empty-p eshell-history-ring)
+                    (not (string-equal (eshell-get-history 0) input))))))
     (eshell-put-history input))
   (setq eshell-save-history-index eshell-history-index)
   (setq eshell-history-index nil))
@@ -535,7 +533,7 @@ See also `eshell-read-history'."
 	  (forward-line 3)
 	  (while (search-backward "completion" nil 'move)
 	    (replace-match "history reference")))
-	(eshell-redisplay)
+        (redisplay)
 	(message "Hit space to flush")
 	(let ((ch (read-event)))
 	  (if (eq ch ?\ )
@@ -555,7 +553,7 @@ See also `eshell-read-history'."
 (defun eshell-hist-parse-arguments (&optional b e)
   "Parse current command arguments in a history-code-friendly way."
   (let ((end (or e (point)))
-	(begin (or b (save-excursion (eshell-bol) (point))))
+	(begin (or b (save-excursion (beginning-of-line) (point))))
 	(posb (list t))
 	(pose (list t))
 	(textargs (list t))
@@ -769,6 +767,8 @@ matched."
 
 (defun eshell-hist-parse-modifier (hist reference)
   "Parse a history modifier beginning for HIST in REFERENCE."
+  (cl-assert (eshell-using-module 'em-pred))
+  (declare-function eshell-parse-modifiers "em-pred" ())
   (let ((here (point)))
     (insert reference)
     (prog1
@@ -913,7 +913,7 @@ If N is negative, search forwards for the -Nth following match."
 				eshell-next-matching-input-from-input)))
       ;; Starting a new search
       (setq eshell-matching-input-from-input-string
-	    (buffer-substring (save-excursion (eshell-bol) (point))
+	    (buffer-substring (save-excursion (beginning-of-line) (point))
 			      (point))
 	    eshell-history-index nil))
   (eshell-previous-matching-input
@@ -933,7 +933,7 @@ If N is negative, search backwards for the -Nth previous match."
   (if (get-text-property (point) 'history)
       (progn (beginning-of-line) t)
     (let ((before (point)))
-      (eshell-bol)
+      (beginning-of-line)
       (if (and (not (bolp))
 	       (<= (point) before))
 	  t
@@ -1036,6 +1036,9 @@ If N is negative, search backwards for the -Nth previous match."
   (interactive)
   (isearch-done)
   (eshell-send-input))
+
+(defun em-hist-unload-function ()
+  (remove-hook 'kill-emacs-hook 'eshell-save-some-history))
 
 (provide 'em-hist)
 

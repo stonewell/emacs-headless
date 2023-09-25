@@ -1,5 +1,5 @@
 /* Window definitions for GNU Emacs.
-   Copyright (C) 1985-1986, 1993, 1995, 1997-2022 Free Software
+   Copyright (C) 1985-1986, 1993, 1995, 1997-2023 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -285,6 +285,25 @@ struct window
     /* Value of point at that time.  Since this is a position in a buffer,
        it should be positive.  */
     ptrdiff_t last_point;
+
+#ifdef HAVE_TEXT_CONVERSION
+    /* ``ephemeral'' last point position.  This is used while
+       processing text conversion events.
+
+       `last_point' is normally used during redisplay to indicate the
+       position of point as seem by the input method.  However, it is
+       not updated if consequtive conversions are processed at the
+       same time.
+
+       This `ephemeral_last_point' field is either the last point as
+       set in redisplay or the last point after a text editing
+       operation.  */
+    ptrdiff_t ephemeral_last_point;
+#endif
+
+    /* Value of mark in the selected window at the time of the last
+       redisplay.  -1 if the mark is not valid or active.  */
+    ptrdiff_t last_mark;
 
     /* Line number and position of a line somewhere above the top of the
        screen.  If this field is zero, it means we don't have a base line.  */
@@ -740,17 +759,17 @@ wset_next_buffers (struct window *w, Lisp_Object val)
    + WINDOW_RIGHT_PIXEL_EDGE (W))
 
 /* True if W is a menu bar window.  */
-#if defined (HAVE_X_WINDOWS) && ! defined (USE_X_TOOLKIT) && ! defined (USE_GTK)
+#if defined HAVE_WINDOW_SYSTEM && !defined HAVE_EXT_MENU_BAR
 #define WINDOW_MENU_BAR_P(W) \
   (WINDOWP (WINDOW_XFRAME (W)->menu_bar_window) \
    && (W) == XWINDOW (WINDOW_XFRAME (W)->menu_bar_window))
-#else
+#else /* !HAVE_WINDOW_SYSTEM || HAVE_EXT_MENU_BAR */
 /* No menu bar windows if X toolkit is in use.  */
 #define WINDOW_MENU_BAR_P(W) false
-#endif
+#endif /* HAVE_WINDOW_SYSTEM && !HAVE_EXT_MENU_BAR */
 
 /* True if W is a tab bar window.  */
-#if defined (HAVE_WINDOW_SYSTEM) && !defined (HAVE_PGTK)
+#if defined (HAVE_WINDOW_SYSTEM)
 # define WINDOW_TAB_BAR_P(W) \
    (WINDOWP (WINDOW_XFRAME (W)->tab_bar_window) \
     && (W) == XWINDOW (WINDOW_XFRAME (W)->tab_bar_window))
@@ -1114,9 +1133,11 @@ void set_window_buffer (Lisp_Object window, Lisp_Object buffer,
 
 extern Lisp_Object echo_area_window;
 
-/* Non-zero if we should redraw the mode lines on the next redisplay.
+/* Non-zero if we should redraw the mode line*s* on the next redisplay.
    Usually set to a unique small integer so we can track the main causes of
-   full redisplays in `redisplay--mode-lines-cause'.  */
+   full redisplays in `redisplay--mode-lines-cause'.
+   Here "mode lines" includes other elements not coming from the buffer's
+   text, such as header-lines, tab lines, frame names, menu-bars, ....  */
 
 extern int update_mode_lines;
 
@@ -1134,6 +1155,11 @@ extern int windows_or_buffers_changed;
 extern void wset_redisplay (struct window *w);
 extern void fset_redisplay (struct frame *f);
 extern void bset_redisplay (struct buffer *b);
+
+/* Routines to indicate that the mode-lines might need to be redisplayed.
+   Just as for `update_mode_lines`, this includes other elements not coming
+   from the buffer's text, such as header-lines, tab lines, frame names,
+   menu-bars, ....   */
 extern void bset_update_mode_line (struct buffer *b);
 extern void wset_update_mode_line (struct window *w);
 /* Call this to tell redisplay to look for other windows than selected-window

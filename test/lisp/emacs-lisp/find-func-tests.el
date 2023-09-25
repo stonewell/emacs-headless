@@ -1,6 +1,6 @@
 ;;; find-func-tests.el --- Unit tests for find-func.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords:
@@ -32,7 +32,7 @@
 (ert-deftest find-func-tests--library-completion () ;bug#43393
   ;; FIXME: How can we make this work in batch (see also
   ;; `mule-cmds--test-universal-coding-system-argument')?
-  ;; (skip-unless (not noninteractive))
+  ;; (skip-when noninteractive)
   ;; Check that `partial-completion' works when completing library names.
   (should (equal "org/org"
                  (ert-simulate-keys
@@ -87,7 +87,7 @@ expected function symbol and function library, respectively."
   (test-locate-helper #'forward-char '(forward-char . "cmds.c"))
   (should-error (test-locate-helper 'wrong-function)))
 
-(ert-deftest find-func-tests--locate-adviced-symbols ()
+(ert-deftest find-func-tests--locate-advised-symbols ()
   (defun my-message ()
     (message "Hello!"))
   (advice-add #'mark-sexp :around 'my-message)

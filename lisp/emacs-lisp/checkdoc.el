@@ -1,6 +1,6 @@
 ;;; checkdoc.el --- check documentation strings for style requirements  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Old-Version: 0.6.2
@@ -22,28 +22,35 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;;
+
 ;;   The Emacs Lisp manual has a nice chapter on how to write
 ;; documentation strings.  Many stylistic suggestions are fairly
 ;; deterministic and easy to check for syntactically, but also easy
 ;; to forget.  The main checkdoc engine will perform the stylistic
 ;; checks needed to make sure these styles are remembered.
 ;;
-;; There are three ways to use checkdoc:
-;;   1) Use `flymake-mode'.
+;; There are four ways to use checkdoc:
+;;
+;;   1) Use `flymake-mode'.  Type `M-x flymake-mode' in any Emacs Lisp
+;;      buffer; the checkdoc back-end is enabled by default.
+;;
 ;;   2) Periodically use `checkdoc' or `checkdoc-current-buffer'.
-;;      `checkdoc' is a more interactive version of
-;;      `checkdoc-current-buffer'
+;;      The `checkdoc' command is a more interactive version of
+;;      `checkdoc-current-buffer'.
+;;
 ;;   3) Use `checkdoc-minor-mode' to automatically check your
 ;;      documentation whenever you evaluate Lisp code with C-M-x
 ;;      or [menu-bar emacs-lisp eval-buffer].  Additional key-bindings
 ;;      are also provided under C-c ? KEY
 ;;        (add-hook 'emacs-lisp-mode-hook 'checkdoc-minor-mode)
 ;;
+;;   4) Use `checkdoc-ispell' to spellcheck docstrings interactively.
+;;
 ;; Using `checkdoc':
 ;;
-;;   The commands `checkdoc' and `checkdoc-ispell' are the top-level
-;; entry points to all of the different checks that are available.  It
+;;   Most users will probably use checkdoc through `flymake'.  The
+;; commands `checkdoc' and `checkdoc-ispell' are the top-level entry
+;; points to all of the different checks that are available.  It
 ;; breaks examination of your Lisp file into four sections (comments,
 ;; documentation, messages, and spacing) and indicates its current
 ;; state in a status buffer.
@@ -66,7 +73,7 @@
 ;; interface offers several options, including the ability to skip to
 ;; the next error, or back up to previous errors.  Auto-fixing is
 ;; turned off at this stage, but you can use the `f' or `F' key to fix
-;; a given error (if the fix is available.)
+;; a given error (if the fix is available).
 ;;
 ;; Auto-fixing:
 ;;
@@ -99,6 +106,7 @@
 ;; install into Ispell on the fly, but only if Ispell is not already
 ;; running.  Use `ispell-kill-ispell' to make checkdoc restart it with
 ;; these words enabled.
+;;   See also the `flyspell-prog-mode' minor mode.
 ;;
 ;; Checking parameters:
 ;;
@@ -119,6 +127,14 @@
 ;; also checked.  The documentation for `error' clearly states some
 ;; simple style rules to follow which checkdoc will auto-fix for you.
 ;; `y-or-n-p' and `yes-or-no-p' should also end in "?".
+;;
+;; Lexical binding:
+;;
+;;   We recommend always using lexical binding in new code, and
+;; converting old code to use it.  Checkdoc warns if you don't have
+;; the recommended string "-*- lexical-binding: t -*-" at the top of
+;; the file.  You can disable this check with the user option
+;; `checkdoc-lexical-binding-flag'.
 ;;
 ;; Adding your own checks:
 ;;
@@ -176,6 +192,7 @@
   "Support for doc string checking in Emacs Lisp."
   :prefix "checkdoc"
   :group 'lisp
+  :link '(emacs-commentary-link "checkdoc.el")
   :version "20.3")
 
 (defcustom checkdoc-minor-mode-string " CDoc"
@@ -329,6 +346,12 @@ This backslash is no longer needed on Emacs 27.1 or later.
 See Info node `(elisp) Documentation Tips' for background."
   :type 'boolean
   :version "28.1")
+
+(defcustom checkdoc-lexical-binding-flag t
+  "Non-nil means generate warnings if file is not using lexical binding.
+See Info node `(elisp) Converting to Lexical Binding' for more."
+  :type 'boolean
+  :version "30.1")
 
 ;; This is how you can use checkdoc to make mass fixes on the Emacs
 ;; source tree:
@@ -1770,7 +1793,7 @@ function,command,variable,option or symbol." ms1))))))
 		   (order (and (nth 3 fp) (car (nth 3 fp))))
 		   (nocheck (append '("&optional" "&rest" "&key" "&aux"
                                       "&context" "&environment" "&whole"
-                                      "&body" "&allow-other-keys")
+                                      "&body" "&allow-other-keys" "nil")
                                     (nth 3 fp)))
 		   (inopts nil))
 	       (while (and args found (> found last-pos))
@@ -2033,8 +2056,7 @@ from the comment."
 			   (condition-case nil
 			       (setq lst (read (current-buffer)))
 			     (error (setq lst nil))) ; error in text
-                           (if (not (listp lst)) ; not a list of args
-                               (setq lst (list lst)))
+                           (setq lst (ensure-list lst))
 			   (if (and lst (not (symbolp (car lst)))) ;weird arg
 			       (setq lst nil))
 			   (while lst
@@ -2265,8 +2287,8 @@ buffer, otherwise stop after the first error."
             (unless (and sym (or (boundp sym) (fboundp sym)))
               ;; Find out how we spell-check this word.
               (unless (or
-                       ;; All caps w/ option th, or s tacked on the end
-                       ;; for pluralization or number.
+                       ;; All caps with option th, or s tacked on the
+                       ;; end for pluralization or number.
                        (string-match "^[A-Z][A-Z]+\\(s\\|th\\)?$" word)
                        (looking-at "}") ; a keymap expression
                        )
@@ -2369,11 +2391,36 @@ Code:, and others referenced in the style guide."
 	      (point-min) (save-excursion (goto-char (point-min))
 					  (line-end-position))))
 	 nil))
+      (when checkdoc-lexical-binding-flag
+        (setq
+         err
+         ;; Lexical binding cookie.
+         (if (not (save-excursion
+                    (save-restriction
+                      (goto-char (point-min))
+                      (narrow-to-region (point) (pos-eol))
+                      (re-search-forward
+                       (rx "-*-" (* (* nonl) ";")
+                           (* space) "lexical-binding:" (* space) "t" (* space)
+                           (* ";" (* nonl))
+                           "-*-")
+                       nil t))))
+             (let ((pos (save-excursion (goto-char (point-min))
+                                        (goto-char (pos-eol))
+                                        (point))))
+               (if (checkdoc-y-or-n-p "There is no lexical-binding cookie!  Add one?")
+                   (progn
+                     (goto-char pos)
+                     (insert "  -*- lexical-binding: t -*-"))
+                 (checkdoc-create-error
+                  "The first line should end with \"-*- lexical-binding: t -*-\""
+                  pos (1+ pos) t)))
+           nil)))
       (setq
        err
        (or
 	;; * Commentary Section
-        (if (and (not (lm-commentary-mark))
+        (if (and (not (lm-commentary-start))
                  ;; No need for a commentary section in test files.
                  (not (string-match
                        (rx (or (seq (or "-test.el" "-tests.el") string-end)
@@ -2410,10 +2457,10 @@ Code:, and others referenced in the style guide."
 	(if (or (not checkdoc-force-history-flag)
 		(file-exists-p "ChangeLog")
 		(file-exists-p "../ChangeLog")
-                (lm-history-mark))
+                (lm-history-start))
 	    nil
 	  (progn
-	    (goto-char (or (lm-commentary-mark) (point-min)))
+            (goto-char (or (lm-commentary-start) (point-min)))
 	    (cond
 	     ((re-search-forward
 	       "write\\s-+to\\s-+the\\s-+Free Software Foundation, Inc."
@@ -2434,7 +2481,7 @@ Code:, and others referenced in the style guide."
        err
        (or
 	;; * Code section
-	(if (not (lm-code-mark))
+        (if (not (lm-code-start))
 	    (let ((cont t)
 		  pos)
 	      (goto-char (point-min))
@@ -2485,7 +2532,7 @@ Code:, and others referenced in the style guide."
       ;; Let's spellcheck the commentary section.  This is the only
       ;; section that is easy to pick out, and it is also the most
       ;; visible section (with the finder).
-      (let ((cm (lm-commentary-mark)))
+      (let ((cm (lm-commentary-start)))
         (when cm
           (save-excursion
             (goto-char cm)

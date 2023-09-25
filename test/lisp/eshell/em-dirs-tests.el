@@ -1,6 +1,6 @@
 ;;; em-dirs-tests.el --- em-dirs test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -98,5 +98,28 @@
                                   "some\n")
      (eshell-match-command-output "echo $-[1][/ 1 3]"
                                   "(\"some\" \"here\")\n"))))
+
+(ert-deftest em-dirs-test/cd ()
+  "Test that changing directories with `cd' works."
+  (ert-with-temp-directory tmpdir
+    (write-region "text" nil (expand-file-name "file.txt" tmpdir))
+    (with-temp-eshell
+     (eshell-match-command-output (format "cd '%s'" tmpdir)
+                                  "\\`\\'")
+     (should (equal default-directory tmpdir)))))
+
+(ert-deftest em-dirs-test/cd/list-files-after-cd ()
+  "Test that listing files after `cd' works."
+  (let ((eshell-list-files-after-cd t))
+    (ert-with-temp-directory tmpdir
+      (write-region "text" nil (expand-file-name "file.txt" tmpdir))
+      (with-temp-eshell
+       (eshell-match-command-output (format "cd '%s'" tmpdir)
+                                    "file.txt\n")
+       (should (equal default-directory tmpdir))
+       ;; Make sure we didn't update the last-command information when
+       ;; running "ls".
+       (should (equal eshell-last-command-name "#<function eshell/cd>"))
+       (should (equal eshell-last-arguments (list tmpdir)))))))
 
 ;; em-dirs-tests.el ends here

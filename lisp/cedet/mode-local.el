@@ -1,6 +1,6 @@
 ;;; mode-local.el --- Support for mode local facilities  -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2004-2005, 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2005, 2007-2023 Free Software Foundation, Inc.
 ;;
 ;; Author: David Ponce <david@dponce.com>
 ;; Created: 27 Apr 2004
@@ -89,7 +89,7 @@ Return nil if MODE has no parent."
   "Run FUNCTION on every file buffer with major mode in MODES.
 MODES can be a symbol or a list of symbols.
 FUNCTION does not have arguments."
-  (or (listp modes) (setq modes (list modes)))
+  (setq modes (ensure-list modes))
   (mode-local-map-file-buffers
    function (lambda ()
               (let ((mm (mode-local-equivalent-mode-p major-mode))

@@ -1,6 +1,6 @@
 ;;; reftex-cite.el --- creating citations with RefTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <dominik@science.uva.nl>
 ;; Maintainer: auctex-devel@gnu.org
@@ -96,7 +96,7 @@ Find the bof of the current file."
   "Return list of bibfiles for current document.
 When using the chapterbib or bibunits package you should either
 use the same database files everywhere, or separate parts using
-different databases into different files (included into the mater file).
+different databases into different files (included into the master file).
 Then this function will return the applicable database files."
 
   ;; Ensure access to scanning info
@@ -566,7 +566,7 @@ If FORMAT is non-nil `format' entry accordingly."
           (reftex-get-bib-field "booktitle" entry "in: %s"))
          (t ""))))
     (setq authors (reftex-truncate authors 30 t t))
-    (when (reftex-use-fonts)
+    (when reftex-use-fonts
       (put-text-property 0 (length key)     'face reftex-label-face
                          key)
       (put-text-property 0 (length authors) 'face reftex-bib-author-face
@@ -609,7 +609,7 @@ If FORMAT is non-nil `format' entry accordingly."
     (push text lines)
     (setq text (mapconcat #'identity (nreverse lines) "\n     "))
 
-    (when (reftex-use-fonts)
+    (when reftex-use-fonts
       (put-text-property 0 (length text) 'face reftex-bib-author-face text))
     (concat key "\n     " text "\n\n")))
 
@@ -636,7 +636,7 @@ command, it will add another key, ignoring the value of
 
 The regular expression uses an expanded syntax: && is interpreted as `and'.
 Thus, `aaaa&&bbb' matches entries which contain both `aaaa' and `bbb'.
-While entering the regexp, completion on knows citation keys is possible.
+While entering the regexp, completion on known citation keys is possible.
 `=' is a good regular expression to match all entries in all files."
   (interactive)
 

@@ -1,6 +1,6 @@
 ;;; loaddefs-gen.el --- generate loaddefs.el files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
 
 ;; Keywords: maint
 ;; Package: emacs
@@ -108,21 +108,26 @@ scanning for autoloads and will be in the `load-path'."
   (let* ((name (file-relative-name file (file-name-directory outfile)))
          (names '())
          (dir (file-name-directory outfile)))
-    ;; If `name' has directory components, only keep the
-    ;; last few that are really needed.
-    (while name
-      (setq name (directory-file-name name))
-      (push (file-name-nondirectory name) names)
-      (setq name (file-name-directory name)))
-    (while (not name)
-      (cond
-       ((null (cdr names)) (setq name (car names)))
-       ((file-exists-p (expand-file-name "subdirs.el" dir))
-        ;; FIXME: here we only check the existence of subdirs.el,
-        ;; without checking its content.  This makes it generate wrong load
-        ;; names for cases like lisp/term which is not added to load-path.
-        (setq dir (expand-file-name (pop names) dir)))
-       (t (setq name (mapconcat #'identity names "/")))))
+    ;; If `name' lives inside an ancestor directory of OUTFILE, only
+    ;; keep the last few leading directories that are really needed.
+    ;; (It will always live in an ancestor directory of OUTFILE on
+    ;; Posix systems, but on DOS/Windows it could not be, if FILE and
+    ;; OUTFILE are on different drives.)
+    (when (not (file-name-absolute-p name))
+      (while name
+        (setq name (directory-file-name name))
+        (push (file-name-nondirectory name) names)
+        (setq name (file-name-directory name)))
+      (while (not name)
+        (cond
+         ((null (cdr names)) (setq name (car names)))
+         ((file-exists-p (expand-file-name "subdirs.el" dir))
+          ;; FIXME: here we only check the existence of subdirs.el,
+          ;; without checking its content.  This makes it generate
+          ;; wrong load names for cases like lisp/term which is not
+          ;; added to load-path.
+          (setq dir (expand-file-name (pop names) dir)))
+         (t (setq name (mapconcat #'identity names "/"))))))
     (if (string-match "\\.elc?\\(\\.\\|\\'\\)" name)
         (substring name 0 (match-beginning 0))
       name)))
@@ -426,7 +431,8 @@ don't include."
                     ;; have an autoload cookie on the first column of a
                     ;; doc string or the like.  (The Emacs tree
                     ;; shouldn't contain any such instances.)
-                    (not (ppss-string-terminator (syntax-ppss))))
+                    (not (ppss-string-terminator
+                          (save-match-data (syntax-ppss)))))
             ;; ... and if we have one of these names, then alter outfile.
             (let* ((aname (match-string 2))
                    (to-file (if aname
@@ -592,72 +598,79 @@ instead of just updating them with the new/changed autoloads."
                                 defs))))))
       (progress-reporter-done progress))
 
-    ;; If we have no autoloads data, but we have EXTRA-DATA, then
-    ;; generate the (almost) empty file anyway.
-    (if (and (not defs) extra-data)
+    ;; First group per output file.
+    (dolist (fdefs (seq-group-by (lambda (x) (expand-file-name (car x)))
+                                 defs))
+      (let ((loaddefs-file (car fdefs))
+            hash)
         (with-temp-buffer
-          (insert (loaddefs-generate--rubric output-file nil t))
-          (search-backward "\f")
-          (insert extra-data)
-          (ensure-empty-lines 1)
-          (write-region (point-min) (point-max) output-file nil 'silent))
-      ;; We have some data, so generate the loaddef files.  First
-      ;; group per output file.
-      (dolist (fdefs (seq-group-by #'car defs))
-        (let ((loaddefs-file (car fdefs))
-              hash)
-          (with-temp-buffer
-            (if (and updating (file-exists-p loaddefs-file))
-                (insert-file-contents loaddefs-file)
-              (insert (loaddefs-generate--rubric
-                       loaddefs-file nil t include-package-version))
-              (search-backward "\f")
-              (when extra-data
-                (insert extra-data)
-                (ensure-empty-lines 1)))
-            (setq hash (buffer-hash))
-            ;; Then group by source file (and sort alphabetically).
-            (dolist (section (sort (seq-group-by #'cadr (cdr fdefs))
-                                   (lambda (e1 e2)
-                                     (string<
-                                      (file-name-sans-extension
-                                       (file-name-nondirectory (car e1)))
-                                      (file-name-sans-extension
-                                       (file-name-nondirectory (car e2)))))))
-              (pop section)
-              (let* ((relfile (file-relative-name
-                               (cadar section)
-                               (file-name-directory loaddefs-file)))
-                     (head (concat "\n\f\n;;; Generated autoloads from "
-                                   relfile "\n\n")))
-                (when (file-exists-p loaddefs-file)
-                  ;; If we're updating an old loaddefs file, then see if
-                  ;; there's a section here for this file already.
-                  (goto-char (point-min))
-                  (if (not (search-forward head nil t))
-                      ;; It's a new file; put the data at the end.
-                      (progn
-                        (goto-char (point-max))
-                        (search-backward "\f\n" nil t))
-                    ;; Delete the old version of the section.
-                    (delete-region (match-beginning 0)
-                                   (and (search-forward "\n\f\n;;;")
-                                        (match-beginning 0)))
-                    (forward-line -2)))
-                (insert head)
-                (dolist (def (reverse section))
-                  (setq def (caddr def))
-                  (if (stringp def)
-                      (princ def (current-buffer))
-                    (loaddefs-generate--print-form def))
-                  (unless (bolp)
-                    (insert "\n")))))
-            ;; Only write the file if we actually made a change.
-            (unless (equal (buffer-hash) hash)
-              (write-region (point-min) (point-max) loaddefs-file nil 'silent)
-              (byte-compile-info
-               (file-relative-name loaddefs-file (car (ensure-list dir)))
-               t "GEN"))))))))
+          (if (and updating (file-exists-p loaddefs-file))
+              (insert-file-contents loaddefs-file)
+            (insert (loaddefs-generate--rubric
+                     loaddefs-file nil t include-package-version))
+            (search-backward "\f")
+            (when extra-data
+              (insert extra-data)
+              (ensure-empty-lines 1)))
+          (setq hash (buffer-hash))
+          ;; Then group by source file (and sort alphabetically).
+          (dolist (section (sort (seq-group-by #'cadr (cdr fdefs))
+                                 (lambda (e1 e2)
+                                   (string<
+                                    (file-name-sans-extension
+                                     (file-name-nondirectory (car e1)))
+                                    (file-name-sans-extension
+                                     (file-name-nondirectory (car e2)))))))
+            (pop section)
+            (let* ((relfile (file-relative-name
+                             (cadar section)
+                             (file-name-directory loaddefs-file)))
+                   (head (concat "\n\f\n;;; Generated autoloads from "
+                                 relfile "\n\n")))
+              (when (file-exists-p loaddefs-file)
+                ;; If we're updating an old loaddefs file, then see if
+                ;; there's a section here for this file already.
+                (goto-char (point-min))
+                (if (not (search-forward head nil t))
+                    ;; It's a new file; put the data at the end.
+                    (progn
+                      (goto-char (point-max))
+                      (search-backward "\f\n" nil t))
+                  ;; Delete the old version of the section.  Strictly
+                  ;; speaking this should search for "\n\f\n;;;", but
+                  ;; there are loaddefs files in the wild that only
+                  ;; have two ';;'.  (Bug#63236)
+                  (delete-region (match-beginning 0)
+                                 (and (search-forward "\n\f\n;;")
+                                      (match-beginning 0)))
+                  (forward-line -2)))
+              (insert head)
+              (dolist (def (reverse section))
+                (setq def (caddr def))
+                (if (stringp def)
+                    (princ def (current-buffer))
+                  (loaddefs-generate--print-form def))
+                (unless (bolp)
+                  (insert "\n")))))
+          ;; Only write the file if we actually made a change.
+          (unless (equal (buffer-hash) hash)
+            (write-region (point-min) (point-max) loaddefs-file nil 'silent)
+            (byte-compile-info
+             (file-relative-name loaddefs-file (car (ensure-list dir)))
+             t "GEN")))))
+
+    ;; If processing files without any autoloads, the above loop will
+    ;; not generate any files.  If the function was invoked with
+    ;; EXTRA-DATA, we want to ensure that even if no autoloads were
+    ;; found, that at least a file will have been generated containing
+    ;; the contents of EXTRA-DATA:
+    (when (and extra-data (not (file-exists-p output-file)))
+      (with-temp-buffer
+        (insert (loaddefs-generate--rubric output-file nil t))
+        (search-backward "\f")
+        (insert extra-data)
+        (ensure-empty-lines 1)
+        (write-region (point-min) (point-max) output-file nil 'silent)))))
 
 (defun loaddefs-generate--print-form (def)
   "Print DEF in a format that makes sense for version control."

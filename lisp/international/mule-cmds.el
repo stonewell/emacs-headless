@@ -1,6 +1,6 @@
 ;;; mule-cmds.el --- commands for multilingual environment  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -88,7 +88,8 @@
     (bindings--define-key map [separator-3] menu-bar-separator)
     (bindings--define-key map [set-terminal-coding-system]
       '(menu-item "For Terminal" set-terminal-coding-system
-        :enable (null (memq initial-window-system '(x w32 ns haiku pgtk)))
+        :enable (null (memq initial-window-system '(x w32 ns haiku pgtk
+						    android)))
         :help "How to encode terminal output"))
     (bindings--define-key map [set-keyboard-coding-system]
       '(menu-item "For Keyboard" set-keyboard-coding-system
@@ -867,8 +868,7 @@ overrides ACCEPT-DEFAULT-P.
 
 Kludgy feature: if FROM is a string, the string is the target text,
 and TO is ignored."
-  (if (not (listp default-coding-system))
-      (setq default-coding-system (list default-coding-system)))
+  (setq default-coding-system (ensure-list default-coding-system))
 
   (let ((no-other-defaults nil)
 	auto-cs)
@@ -1208,6 +1208,16 @@ Arguments are the same as `set-language-info'."
 			  (list 'const lang))
 			(sort (mapcar 'car language-info-alist) 'string<))))))
 
+(defun set-language-info-setup-keymap (lang-env alist describe-map setup-map)
+  "Setup menu items for LANG-ENV.
+See `set-language-info-alist' for details of other arguments."
+  (let ((doc (assq 'documentation alist)))
+    (when doc
+      (define-key-after describe-map (vector (intern lang-env))
+	(cons lang-env 'describe-specified-language-support))))
+  (define-key-after setup-map (vector (intern lang-env))
+    (cons lang-env 'setup-specified-language-environment)))
+
 (defun set-language-info-alist (lang-env alist &optional parents)
   "Store ALIST as the definition of language environment LANG-ENV.
 ALIST is an alist of KEY and INFO values.  See the documentation of
@@ -1222,51 +1232,44 @@ in the European submenu in each of those two menus."
 	 (setq lang-env (symbol-name lang-env)))
 	((stringp lang-env)
 	 (setq lang-env (purecopy lang-env))))
-  (let ((describe-map describe-language-environment-map)
-	(setup-map setup-language-environment-map))
-    (if parents
-	(let ((l parents)
-	      map parent-symbol parent prompt)
-	  (while l
-	    (if (symbolp (setq parent-symbol (car l)))
-		(setq parent (symbol-name parent))
-	      (setq parent parent-symbol parent-symbol (intern parent)))
-	    (setq map (lookup-key describe-map (vector parent-symbol)))
-	    ;; This prompt string is for define-prefix-command, so
-	    ;; that the map it creates will be suitable for a menu.
-	    (or map (setq prompt (format "%s Environment" parent)))
-	    (if (not map)
-		(progn
-		  (setq map (intern (format "describe-%s-environment-map"
-					    (downcase parent))))
-		  (define-prefix-command map nil prompt)
-		  (define-key-after describe-map (vector parent-symbol)
-		    (cons parent map))))
-	    (setq describe-map (symbol-value map))
-	    (setq map (lookup-key setup-map (vector parent-symbol)))
-	    (if (not map)
-		(progn
-		  (setq map (intern (format "setup-%s-environment-map"
-					    (downcase parent))))
-		  (define-prefix-command map nil prompt)
-		  (define-key-after setup-map (vector parent-symbol)
-		    (cons parent map))))
-	    (setq setup-map (symbol-value map))
-	    (setq l (cdr l)))))
-
-    ;; Set up menu items for this language env.
-    (let ((doc (assq 'documentation alist)))
-      (when doc
-	(define-key-after describe-map (vector (intern lang-env))
-	  (cons lang-env 'describe-specified-language-support))))
-    (define-key-after setup-map (vector (intern lang-env))
-      (cons lang-env 'setup-specified-language-environment))
-
-    (dolist (elt alist)
-      (set-language-info-internal lang-env (car elt) (cdr elt)))
-
-    (if (equal lang-env current-language-environment)
-	(set-language-environment lang-env))))
+  (if parents
+      (while parents
+	(let (describe-map setup-map parent-symbol parent prompt)
+	  (if (symbolp (setq parent-symbol (car parents)))
+	      (setq parent (symbol-name parent))
+	    (setq parent parent-symbol parent-symbol (intern parent)))
+	  (setq describe-map (lookup-key describe-language-environment-map
+                                         (vector parent-symbol)))
+	  ;; This prompt string is for define-prefix-command, so
+	  ;; that the map it creates will be suitable for a menu.
+	  (or describe-map (setq prompt (format "%s Environment" parent)))
+	  (unless describe-map
+	    (setq describe-map (intern (format "describe-%s-environment-map"
+					       (downcase parent))))
+	    (define-prefix-command describe-map nil prompt)
+	    (define-key-after
+              describe-language-environment-map
+              (vector parent-symbol) (cons parent describe-map)))
+	  (setq setup-map (lookup-key setup-language-environment-map
+                                      (vector parent-symbol)))
+	  (unless setup-map
+	    (setq setup-map (intern (format "setup-%s-environment-map"
+                                            (downcase parent))))
+	    (define-prefix-command setup-map nil prompt)
+	    (define-key-after
+              setup-language-environment-map
+              (vector parent-symbol) (cons parent setup-map)))
+	  (setq parents (cdr parents))
+          (set-language-info-setup-keymap
+           lang-env alist
+           (symbol-value describe-map) (symbol-value setup-map))))
+    (set-language-info-setup-keymap
+     lang-env alist
+     describe-language-environment-map setup-language-environment-map))
+  (dolist (elt alist)
+    (set-language-info-internal lang-env (car elt) (cdr elt)))
+  (if (equal lang-env current-language-environment)
+      (set-language-environment lang-env)))
 
 (defun read-language-name (key prompt &optional default)
   "Read a language environment name which has information for KEY.
@@ -3091,6 +3094,10 @@ on encoding."
 (defun ucs-names ()
   "Return table of CHAR-NAME keys and CHAR-CODE values cached in `ucs-names'."
   (or ucs-names
+      ;; Sometimes these ranges will need adjusting as codepoints are
+      ;; added to unicode.  The test case
+      ;; 'mule-cmds-tests--ucs-names-missing-names' will tell you
+      ;; which are missing (Bug#65997).
       (let ((ranges
 	     '((#x0000 . #x33FF)
 	       ;; (#x3400 . #x4DBF) CJK Ideographs Extension A
@@ -3103,14 +3110,16 @@ on encoding."
                (#x14400 . #x14646)
 	       ;; (#x14647 . #x167FF) unused
 	       (#x16800 . #x16F9F)
-               (#x16FE0 . #x16FE3)
+               (#x16FE0 . #x16FF1)
                ;; (#x17000 . #x187FF) Tangut Ideographs
                ;; (#x18800 . #x18AFF) Tangut Components
                ;; (#x18B00 . #x18CFF) Khitan Small Script
                ;; (#x18D00 . #x18D0F) Tangut Ideograph Supplement
 	       ;; (#x18D10 . #x1AFEF) unused
-	       (#x1AFF0 . #x1B12F)
-               ;; (#x1B130 . #x1B14F) unused
+	       (#x1AFF0 . #x1B122)
+               ;; (#x1B123 . #x1B131) unused
+               (#x1B132 . #x1B132)
+               ;; (#x1B133 . #x1B14F) unused
                (#x1B150 . #x1B16F)
                (#x1B170 . #x1B2FF)
 	       ;; (#x1B300 . #x1BBFF) unused
@@ -3127,12 +3136,16 @@ on encoding."
 	    (while (<= c end)
 	      (let ((new-name (get-char-code-property c 'name))
 		    (old-name (get-char-code-property c 'old-name)))
-	        ;; In theory this code could end up pushing an "old-name" that
-	        ;; shadows a "new-name" but in practice every time an
-	        ;; `old-name' conflicts with a `new-name', the newer one has a
-	        ;; higher code, so it gets pushed later!
+                ;; This code used to push both old-name and new-name
+                ;; on the assumption that the new-name codepoint would
+                ;; always be higher, which was true for a long time.
+                ;; As of at latest 2023-09-15, this is no longer true,
+                ;; so we now skip the old-name if it conflicts with an
+                ;; existing new-name (Bug#65997).
 	        (if new-name (puthash new-name c names))
-	        (if old-name (puthash old-name c names))
+                (when (and old-name
+                           (not (gethash old-name names)))
+                  (puthash old-name c names))
                 ;; Unicode uses the spelling "lamda" in character
                 ;; names, instead of "lambda", due to "preferences
                 ;; expressed by the Greek National Body" (Bug#30513).
@@ -3266,7 +3279,8 @@ single characters to be treated as standing for themselves."
               "r" #'emoji-recent
               "l" #'emoji-list
               "+" #'emoji-zoom-increase
-              "-" #'emoji-zoom-decrease))
+              "-" #'emoji-zoom-decrease
+              "0" #'emoji-zoom-reset))
 
 (defface confusingly-reordered
   '((((supports :underline (:style wave)))

@@ -1,6 +1,6 @@
 ;;; table.el --- create and edit WYSIWYG text based embedded tables  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2000-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 ;; Keywords: wp, convenience
 ;; Author: Takaaki Ota <Takaaki.Ota@am.sony.com>
@@ -125,9 +125,7 @@
 ;; are tired of guessing how it works come back to this document
 ;; again.
 ;;
-;; To use the package regularly place this file in the site library
-;; directory and add the next expression in your init file.  Make
-;; sure that directory is included in the `load-path'.
+;; To use the package regularly, add this to your init file:
 ;;
 ;;   (require 'table)
 ;;
@@ -1937,8 +1935,8 @@ specific features."
 		      (if (and cell table-detect-cell-alignment)
 			  (table--detect-cell-alignment cell)))
 		    (unless (re-search-forward border end t)
-		      (goto-char end))))))))))
-    (restore-buffer-modified-p modified-flag)))
+		      (goto-char end))))))
+            (restore-buffer-modified-p modified-flag)))))))
 
 ;;;###autoload
 (defun table-unrecognize-region (beg end)

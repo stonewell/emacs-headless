@@ -1,6 +1,6 @@
 /* Storage allocation and gc for GNU Emacs Lisp interpreter.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -50,6 +50,14 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include TERM_HEADER
 #endif /* HAVE_WINDOW_SYSTEM */
 
+#if defined HAVE_ANDROID && !defined ANDROID_STUBIFY
+#include "sfntfont.h"
+#endif
+
+#ifdef HAVE_TREE_SITTER
+#include "treesit.h"
+#endif
+
 #include <flexmember.h>
 #include <verify.h>
 #include <execinfo.h>           /* For backtrace.  */
@@ -74,6 +82,37 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #if USE_VALGRIND
 #include <valgrind/valgrind.h>
 #include <valgrind/memcheck.h>
+#endif
+
+/* AddressSanitizer exposes additional functions for manually marking
+   memory as poisoned/unpoisoned.  When ASan is enabled and the needed
+   header is available, memory is poisoned when:
+
+   * An ablock is freed (lisp_align_free), or ablocks are initially
+   allocated (lisp_align_malloc).
+   * An interval_block is initially allocated (make_interval).
+   * A dead INTERVAL is put on the interval free list
+   (sweep_intervals).
+   * A sdata is marked as dead (sweep_strings, pin_string).
+   * An sblock is initially allocated (allocate_string_data).
+   * A string_block is initially allocated (allocate_string).
+   * A dead string is put on string_free_list (sweep_strings).
+   * A float_block is initially allocated (make_float).
+   * A dead float is put on float_free_list.
+   * A cons_block is initially allocated (Fcons).
+   * A dead cons is put on cons_free_list (sweep_cons).
+   * A dead vector is put on vector_free_list (setup_on_free_list),
+   or a new vector block is allocated (allocate_vector_from_block).
+   Accordingly, objects reused from the free list are unpoisoned.
+
+   This feature can be disabled with the run-time flag
+   `allow_user_poisoning' set to zero.  */
+#if ADDRESS_SANITIZER && defined HAVE_SANITIZER_ASAN_INTERFACE_H \
+  && !defined GC_ASAN_POISON_OBJECTS
+# define GC_ASAN_POISON_OBJECTS 1
+# include <sanitizer/asan_interface.h>
+#else
+# define GC_ASAN_POISON_OBJECTS 0
 #endif
 
 /* GC_CHECK_MARKED_OBJECTS means do sanity checks on allocated objects.
@@ -363,7 +402,7 @@ static ptrdiff_t pure_bytes_used_non_lisp;
 
 /* If positive, garbage collection is inhibited.  Otherwise, zero.  */
 
-static intptr_t garbage_collection_inhibited;
+intptr_t garbage_collection_inhibited;
 
 /* The GC threshold in bytes, the last time it was calculated
    from gc-cons-threshold and gc-cons-percentage.  */
@@ -828,7 +867,7 @@ xnmalloc (ptrdiff_t nitems, ptrdiff_t item_size)
 {
   eassert (0 <= nitems && 0 < item_size);
   ptrdiff_t nbytes;
-  if (INT_MULTIPLY_WRAPV (nitems, item_size, &nbytes) || SIZE_MAX < nbytes)
+  if (ckd_mul (&nbytes, nitems, item_size) || SIZE_MAX < nbytes)
     memory_full (SIZE_MAX);
   return xmalloc (nbytes);
 }
@@ -842,7 +881,7 @@ xnrealloc (void *pa, ptrdiff_t nitems, ptrdiff_t item_size)
 {
   eassert (0 <= nitems && 0 < item_size);
   ptrdiff_t nbytes;
-  if (INT_MULTIPLY_WRAPV (nitems, item_size, &nbytes) || SIZE_MAX < nbytes)
+  if (ckd_mul (&nbytes, nitems, item_size) || SIZE_MAX < nbytes)
     memory_full (SIZE_MAX);
   return xrealloc (pa, nbytes);
 }
@@ -889,13 +928,13 @@ xpalloc (void *pa, ptrdiff_t *nitems, ptrdiff_t nitems_incr_min,
      NITEMS_MAX, and what the C language can represent safely.  */
 
   ptrdiff_t n, nbytes;
-  if (INT_ADD_WRAPV (n0, n0 >> 1, &n))
+  if (ckd_add (&n, n0, n0 >> 1))
     n = PTRDIFF_MAX;
   if (0 <= nitems_max && nitems_max < n)
     n = nitems_max;
 
   ptrdiff_t adjusted_nbytes
-    = ((INT_MULTIPLY_WRAPV (n, item_size, &nbytes) || SIZE_MAX < nbytes)
+    = ((ckd_mul (&nbytes, n, item_size) || SIZE_MAX < nbytes)
        ? min (PTRDIFF_MAX, SIZE_MAX)
        : nbytes < DEFAULT_MXFAST ? DEFAULT_MXFAST : 0);
   if (adjusted_nbytes)
@@ -907,9 +946,9 @@ xpalloc (void *pa, ptrdiff_t *nitems, ptrdiff_t nitems_incr_min,
   if (! pa)
     *nitems = 0;
   if (n - n0 < nitems_incr_min
-      && (INT_ADD_WRAPV (n0, nitems_incr_min, &n)
+      && (ckd_add (&n, n0, nitems_incr_min)
 	  || (0 <= nitems_max && nitems_max < n)
-	  || INT_MULTIPLY_WRAPV (n, item_size, &nbytes)))
+	  || ckd_mul (&nbytes, n, item_size)))
     memory_full (SIZE_MAX);
   pa = xrealloc (pa, nbytes);
   *nitems = n;
@@ -1048,7 +1087,11 @@ lisp_free (void *block)
    BLOCK_BYTES and guarantees they are aligned on a BLOCK_ALIGN boundary.  */
 
 /* Byte alignment of storage blocks.  */
-#define BLOCK_ALIGN (1 << 10)
+#ifdef HAVE_UNEXEC
+# define BLOCK_ALIGN (1 << 10)
+#else  /* !HAVE_UNEXEC */
+# define BLOCK_ALIGN (1 << 15)
+#endif
 verify (POWER_OF_2 (BLOCK_ALIGN));
 
 /* Use aligned_alloc if it or a simple substitute is available.
@@ -1153,6 +1196,16 @@ struct ablocks
   (1 & (intptr_t) ABLOCKS_BUSY (abase) ? abase : ((void **) (abase))[-1])
 #endif
 
+#if GC_ASAN_POISON_OBJECTS
+# define ASAN_POISON_ABLOCK(b) \
+  __asan_poison_memory_region (&(b)->x, sizeof ((b)->x))
+# define ASAN_UNPOISON_ABLOCK(b) \
+  __asan_unpoison_memory_region (&(b)->x, sizeof ((b)->x))
+#else
+# define ASAN_POISON_ABLOCK(b) ((void) 0)
+# define ASAN_UNPOISON_ABLOCK(b) ((void) 0)
+#endif
+
 /* The list of free ablock.   */
 static struct ablock *free_ablock;
 
@@ -1231,6 +1284,7 @@ lisp_align_malloc (size_t nbytes, enum mem_type type)
 	{
 	  abase->blocks[i].abase = abase;
 	  abase->blocks[i].x.next_free = free_ablock;
+	  ASAN_POISON_ABLOCK (&abase->blocks[i]);
 	  free_ablock = &abase->blocks[i];
 	}
       intptr_t ialigned = aligned;
@@ -1243,6 +1297,7 @@ lisp_align_malloc (size_t nbytes, enum mem_type type)
       eassert ((intptr_t) ABLOCKS_BUSY (abase) == aligned);
     }
 
+  ASAN_UNPOISON_ABLOCK (free_ablock);
   abase = ABLOCK_ABASE (free_ablock);
   ABLOCKS_BUSY (abase)
     = (struct ablocks *) (2 + (intptr_t) ABLOCKS_BUSY (abase));
@@ -1274,6 +1329,7 @@ lisp_align_free (void *block)
 #endif
   /* Put on free list.  */
   ablock->x.next_free = free_ablock;
+  ASAN_POISON_ABLOCK (ablock);
   free_ablock = ablock;
   /* Update busy count.  */
   intptr_t busy = (intptr_t) ABLOCKS_BUSY (abase) - 2;
@@ -1286,9 +1342,12 @@ lisp_align_free (void *block)
       bool aligned = busy;
       struct ablock **tem = &free_ablock;
       struct ablock *atop = &abase->blocks[aligned ? ABLOCKS_SIZE : ABLOCKS_SIZE - 1];
-
       while (*tem)
 	{
+#if GC_ASAN_POISON_OBJECTS
+	  __asan_unpoison_memory_region (&(*tem)->x,
+					 sizeof ((*tem)->x));
+#endif
 	  if (*tem >= (struct ablock *) abase && *tem < atop)
 	    {
 	      i++;
@@ -1417,6 +1476,24 @@ static int interval_block_index = INTERVAL_BLOCK_SIZE;
 
 static INTERVAL interval_free_list;
 
+#if GC_ASAN_POISON_OBJECTS
+# define ASAN_POISON_INTERVAL_BLOCK(b)         \
+  __asan_poison_memory_region ((b)->intervals, \
+			       sizeof ((b)->intervals))
+# define ASAN_UNPOISON_INTERVAL_BLOCK(b)         \
+  __asan_unpoison_memory_region ((b)->intervals, \
+				 sizeof ((b)->intervals))
+# define ASAN_POISON_INTERVAL(i) \
+  __asan_poison_memory_region ((i), sizeof (*(i)))
+# define ASAN_UNPOISON_INTERVAL(i) \
+  __asan_unpoison_memory_region ((i), sizeof (*(i)))
+#else
+# define ASAN_POISON_INTERVAL_BLOCK(b) ((void) 0)
+# define ASAN_UNPOISON_INTERVAL_BLOCK(b) ((void) 0)
+# define ASAN_POISON_INTERVAL(i) ((void) 0)
+# define ASAN_UNPOISON_INTERVAL(i) ((void) 0)
+#endif
+
 /* Return a new interval.  */
 
 INTERVAL
@@ -1429,6 +1506,7 @@ make_interval (void)
   if (interval_free_list)
     {
       val = interval_free_list;
+      ASAN_UNPOISON_INTERVAL (val);
       interval_free_list = INTERVAL_PARENT (interval_free_list);
     }
   else
@@ -1439,10 +1517,12 @@ make_interval (void)
 	    = lisp_malloc (sizeof *newi, false, MEM_TYPE_NON_LISP);
 
 	  newi->next = interval_block;
+	  ASAN_POISON_INTERVAL_BLOCK (newi);
 	  interval_block = newi;
 	  interval_block_index = 0;
 	}
       val = &interval_block->intervals[interval_block_index++];
+      ASAN_UNPOISON_INTERVAL (val);
     }
 
   MALLOC_UNBLOCK_INPUT;
@@ -1683,6 +1763,41 @@ init_strings (void)
   staticpro (&empty_multibyte_string);
 }
 
+#if GC_ASAN_POISON_OBJECTS
+/* Prepare s for denoting a free sdata struct, i.e, poison all bytes
+   in the flexible array member, except the first SDATA_OFFSET bytes.
+   This is only effective for strings of size n where n > sdata_size(n).
+ */
+# define ASAN_PREPARE_DEAD_SDATA(s, size)                          \
+  do {                                                             \
+    __asan_poison_memory_region ((s), sdata_size ((size)));        \
+    __asan_unpoison_memory_region (&(((s))->string),                 \
+				   sizeof (struct Lisp_String *)); \
+    __asan_unpoison_memory_region (&SDATA_NBYTES ((s)),            \
+				   sizeof (SDATA_NBYTES ((s))));   \
+   } while (false)
+/* Prepare s for storing string data for NBYTES bytes.  */
+# define ASAN_PREPARE_LIVE_SDATA(s, nbytes) \
+  __asan_unpoison_memory_region ((s), sdata_size ((nbytes)))
+# define ASAN_POISON_SBLOCK_DATA(b, size) \
+  __asan_poison_memory_region ((b)->data, (size))
+# define ASAN_POISON_STRING_BLOCK(b) \
+  __asan_poison_memory_region ((b)->strings, STRING_BLOCK_SIZE)
+# define ASAN_UNPOISON_STRING_BLOCK(b) \
+  __asan_unpoison_memory_region ((b)->strings, STRING_BLOCK_SIZE)
+# define ASAN_POISON_STRING(s) \
+  __asan_poison_memory_region ((s), sizeof (*(s)))
+# define ASAN_UNPOISON_STRING(s) \
+  __asan_unpoison_memory_region ((s), sizeof (*(s)))
+#else
+# define ASAN_PREPARE_DEAD_SDATA(s, size) ((void) 0)
+# define ASAN_PREPARE_LIVE_SDATA(s, nbytes) ((void) 0)
+# define ASAN_POISON_SBLOCK_DATA(b, size) ((void) 0)
+# define ASAN_POISON_STRING_BLOCK(b) ((void) 0)
+# define ASAN_UNPOISON_STRING_BLOCK(b) ((void) 0)
+# define ASAN_POISON_STRING(s) ((void) 0)
+# define ASAN_UNPOISON_STRING(s) ((void) 0)
+#endif
 
 #ifdef GC_CHECK_STRING_BYTES
 
@@ -1801,12 +1916,14 @@ allocate_string (void)
 	  NEXT_FREE_LISP_STRING (s) = string_free_list;
 	  string_free_list = s;
 	}
+      ASAN_POISON_STRING_BLOCK (b);
     }
 
   check_string_free_list ();
 
   /* Pop a Lisp_String off the free-list.  */
   s = string_free_list;
+  ASAN_UNPOISON_STRING (s);
   string_free_list = NEXT_FREE_LISP_STRING (s);
 
   MALLOC_UNBLOCK_INPUT;
@@ -1866,6 +1983,7 @@ allocate_string_data (struct Lisp_String *s,
 #endif
 
       b = lisp_malloc (size + GC_STRING_EXTRA, clearit, MEM_TYPE_NON_LISP);
+      ASAN_POISON_SBLOCK_DATA (b, size);
 
 #ifdef DOUG_LEA_MALLOC
       if (!mmap_lisp_allowed_p ())
@@ -1887,6 +2005,8 @@ allocate_string_data (struct Lisp_String *s,
 	{
 	  /* Not enough room in the current sblock.  */
 	  b = lisp_malloc (SBLOCK_SIZE, false, MEM_TYPE_NON_LISP);
+	  ASAN_POISON_SBLOCK_DATA (b, SBLOCK_SIZE);
+
 	  data = b->data;
 	  b->next = NULL;
 	  b->next_free = data;
@@ -1899,10 +2019,19 @@ allocate_string_data (struct Lisp_String *s,
 	}
 
       data = b->next_free;
+
       if (clearit)
-	memset (SDATA_DATA (data), 0, nbytes);
+	{
+#if GC_ASAN_POISON_OBJECTS
+	  /* We are accessing SDATA_DATA (data) before it gets
+	   * normally unpoisoned, so do it manually.  */
+	  __asan_unpoison_memory_region (SDATA_DATA (data), nbytes);
+#endif
+	  memset (SDATA_DATA (data), 0, nbytes);
+	}
     }
 
+  ASAN_PREPARE_LIVE_SDATA (data, nbytes);
   data->string = s;
   b->next_free = (sdata *) ((char *) data + needed + GC_STRING_EXTRA);
   eassert ((uintptr_t) b->next_free % alignof (sdata) == 0);
@@ -1994,11 +2123,15 @@ sweep_strings (void)
       int i, nfree = 0;
       struct Lisp_String *free_list_before = string_free_list;
 
+      ASAN_UNPOISON_STRING_BLOCK (b);
+
       next = b->next;
 
       for (i = 0; i < STRING_BLOCK_SIZE; ++i)
 	{
 	  struct Lisp_String *s = b->strings + i;
+
+	  ASAN_UNPOISON_STRING (s);
 
 	  if (s->u.s.data)
 	    {
@@ -2036,6 +2169,8 @@ sweep_strings (void)
 
 		  /* Put the string on the free-list.  */
 		  NEXT_FREE_LISP_STRING (s) = string_free_list;
+		  ASAN_POISON_STRING (s);
+		  ASAN_PREPARE_DEAD_SDATA (data, SDATA_NBYTES (data));
 		  string_free_list = s;
 		  ++nfree;
 		}
@@ -2044,6 +2179,8 @@ sweep_strings (void)
 	    {
 	      /* S was on the free-list before.  Put it there again.  */
 	      NEXT_FREE_LISP_STRING (s) = string_free_list;
+	      ASAN_POISON_STRING (s);
+
 	      string_free_list = s;
 	      ++nfree;
 	    }
@@ -2170,6 +2307,7 @@ compact_small_strings (void)
 		  if (from != to)
 		    {
 		      eassert (tb != b || to < from);
+		      ASAN_PREPARE_LIVE_SDATA (to, nbytes);
 		      memmove (to, from, size + GC_STRING_EXTRA);
 		      to->string->u.s.data = SDATA_DATA (to);
 		    }
@@ -2241,7 +2379,7 @@ a multibyte string even if INIT is an ASCII character.  */)
       ptrdiff_t len = CHAR_STRING (c, str);
       EMACS_INT string_len = XFIXNUM (length);
 
-      if (INT_MULTIPLY_WRAPV (len, string_len, &nbytes))
+      if (ckd_mul (&nbytes, len, string_len))
 	string_overflow ();
       val = make_clear_multibyte_string (string_len, nbytes, clearit);
       if (!clearit)
@@ -2521,6 +2659,7 @@ pin_string (Lisp_Object string)
       memcpy (s->u.s.data, data, size);
       old_sdata->string = NULL;
       SDATA_NBYTES (old_sdata) = size;
+      ASAN_PREPARE_DEAD_SDATA (old_sdata, size);
     }
   s->u.s.size_byte = -3;
 }
@@ -2578,6 +2717,24 @@ struct float_block
 #define XFLOAT_UNMARK(fptr) \
   UNSETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX ((fptr)))
 
+#if GC_ASAN_POISON_OBJECTS
+# define ASAN_POISON_FLOAT_BLOCK(fblk)         \
+  __asan_poison_memory_region ((fblk)->floats, \
+			       sizeof ((fblk)->floats))
+# define ASAN_UNPOISON_FLOAT_BLOCK(fblk)         \
+  __asan_unpoison_memory_region ((fblk)->floats, \
+				 sizeof ((fblk)->floats))
+# define ASAN_POISON_FLOAT(p) \
+  __asan_poison_memory_region ((p), sizeof (struct Lisp_Float))
+# define ASAN_UNPOISON_FLOAT(p) \
+  __asan_unpoison_memory_region ((p), sizeof (struct Lisp_Float))
+#else
+# define ASAN_POISON_FLOAT_BLOCK(fblk) ((void) 0)
+# define ASAN_UNPOISON_FLOAT_BLOCK(fblk) ((void) 0)
+# define ASAN_POISON_FLOAT(p) ((void) 0)
+# define ASAN_UNPOISON_FLOAT(p) ((void) 0)
+#endif
+
 /* Current float_block.  */
 
 static struct float_block *float_block;
@@ -2602,6 +2759,7 @@ make_float (double float_value)
   if (float_free_list)
     {
       XSETFLOAT (val, float_free_list);
+      ASAN_UNPOISON_FLOAT (float_free_list);
       float_free_list = float_free_list->u.chain;
     }
   else
@@ -2612,9 +2770,11 @@ make_float (double float_value)
 	    = lisp_align_malloc (sizeof *new, MEM_TYPE_FLOAT);
 	  new->next = float_block;
 	  memset (new->gcmarkbits, 0, sizeof new->gcmarkbits);
+	  ASAN_POISON_FLOAT_BLOCK (new);
 	  float_block = new;
 	  float_block_index = 0;
 	}
+      ASAN_UNPOISON_FLOAT (&float_block->floats[float_block_index]);
       XSETFLOAT (val, &float_block->floats[float_block_index]);
       float_block_index++;
     }
@@ -2686,6 +2846,19 @@ static int cons_block_index = CONS_BLOCK_SIZE;
 
 static struct Lisp_Cons *cons_free_list;
 
+#if GC_ASAN_POISON_OBJECTS
+# define ASAN_POISON_CONS_BLOCK(b) \
+  __asan_poison_memory_region ((b)->conses, sizeof ((b)->conses))
+# define ASAN_POISON_CONS(p) \
+  __asan_poison_memory_region ((p), sizeof (struct Lisp_Cons))
+# define ASAN_UNPOISON_CONS(p) \
+  __asan_unpoison_memory_region ((p), sizeof (struct Lisp_Cons))
+#else
+# define ASAN_POISON_CONS_BLOCK(b) ((void) 0)
+# define ASAN_POISON_CONS(p) ((void) 0)
+# define ASAN_UNPOISON_CONS(p) ((void) 0)
+#endif
+
 /* Explicitly free a cons cell by putting it on the free-list.  */
 
 void
@@ -2696,6 +2869,7 @@ free_cons (struct Lisp_Cons *ptr)
   cons_free_list = ptr;
   ptrdiff_t nbytes = sizeof *ptr;
   tally_consing (-nbytes);
+  ASAN_POISON_CONS (ptr);
 }
 
 DEFUN ("cons", Fcons, Scons, 2, 2, 0,
@@ -2708,6 +2882,7 @@ DEFUN ("cons", Fcons, Scons, 2, 2, 0,
 
   if (cons_free_list)
     {
+      ASAN_UNPOISON_CONS (cons_free_list);
       XSETCONS (val, cons_free_list);
       cons_free_list = cons_free_list->u.s.u.chain;
     }
@@ -2718,10 +2893,12 @@ DEFUN ("cons", Fcons, Scons, 2, 2, 0,
 	  struct cons_block *new
 	    = lisp_align_malloc (sizeof *new, MEM_TYPE_CONS);
 	  memset (new->gcmarkbits, 0, sizeof new->gcmarkbits);
+	  ASAN_POISON_CONS_BLOCK (new);
 	  new->next = cons_block;
 	  cons_block = new;
 	  cons_block_index = 0;
 	}
+      ASAN_UNPOISON_CONS (&cons_block->conses[cons_block_index]);
       XSETCONS (val, &cons_block->conses[cons_block_index]);
       cons_block_index++;
     }
@@ -2877,9 +3054,8 @@ enum { VECTOR_BLOCK_SIZE = 4096 };
 /* Vector size requests are a multiple of this.  */
 enum { roundup_size = COMMON_MULTIPLE (LISP_ALIGNMENT, word_size) };
 
-/* Verify assumptions described above.  */
+/* Verify assumption described above.  */
 verify (VECTOR_BLOCK_SIZE % roundup_size == 0);
-verify (VECTOR_BLOCK_SIZE <= (1 << PSEUDOVECTOR_SIZE_BITS));
 
 /* Round up X to nearest mult-of-ROUNDUP_SIZE --- use at compile time.  */
 #define vroundup_ct(x) ROUNDUP (x, roundup_size)
@@ -2889,6 +3065,11 @@ verify (VECTOR_BLOCK_SIZE <= (1 << PSEUDOVECTOR_SIZE_BITS));
 /* Rounding helps to maintain alignment constraints if USE_LSB_TAG.  */
 
 enum {VECTOR_BLOCK_BYTES = VECTOR_BLOCK_SIZE - vroundup_ct (sizeof (void *))};
+
+/* The current code expects to be able to represent an unused block by
+   a single PVEC_FREE object, whose size is limited by the header word.
+   (Of course we could use multiple such objects.)  */
+verify (VECTOR_BLOCK_BYTES <= (word_size << PSEUDOVECTOR_REST_BITS));
 
 /* Size of the minimal vector allocated from block.  */
 
@@ -2976,6 +3157,19 @@ static struct large_vector *large_vectors;
 
 Lisp_Object zero_vector;
 
+#if GC_ASAN_POISON_OBJECTS
+# define ASAN_POISON_VECTOR_CONTENTS(v, bytes) \
+  __asan_poison_memory_region ((v)->contents, (bytes))
+# define ASAN_UNPOISON_VECTOR_CONTENTS(v, bytes) \
+  __asan_unpoison_memory_region ((v)->contents, (bytes))
+# define ASAN_UNPOISON_VECTOR_BLOCK(b) \
+  __asan_unpoison_memory_region ((b)->data, sizeof ((b)->data))
+#else
+# define ASAN_POISON_VECTOR_CONTENTS(v, bytes) ((void) 0)
+# define ASAN_UNPOISON_VECTOR_CONTENTS(v, bytes) ((void) 0)
+# define ASAN_UNPOISON_VECTOR_BLOCK(b) ((void) 0)
+#endif
+
 /* Common shortcut to setup vector on a free list.  */
 
 static void
@@ -2988,6 +3182,7 @@ setup_on_free_list (struct Lisp_Vector *v, ptrdiff_t nbytes)
   ptrdiff_t vindex = VINDEX (nbytes);
   eassert (vindex < VECTOR_MAX_FREE_LIST_INDEX);
   set_next_vector (v, vector_free_lists[vindex]);
+  ASAN_POISON_VECTOR_CONTENTS (v, nbytes - header_size);
   vector_free_lists[vindex] = v;
 }
 
@@ -3035,6 +3230,7 @@ allocate_vector_from_block (ptrdiff_t nbytes)
   if (vector_free_lists[index])
     {
       vector = vector_free_lists[index];
+      ASAN_UNPOISON_VECTOR_CONTENTS (vector, nbytes - header_size);
       vector_free_lists[index] = next_vector (vector);
       return vector;
     }
@@ -3048,12 +3244,18 @@ allocate_vector_from_block (ptrdiff_t nbytes)
       {
 	/* This vector is larger than requested.  */
 	vector = vector_free_lists[index];
+	ASAN_UNPOISON_VECTOR_CONTENTS (vector, nbytes - header_size);
 	vector_free_lists[index] = next_vector (vector);
 
 	/* Excess bytes are used for the smaller vector,
 	   which should be set on an appropriate free list.  */
 	restbytes = index * roundup_size + VBLOCK_BYTES_MIN - nbytes;
 	eassert (restbytes % roundup_size == 0);
+#if GC_ASAN_POISON_OBJECTS
+	/* Ensure that accessing excess bytes does not trigger ASan.  */
+	__asan_unpoison_memory_region (ADVANCE (vector, nbytes),
+				       restbytes);
+#endif
 	setup_on_free_list (ADVANCE (vector, nbytes), restbytes);
 	return vector;
       }
@@ -3126,78 +3328,134 @@ static void
 cleanup_vector (struct Lisp_Vector *vector)
 {
   detect_suspicious_free (vector);
+  if ((vector->header.size & PSEUDOVECTOR_FLAG) == 0)
+    return;  /* nothing more to do for plain vectors */
+  switch (PSEUDOVECTOR_TYPE (vector))
+    {
+    case PVEC_BIGNUM:
+      mpz_clear (PSEUDOVEC_STRUCT (vector, Lisp_Bignum)->value);
+      break;
+    case PVEC_OVERLAY:
+      {
+	struct Lisp_Overlay *ol = PSEUDOVEC_STRUCT (vector, Lisp_Overlay);
+	xfree (ol->interval);
+      }
+      break;
+    case PVEC_FINALIZER:
+      unchain_finalizer (PSEUDOVEC_STRUCT (vector, Lisp_Finalizer));
+      break;
+    case PVEC_FONT:
+      {
+	if ((vector->header.size & PSEUDOVECTOR_SIZE_MASK) == FONT_OBJECT_MAX)
+	  {
+	    struct font *font = PSEUDOVEC_STRUCT (vector, font);
+	    struct font_driver const *drv = font->driver;
 
-  if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_BIGNUM))
-    mpz_clear (PSEUDOVEC_STRUCT (vector, Lisp_Bignum)->value);
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_OVERLAY))
-    {
-      struct Lisp_Overlay *ol = PSEUDOVEC_STRUCT (vector, Lisp_Overlay);
-      xfree (ol->interval);
-    }
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_FINALIZER))
-    unchain_finalizer (PSEUDOVEC_STRUCT (vector, Lisp_Finalizer));
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_FONT))
-    {
-      if ((vector->header.size & PSEUDOVECTOR_SIZE_MASK) == FONT_OBJECT_MAX)
-	{
-	  struct font *font = PSEUDOVEC_STRUCT (vector, font);
-	  struct font_driver const *drv = font->driver;
+	    /* The font driver might sometimes be NULL, e.g. if Emacs was
+	       interrupted before it had time to set it up.  */
+	    if (drv)
+	      {
+		/* Attempt to catch subtle bugs like Bug#16140.  */
+		eassert (valid_font_driver (drv));
+		drv->close_font (font);
+	      }
+	  }
 
-	  /* The font driver might sometimes be NULL, e.g. if Emacs was
-	     interrupted before it had time to set it up.  */
-	  if (drv)
-	    {
-	      /* Attempt to catch subtle bugs like Bug#16140.  */
-	      eassert (valid_font_driver (drv));
-	      drv->close_font (font);
-	    }
-	}
-    }
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_THREAD))
-    finalize_one_thread (PSEUDOVEC_STRUCT (vector, thread_state));
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_MUTEX))
-    finalize_one_mutex (PSEUDOVEC_STRUCT (vector, Lisp_Mutex));
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_CONDVAR))
-    finalize_one_condvar (PSEUDOVEC_STRUCT (vector, Lisp_CondVar));
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_MARKER))
-    {
+#if defined HAVE_ANDROID && !defined ANDROID_STUBIFY
+	/* The Android font driver needs the ability to associate extra
+	   information with font entities.  */
+	if (((vector->header.size & PSEUDOVECTOR_SIZE_MASK)
+	     == FONT_ENTITY_MAX)
+	    && PSEUDOVEC_STRUCT (vector, font_entity)->is_android)
+	  android_finalize_font_entity (PSEUDOVEC_STRUCT (vector, font_entity));
+#endif
+      }
+      break;
+    case PVEC_THREAD:
+      finalize_one_thread (PSEUDOVEC_STRUCT (vector, thread_state));
+      break;
+    case PVEC_MUTEX:
+      finalize_one_mutex (PSEUDOVEC_STRUCT (vector, Lisp_Mutex));
+      break;
+    case PVEC_CONDVAR:
+      finalize_one_condvar (PSEUDOVEC_STRUCT (vector, Lisp_CondVar));
+      break;
+    case PVEC_MARKER:
       /* sweep_buffer should already have unchained this from its buffer.  */
       eassert (! PSEUDOVEC_STRUCT (vector, Lisp_Marker)->buffer);
-    }
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_USER_PTR))
-    {
-      struct Lisp_User_Ptr *uptr = PSEUDOVEC_STRUCT (vector, Lisp_User_Ptr);
-      if (uptr->finalizer)
-	uptr->finalizer (uptr->p);
-    }
+      break;
+    case PVEC_USER_PTR:
+      {
+	struct Lisp_User_Ptr *uptr = PSEUDOVEC_STRUCT (vector, Lisp_User_Ptr);
+	if (uptr->finalizer)
+	  uptr->finalizer (uptr->p);
+      }
+      break;
+    case PVEC_TS_PARSER:
+#ifdef HAVE_TREE_SITTER
+      treesit_delete_parser (PSEUDOVEC_STRUCT (vector, Lisp_TS_Parser));
+#endif
+      break;
+    case PVEC_TS_COMPILED_QUERY:
+#ifdef HAVE_TREE_SITTER
+      treesit_delete_query (PSEUDOVEC_STRUCT (vector, Lisp_TS_Query));
+#endif
+      break;
+    case PVEC_MODULE_FUNCTION:
 #ifdef HAVE_MODULES
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_MODULE_FUNCTION))
-    {
-      ATTRIBUTE_MAY_ALIAS struct Lisp_Module_Function *function
-        = (struct Lisp_Module_Function *) vector;
-      module_finalize_function (function);
-    }
+      {
+	ATTRIBUTE_MAY_ALIAS struct Lisp_Module_Function *function
+	  = (struct Lisp_Module_Function *) vector;
+	module_finalize_function (function);
+      }
 #endif
+      break;
+    case PVEC_NATIVE_COMP_UNIT:
 #ifdef HAVE_NATIVE_COMP
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_NATIVE_COMP_UNIT))
-    {
-      struct Lisp_Native_Comp_Unit *cu =
-	PSEUDOVEC_STRUCT (vector, Lisp_Native_Comp_Unit);
-      unload_comp_unit (cu);
-    }
-  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_SUBR))
-    {
-      struct Lisp_Subr *subr =
-	PSEUDOVEC_STRUCT (vector, Lisp_Subr);
-      if (!NILP (subr->native_comp_u))
-	{
-	  /* FIXME Alternative and non invasive solution to this
-	     cast?  */
-	  xfree ((char *)subr->symbol_name);
-	  xfree (subr->native_c_name);
-	}
-    }
+      {
+	struct Lisp_Native_Comp_Unit *cu =
+	  PSEUDOVEC_STRUCT (vector, Lisp_Native_Comp_Unit);
+	unload_comp_unit (cu);
+      }
 #endif
+      break;
+    case PVEC_SUBR:
+#ifdef HAVE_NATIVE_COMP
+      {
+	struct Lisp_Subr *subr = PSEUDOVEC_STRUCT (vector, Lisp_Subr);
+	if (!NILP (subr->native_comp_u))
+	  {
+	    /* FIXME Alternative and non invasive solution to this cast?  */
+	    xfree ((char *)subr->symbol_name);
+	    xfree (subr->native_c_name);
+	  }
+      }
+#endif
+      break;
+    /* Keep the switch exhaustive.  */
+    case PVEC_NORMAL_VECTOR:
+    case PVEC_FREE:
+    case PVEC_SYMBOL_WITH_POS:
+    case PVEC_MISC_PTR:
+    case PVEC_PROCESS:
+    case PVEC_FRAME:
+    case PVEC_WINDOW:
+    case PVEC_BOOL_VECTOR:
+    case PVEC_BUFFER:
+    case PVEC_HASH_TABLE:
+    case PVEC_TERMINAL:
+    case PVEC_WINDOW_CONFIGURATION:
+    case PVEC_OTHER:
+    case PVEC_XWIDGET:
+    case PVEC_XWIDGET_VIEW:
+    case PVEC_TS_NODE:
+    case PVEC_SQLITE:
+    case PVEC_COMPILED:
+    case PVEC_CHAR_TABLE:
+    case PVEC_SUB_CHAR_TABLE:
+    case PVEC_RECORD:
+      break;
+    }
 }
 
 /* Reclaim space used by unmarked vectors.  */
@@ -3223,6 +3481,7 @@ sweep_vectors (void)
       for (vector = (struct Lisp_Vector *) block->data;
 	   VECTOR_IN_BLOCK (vector, block); vector = next)
 	{
+	  ASAN_UNPOISON_VECTOR_BLOCK (block);
 	  if (XVECTOR_MARKED_P (vector))
 	    {
 	      XUNMARK_VECTOR (vector);
@@ -3399,7 +3658,7 @@ allocate_pseudovector (int memlen, int lisplen,
   enum { size_max = (1 << PSEUDOVECTOR_SIZE_BITS) - 1 };
   enum { rest_max = (1 << PSEUDOVECTOR_REST_BITS) - 1 };
   verify (size_max + rest_max <= VECTOR_ELTS_MAX);
-  eassert (0 <= tag && tag <= PVEC_FONT);
+  eassert (0 <= tag && tag <= PVEC_TAG_MAX);
   eassert (0 <= lisplen && lisplen <= zerolen && zerolen <= memlen);
   eassert (lisplen <= size_max);
   eassert (memlen <= size_max + rest_max);
@@ -3532,7 +3791,8 @@ usage: (make-byte-code ARGLIST BYTE-CODE CONSTANTS DEPTH &optional DOCSTRING INT
 	 && FIXNATP (args[COMPILED_STACK_DEPTH])))
     error ("Invalid byte-code object");
 
-  pin_string (args[COMPILED_BYTECODE]);  // Bytecode must be immovable.
+  /* Bytecode must be immovable.  */
+  pin_string (args[COMPILED_BYTECODE]);
 
   /* We used to purecopy everything here, if purify-flag was set.  This worked
      OK for Emacs-23, but with Emacs-24's lexical binding code, it can be
@@ -3598,6 +3858,23 @@ struct symbol_block
   struct symbol_block *next;
 };
 
+#if GC_ASAN_POISON_OBJECTS
+# define ASAN_POISON_SYMBOL_BLOCK(s) \
+  __asan_poison_memory_region ((s)->symbols, sizeof ((s)->symbols))
+# define ASAN_UNPOISON_SYMBOL_BLOCK(s) \
+  __asan_unpoison_memory_region ((s)->symbols, sizeof ((s)->symbols))
+# define ASAN_POISON_SYMBOL(sym) \
+  __asan_poison_memory_region ((sym), sizeof (*(sym)))
+# define ASAN_UNPOISON_SYMBOL(sym) \
+  __asan_unpoison_memory_region ((sym), sizeof (*(sym)))
+
+#else
+# define ASAN_POISON_SYMBOL_BLOCK(s) ((void) 0)
+# define ASAN_UNPOISON_SYMBOL_BLOCK(s) ((void) 0)
+# define ASAN_POISON_SYMBOL(sym) ((void) 0)
+# define ASAN_UNPOISON_SYMBOL(sym) ((void) 0)
+#endif
+
 /* Current symbol block and index of first unused Lisp_Symbol
    structure in it.  */
 
@@ -3651,6 +3928,7 @@ Its value is void, and its function definition and property list are nil.  */)
 
   if (symbol_free_list)
     {
+      ASAN_UNPOISON_SYMBOL (symbol_free_list);
       XSETSYMBOL (val, symbol_free_list);
       symbol_free_list = symbol_free_list->u.s.next;
     }
@@ -3660,10 +3938,13 @@ Its value is void, and its function definition and property list are nil.  */)
 	{
 	  struct symbol_block *new
 	    = lisp_malloc (sizeof *new, false, MEM_TYPE_SYMBOL);
+	  ASAN_POISON_SYMBOL_BLOCK (new);
 	  new->next = symbol_block;
 	  symbol_block = new;
 	  symbol_block_index = 0;
 	}
+
+      ASAN_UNPOISON_SYMBOL (&symbol_block->symbols[symbol_block_index]);
       XSETSYMBOL (val, &symbol_block->symbols[symbol_block_index]);
       symbol_block_index++;
     }
@@ -4551,6 +4832,11 @@ static struct Lisp_String *
 live_string_holding (struct mem_node *m, void *p)
 {
   eassert (m->type == MEM_TYPE_STRING);
+#if GC_ASAN_POISON_OBJECTS
+  if (__asan_address_is_poisoned (p))
+    return NULL;
+#endif
+
   struct string_block *b = m->start;
   char *cp = p;
   ptrdiff_t offset = cp - (char *) &b->strings[0];
@@ -4567,6 +4853,10 @@ live_string_holding (struct mem_node *m, void *p)
 	  || off == offsetof (struct Lisp_String, u.s.data))
 	{
 	  struct Lisp_String *s = p = cp -= off;
+#if GC_ASAN_POISON_OBJECTS
+	  if (__asan_region_is_poisoned (s, sizeof (*s)))
+	    return NULL;
+#endif
 	  if (s->u.s.data)
 	    return s;
 	}
@@ -4588,6 +4878,11 @@ static struct Lisp_Cons *
 live_cons_holding (struct mem_node *m, void *p)
 {
   eassert (m->type == MEM_TYPE_CONS);
+#if GC_ASAN_POISON_OBJECTS
+  if (__asan_address_is_poisoned (p))
+    return NULL;
+#endif
+
   struct cons_block *b = m->start;
   char *cp = p;
   ptrdiff_t offset = cp - (char *) &b->conses[0];
@@ -4605,6 +4900,10 @@ live_cons_holding (struct mem_node *m, void *p)
 	  || off == offsetof (struct Lisp_Cons, u.s.u.cdr))
 	{
 	  struct Lisp_Cons *s = p = cp -= off;
+#if GC_ASAN_POISON_OBJECTS
+	  if (__asan_region_is_poisoned (s, sizeof (*s)))
+	    return NULL;
+#endif
 	  if (!deadp (s->u.s.car))
 	    return s;
 	}
@@ -4627,6 +4926,10 @@ static struct Lisp_Symbol *
 live_symbol_holding (struct mem_node *m, void *p)
 {
   eassert (m->type == MEM_TYPE_SYMBOL);
+#if GC_ASAN_POISON_OBJECTS
+  if (__asan_address_is_poisoned (p))
+    return NULL;
+#endif
   struct symbol_block *b = m->start;
   char *cp = p;
   ptrdiff_t offset = cp - (char *) &b->symbols[0];
@@ -4652,6 +4955,10 @@ live_symbol_holding (struct mem_node *m, void *p)
 	  || off == offsetof (struct Lisp_Symbol, u.s.next))
 	{
 	  struct Lisp_Symbol *s = p = cp -= off;
+#if GC_ASAN_POISON_OBJECTS
+	  if (__asan_region_is_poisoned (s, sizeof (*s)))
+	    return NULL;
+#endif
 	  if (!deadp (s->u.s.function))
 	    return s;
 	}
@@ -4674,6 +4981,11 @@ static struct Lisp_Float *
 live_float_holding (struct mem_node *m, void *p)
 {
   eassert (m->type == MEM_TYPE_FLOAT);
+#if GC_ASAN_POISON_OBJECTS
+  if (__asan_address_is_poisoned (p))
+    return NULL;
+#endif
+
   struct float_block *b = m->start;
   char *cp = p;
   ptrdiff_t offset = cp - (char *) &b->floats[0];
@@ -4688,8 +5000,12 @@ live_float_holding (struct mem_node *m, void *p)
 	  && (b != float_block
 	      || offset / sizeof b->floats[0] < float_block_index))
 	{
-	  p = cp - off;
-	  return p;
+	  struct Lisp_Float *f = (struct Lisp_Float *) (cp - off);
+#if GC_ASAN_POISON_OBJECTS
+	  if (__asan_region_is_poisoned (f, sizeof (*f)))
+	    return NULL;
+#endif
+	  return f;
 	}
     }
   return NULL;
@@ -4968,7 +5284,7 @@ mark_memory (void const *start, void const *end)
 	 a Lisp_Object might be split into registers saved into
 	 non-adjacent words and P might be the low-order word's value.  */
       intptr_t ip;
-      INT_ADD_WRAPV ((intptr_t) p, (intptr_t) lispsym, &ip);
+      ckd_add (&ip, (intptr_t) p, (intptr_t) lispsym);
       mark_maybe_pointer ((void *) ip, true);
     }
 }
@@ -5079,15 +5395,6 @@ typedef union
   char c;
 #endif
 } stacktop_sentry;
-
-/* Yield an address close enough to the top of the stack that the
-   garbage collector need not scan above it.  Callers should be
-   declared NO_INLINE.  */
-#ifdef HAVE___BUILTIN_FRAME_ADDRESS
-# define NEAR_STACK_TOP(addr) ((void) (addr), __builtin_frame_address (0))
-#else
-# define NEAR_STACK_TOP(addr) (addr)
-#endif
 
 /* Set *P to the address of the top of the stack.  This must be a
    macro, not a function, so that it is executed in the caller's
@@ -5265,7 +5572,8 @@ valid_lisp_object_p (Lisp_Object obj)
       if (valid <= 0)
 	return valid;
 
-      if (SUBRP (obj))
+      /* Strings and conses produced by AUTO_STRING etc. all get here.  */
+      if (SUBRP (obj) || STRINGP (obj) || CONSP (obj))
 	return 1;
 
       return 0;
@@ -5394,6 +5702,22 @@ find_string_data_in_pure (const char *data, ptrdiff_t nbytes)
 
   if (pure_bytes_used_non_lisp <= nbytes)
     return NULL;
+
+  /* The Android GCC generates code like:
+
+   0xa539e755 <+52>:	lea    0x430(%esp),%esi
+=> 0xa539e75c <+59>:	movdqa %xmm0,0x0(%ebp)
+   0xa539e761 <+64>:	add    $0x10,%ebp
+
+   but data is not aligned appropriately, so a GP fault results.  */
+
+#if defined __i386__				\
+  && defined HAVE_ANDROID			\
+  && !defined ANDROID_STUBIFY			\
+  && !defined (__clang__)
+  if ((intptr_t) data & 15)
+    return NULL;
+#endif
 
   /* Set up the Boyer-Moore table.  */
   skip = nbytes + 1;
@@ -5676,7 +6000,7 @@ purecopy (Lisp_Object obj)
       memcpy (vec, objp, nbytes);
       for (i = 0; i < size; i++)
 	vec->contents[i] = purecopy (vec->contents[i]);
-      // Byte code strings must be pinned.
+      /* Byte code strings must be pinned.  */
       if (COMPILEDP (obj) && size >= 2 && STRINGP (vec->contents[1])
 	  && !STRING_MULTIBYTE (vec->contents[1]))
 	pin_string (vec->contents[1]);
@@ -5905,16 +6229,45 @@ mark_pinned_objects (void)
     mark_object (pobj->object);
 }
 
+#if defined HAVE_ANDROID && !defined (__clang__)
+
+/* The Android gcc is broken and needs the following version of
+   make_lisp_symbol.  Otherwise a mysterious ICE pops up.  */
+
+#define make_lisp_symbol android_make_lisp_symbol
+
+static Lisp_Object
+android_make_lisp_symbol (struct Lisp_Symbol *sym)
+{
+  intptr_t symoffset;
+
+  symoffset = (intptr_t) sym;
+  INT_SUBTRACT_WRAPV (symoffset, (intptr_t) &lispsym,
+		      &symoffset);
+
+  {
+    Lisp_Object a = TAG_PTR (Lisp_Symbol, symoffset);
+    return a;
+  }
+}
+
+#endif
+
 static void
 mark_pinned_symbols (void)
 {
   struct symbol_block *sblk;
-  int lim = (symbol_block_pinned == symbol_block
-	     ? symbol_block_index : SYMBOL_BLOCK_SIZE);
+  int lim;
+  struct Lisp_Symbol *sym, *end;
+
+  if (symbol_block_pinned == symbol_block)
+    lim = symbol_block_index;
+  else
+    lim = SYMBOL_BLOCK_SIZE;
 
   for (sblk = symbol_block_pinned; sblk; sblk = sblk->next)
     {
-      struct Lisp_Symbol *sym = sblk->symbols, *end = sym + lim;
+      sym = sblk->symbols, end = sym + lim;
       for (; sym < end; ++sym)
 	if (sym->u.s.pinned)
 	  mark_object (make_lisp_symbol (sym));
@@ -6210,6 +6563,14 @@ garbage_collect (void)
 
 #ifdef HAVE_X_WINDOWS
   mark_xterm ();
+  mark_xselect ();
+#endif
+
+#ifdef HAVE_ANDROID
+  mark_androidterm ();
+#ifndef ANDROID_STUBIFY
+  mark_sfntfont ();
+#endif
 #endif
 
 #ifdef HAVE_NS
@@ -6279,18 +6640,6 @@ garbage_collect (void)
   image_prune_animation_caches (false);
 #endif
 
-  /* ELisp code run by `gc-post-hook' could result in itree iteration,
-     which must not happen while the itree is already busy.  See
-     bug#58639.  */
-  eassert (!itree_iterator_busy_p ());
-
-  if (!NILP (Vpost_gc_hook))
-    {
-      specpdl_ref gc_count = inhibit_garbage_collection ();
-      safe_run_hooks (Qpost_gc_hook);
-      unbind_to (gc_count, Qnil);
-    }
-
   /* Accumulate statistics.  */
   if (FLOATP (Vgc_elapsed))
     {
@@ -6308,6 +6657,13 @@ garbage_collect (void)
       byte_ct tot_after = total_bytes_of_live_objects ();
       if (tot_after < tot_before)
 	malloc_probe (min (tot_before - tot_after, SIZE_MAX));
+    }
+
+  if (!NILP (Vpost_gc_hook))
+    {
+      specpdl_ref gc_count = inhibit_garbage_collection ();
+      safe_run_hooks (Qpost_gc_hook);
+      unbind_to (gc_count, Qnil);
     }
 }
 
@@ -6508,7 +6864,7 @@ mark_char_table (struct Lisp_Vector *ptr, enum pvec_type pvectype)
 static void
 mark_overlay (struct Lisp_Overlay *ov)
 {
-  /* We don't mark the `interval_node` object, because it is managed manually
+  /* We don't mark the `itree_node` object, because it is managed manually
      rather than by the GC.  */
   eassert (BASE_EQ (ov->interval->data, make_lisp_ptr (ov, Lisp_Vectorlike)));
   set_vectorlike_marked (&ov->header);
@@ -6548,7 +6904,7 @@ mark_buffer (struct buffer *buffer)
   if (!BUFFER_LIVE_P (buffer))
       mark_object (BVAR (buffer, undo_list));
 
-  if (buffer->overlays)
+  if (!itree_empty_p (buffer->overlays))
     mark_overlays (buffer->overlays->root);
 
   /* If this is an indirect buffer, mark its base buffer.  */
@@ -6625,6 +6981,11 @@ static void
 mark_frame (struct Lisp_Vector *ptr)
 {
   struct frame *f = (struct frame *) ptr;
+#ifdef HAVE_TEXT_CONVERSION
+  struct text_conversion_action *tem;
+#endif
+
+
   mark_vectorlike (&ptr->header);
   mark_face_cache (f->face_cache);
 #ifdef HAVE_WINDOW_SYSTEM
@@ -6635,6 +6996,15 @@ mark_frame (struct Lisp_Vector *ptr)
       if (font && !vectorlike_marked_p (&font->header))
         mark_vectorlike (&font->header);
     }
+#endif
+
+#ifdef HAVE_TEXT_CONVERSION
+  mark_object (f->conversion.compose_region_start);
+  mark_object (f->conversion.compose_region_end);
+  mark_object (f->conversion.compose_region_overlay);
+
+  for (tem = f->conversion.actions; tem; tem = tem->next)
+    mark_object (tem->data);
 #endif
 }
 
@@ -7174,11 +7544,13 @@ sweep_conses (void)
 		  struct Lisp_Cons *acons = &cblk->conses[pos];
 		  if (!XCONS_MARKED_P (acons))
                     {
+		      ASAN_UNPOISON_CONS (&cblk->conses[pos]);
                       this_free++;
                       cblk->conses[pos].u.s.u.chain = cons_free_list;
                       cons_free_list = &cblk->conses[pos];
                       cons_free_list->u.s.car = dead_object ();
-                    }
+		      ASAN_POISON_CONS (&cblk->conses[pos]);
+		    }
                   else
                     {
                       num_used++;
@@ -7196,6 +7568,7 @@ sweep_conses (void)
         {
           *cprev = cblk->next;
           /* Unhook from the free list.  */
+	  ASAN_UNPOISON_CONS (&cblk->conses[0]);
           cons_free_list = cblk->conses[0].u.s.u.chain;
           lisp_align_free (cblk);
         }
@@ -7222,6 +7595,7 @@ sweep_floats (void)
   for (struct float_block *fblk; (fblk = *fprev); )
     {
       int this_free = 0;
+      ASAN_UNPOISON_FLOAT_BLOCK (fblk);
       for (int i = 0; i < lim; i++)
 	{
 	  struct Lisp_Float *afloat = &fblk->floats[i];
@@ -7229,6 +7603,7 @@ sweep_floats (void)
 	    {
 	      this_free++;
 	      fblk->floats[i].u.chain = float_free_list;
+	      ASAN_POISON_FLOAT (&fblk->floats[i]);
 	      float_free_list = &fblk->floats[i];
 	    }
 	  else
@@ -7245,7 +7620,8 @@ sweep_floats (void)
         {
           *fprev = fblk->next;
           /* Unhook from the free list.  */
-          float_free_list = fblk->floats[0].u.chain;
+	  ASAN_UNPOISON_FLOAT (&fblk->floats[0]);
+	  float_free_list = fblk->floats[0].u.chain;
           lisp_align_free (fblk);
         }
       else
@@ -7271,13 +7647,14 @@ sweep_intervals (void)
   for (struct interval_block *iblk; (iblk = *iprev); )
     {
       int this_free = 0;
-
+      ASAN_UNPOISON_INTERVAL_BLOCK (iblk);
       for (int i = 0; i < lim; i++)
         {
           if (!iblk->intervals[i].gcmarkbit)
             {
               set_interval_parent (&iblk->intervals[i], interval_free_list);
               interval_free_list = &iblk->intervals[i];
+	      ASAN_POISON_INTERVAL (&iblk->intervals[i]);
               this_free++;
             }
           else
@@ -7294,6 +7671,7 @@ sweep_intervals (void)
         {
           *iprev = iblk->next;
           /* Unhook from the free list.  */
+	  ASAN_UNPOISON_INTERVAL (&iblk->intervals[0]);
           interval_free_list = INTERVAL_PARENT (&iblk->intervals[0]);
           lisp_free (iblk);
         }
@@ -7323,6 +7701,8 @@ sweep_symbols (void)
 
   for (sblk = symbol_block; sblk; sblk = *sprev)
     {
+      ASAN_UNPOISON_SYMBOL_BLOCK (sblk);
+
       int this_free = 0;
       struct Lisp_Symbol *sym = sblk->symbols;
       struct Lisp_Symbol *end = sym + lim;
@@ -7344,7 +7724,8 @@ sweep_symbols (void)
               sym->u.s.next = symbol_free_list;
               symbol_free_list = sym;
               symbol_free_list->u.s.function = dead_object ();
-              ++this_free;
+	      ASAN_POISON_SYMBOL (sym);
+	      ++this_free;
             }
           else
             {
@@ -7363,6 +7744,7 @@ sweep_symbols (void)
         {
           *sprev = sblk->next;
           /* Unhook from the free list.  */
+	  ASAN_UNPOISON_SYMBOL (&sblk->symbols[0]);
           symbol_free_list = sblk->symbols[0].u.s.next;
           lisp_free (sblk);
         }
@@ -7430,9 +7812,17 @@ DEFUN ("memory-info", Fmemory_info, Smemory_info, 0, 0, 0,
        doc: /* Return a list of (TOTAL-RAM FREE-RAM TOTAL-SWAP FREE-SWAP).
 All values are in Kbytes.  If there is no swap space,
 last two values are zero.  If the system is not supported
-or memory information can't be obtained, return nil.  */)
+or memory information can't be obtained, return nil.
+If `default-directory' is remote, return memory information of the
+respective remote host.  */)
   (void)
 {
+  Lisp_Object handler
+    = Ffind_file_name_handler (BVAR (current_buffer, directory),
+			       Qmemory_info);
+  if (!NILP (handler))
+    return call1 (handler, Qmemory_info);
+
 #if defined HAVE_LINUX_SYSINFO
   struct sysinfo si;
   uintmax_t units;
@@ -7780,13 +8170,23 @@ allocated since the last garbage collection.  All data types count.
 Garbage collection happens automatically only when `eval' is called.
 
 By binding this temporarily to a large number, you can effectively
-prevent garbage collection during a part of the program.
+prevent garbage collection during a part of the program.  But be
+sure to get back to the normal value soon enough, to avoid system-wide
+memory pressure, and never use a too-high value for prolonged periods
+of time.
 See also `gc-cons-percentage'.  */);
 
   DEFVAR_LISP ("gc-cons-percentage", Vgc_cons_percentage,
 	       doc: /* Portion of the heap used for allocation.
 Garbage collection can happen automatically once this portion of the heap
 has been allocated since the last garbage collection.
+
+By binding this temporarily to a large number, you can effectively
+prevent garbage collection during a part of the program.  But be
+sure to get back to the normal value soon enough, to avoid system-wide
+memory pressure, and never use a too-high value for prolonged periods
+of time.
+
 If this portion is smaller than `gc-cons-threshold', this is ignored.  */);
   Vgc_cons_percentage = make_float (0.1);
 
@@ -7843,6 +8243,8 @@ do hash-consing of the objects allocated to pure space.  */);
   DEFVAR_LISP ("memory-full", Vmemory_full,
 	       doc: /* Non-nil means Emacs cannot get much more Lisp memory.  */);
   Vmemory_full = Qnil;
+
+  DEFSYM (Qmemory_info, "memory-info");
 
   DEFSYM (Qconses, "conses");
   DEFSYM (Qsymbols, "symbols");

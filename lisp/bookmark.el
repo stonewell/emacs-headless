@@ -1,6 +1,6 @@
 ;;; bookmark.el --- set bookmarks, maybe annotate them, jump to them later -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1997, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1997, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Karl Fogel <kfogel@red-bean.com>
 ;; Created: July, 1993
@@ -89,13 +89,15 @@ To specify the file in which to save them, modify the variable
   :type 'file)
 
 (defcustom bookmark-watch-bookmark-file t
-  "If non-nil watch the default bookmark file.
+  "If non-nil reload the default bookmark file if it was changed.
 If this file has changed on disk since it was last loaded, query the user
 whether to load it again.  If the value is `silent' reload without querying.
 This file defaults to `bookmark-default-file'.  But during an Emacs session,
 `bookmark-load' and `bookmark-save' can redefine the current default file."
   :version "27.1"
-  :type 'boolean
+  :type '(choice (const :tag "Suggest to reload bookmark file if changed" t)
+                 (const :tag "Silently reload bookmark file if changed" silent)
+                 (const :tag "Ignore changes of bookmark file" nil))
   :group 'bookmark)
 
 (defcustom bookmark-version-control 'nospecial
@@ -365,8 +367,8 @@ BOOKMARK-RECORD is, e.g., one element from `bookmark-alist'."
   (car bookmark-record))
 
 (defun bookmark-type-from-full-record (bookmark-record)
-  "Return then type of BOOKMARK-RECORD.
-BOOKMARK-RECORD is, e.g., one element from `bookmark-alist'. It's
+  "Return the type of BOOKMARK-RECORD.
+BOOKMARK-RECORD is, e.g., one element from `bookmark-alist'.  Its
 type is read from the symbol property named
 `bookmark-handler-type' read on the record handler function."
   (let ((handler (bookmark-get-handler bookmark-record)))
@@ -1396,20 +1398,25 @@ after a bookmark was set in it."
   (interactive (list (bookmark-completing-read "Bookmark to relocate")))
   (bookmark-maybe-historicize-string bookmark-name)
   (bookmark-maybe-load-default-file)
-  (let* ((bmrk-filename (bookmark-get-filename bookmark-name))
-         (newloc (abbreviate-file-name
-                  (expand-file-name
-                   (read-file-name
-                    (format "Relocate %s to: " bookmark-name)
-                    (file-name-directory bmrk-filename))))))
-    (bookmark-set-filename bookmark-name newloc)
-    (bookmark-update-last-modified bookmark-name)
-    (setq bookmark-alist-modification-count
-          (1+ bookmark-alist-modification-count))
-    (if (bookmark-time-to-save-p)
+  (let ((bmrk-filename (bookmark-get-filename bookmark-name)))
+    ;; FIXME: Make `bookmark-relocate' support bookmark Types
+    ;; besides files and directories.
+    (unless bmrk-filename
+      (user-error "Cannot relocate bookmark of type \"%s\""
+                  (bookmark-type-from-full-record
+                   (bookmark-get-bookmark bookmark-name))))
+    (let ((newloc (abbreviate-file-name
+                   (expand-file-name
+                    (read-file-name
+                     (format "Relocate %s to: " bookmark-name)
+                     (file-name-directory bmrk-filename))))))
+      (bookmark-set-filename bookmark-name newloc)
+      (bookmark-update-last-modified bookmark-name)
+      (setq bookmark-alist-modification-count
+            (1+ bookmark-alist-modification-count))
+      (when (bookmark-time-to-save-p)
         (bookmark-save))
-    (bookmark-bmenu-surreptitiously-rebuild-list)))
-
+      (bookmark-bmenu-surreptitiously-rebuild-list))))
 
 ;;;###autoload
 (defun bookmark-insert-location (bookmark-name &optional no-history)
@@ -2414,7 +2421,7 @@ confirmation first."
 
 
 (defun bookmark-bmenu-locate ()
-  "Display location of this bookmark.  Displays in the minibuffer."
+  "Display the location of the bookmark for this line."
   (interactive nil bookmark-bmenu-mode)
   (let ((bmrk (bookmark-bmenu-bookmark)))
     (message "%s" (bookmark-location bmrk))))

@@ -1,6 +1,6 @@
 ;;; sort.el --- commands to sort text in an Emacs buffer -*- lexical-binding: t -*-
 
-;; Copyright (C) 1986-1987, 1994-1995, 2001-2022 Free Software
+;; Copyright (C) 1986-1987, 1994-1995, 2001-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Howie Kaye
@@ -86,7 +86,7 @@ second key.  If PREDICATE is nil, comparison is done with `<' if
 the keys are numbers, with `compare-buffer-substrings' if the
 keys are cons cells (the car and cdr of each cons cell are taken
 as start and end positions), and with `string<' otherwise."
-  ;; Heuristically try to avoid messages if sorting a small amt of text.
+  ;; Heuristically try to avoid messages if sorting a small amount of text.
   (let ((messages (> (- (point-max) (point-min)) 50000)))
     (save-excursion
       (if messages (message "Finding sort keys..."))
@@ -257,18 +257,15 @@ the sort order."
                  (lambda () (skip-chars-forward "\n"))
 		 'forward-page))))
 
-(defvar sort-fields-syntax-table nil)
-(if sort-fields-syntax-table nil
-  (let ((table (make-syntax-table))
-	(i 0))
-    (while (< i 256)
-      (modify-syntax-entry i "w" table)
-      (setq i (1+ i)))
+(defvar sort-fields-syntax-table
+  (let ((table (make-syntax-table)))
+    (dotimes (i 256)
+      (modify-syntax-entry i "w" table))
     (modify-syntax-entry ?\s " " table)
     (modify-syntax-entry ?\t " " table)
     (modify-syntax-entry ?\n " " table)
     (modify-syntax-entry ?\. "_" table)	; for floating pt. numbers. -wsr
-    (setq sort-fields-syntax-table table)))
+    table))
 
 (defcustom sort-numeric-base 10
   "The default base used by `sort-numeric-fields'."

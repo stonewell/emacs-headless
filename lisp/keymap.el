@@ -1,6 +1,10 @@
 ;;; keymap.el --- Keymap functions  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+
+;; Maintainer: emacs-devel@gnu.org
+;; Keywords: internal
+;; Package: emacs
 
 ;; This file is part of GNU Emacs.
 
@@ -40,11 +44,12 @@
 (defun keymap-set (keymap key definition)
   "Set KEY to DEFINITION in KEYMAP.
 KEY is a string that satisfies `key-valid-p'.
+If DEFINITION is a string, it must also satisfy `key-valid-p'.
 
 DEFINITION is anything that can be a key's definition:
  nil (means key is undefined in this keymap),
  a command (a Lisp function suitable for interactive calling),
- a string (treated as a keyboard macro),
+ a string (treated as a keyboard macro or a sequence of input events),
  a keymap (to define a prefix key),
  a symbol (when the key is looked up, the symbol will stand for its
     function definition, which should at that time be one of the above,
@@ -65,59 +70,76 @@ DEFINITION is anything that can be a key's definition:
     (setq definition (key-parse definition)))
   (define-key keymap (key-parse key) definition))
 
-(defun keymap-global-set (key command)
+(defun keymap-global-set (key command &optional interactive)
   "Give KEY a global binding as COMMAND.
-COMMAND is the command definition to use; usually it is
-a symbol naming an interactively-callable function.
+When called interactively, KEY is a key sequence.  When called from
+Lisp, KEY is a string that must satisfy `key-valid-p'.
 
-KEY is a string that satisfies `key-valid-p'.
+COMMAND is the command definition to use.  When called interactively,
+this function prompts for COMMAND and accepts only names of known
+commands, i.e., symbols that satisfy the `commandp' predicate.  When
+called from Lisp, COMMAND can be anything that `keymap-set' accepts
+as its DEFINITION argument.
+
+If COMMAND is a string (which can only happen when this function is
+called from Lisp), it must satisfy `key-valid-p'.
 
 Note that if KEY has a local binding in the current buffer,
 that local binding will continue to shadow any global binding
 that you make with this function."
-  (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
-  (interactive
-   (let* ((menu-prompting nil)
-          (key (read-key-sequence "Set key globally: " nil t)))
-     (list key
-           (read-command (format "Set key %s to command: "
-                                 (key-description key))))))
+  (declare (compiler-macro (lambda (form) (keymap--compile-check key) form))
+           (advertised-calling-convention (key command) "29.1"))
+  (interactive "KSet key globally: \nCSet key %s globally to command: \np")
+  (when interactive
+    (setq key (key-description key)))
   (keymap-set (current-global-map) key command))
 
-(defun keymap-local-set (key command)
+(defun keymap-local-set (key command &optional interactive)
   "Give KEY a local binding as COMMAND.
-COMMAND is the command definition to use; usually it is
-a symbol naming an interactively-callable function.
+When called interactively, KEY is a key sequence.  When called from
+Lisp, KEY is a string that must satisfy `key-valid-p'.
 
-KEY is a string that satisfies `key-valid-p'.
+COMMAND is the command definition to use.  When called interactively,
+this function prompts for COMMAND and accepts only names of known
+commands, i.e., symbols that satisfy the `commandp' predicate.  When
+called from Lisp, COMMAND can be anything that `keymap-set' accepts
+as its DEFINITION argument.
 
-The binding goes in the current buffer's local map, which in most
+If COMMAND is a string (which can only happen when this function is
+called from Lisp), it must satisfy `key-valid-p'.
+
+The binding goes in the current buffer's local keymap, which in most
 cases is shared with all other buffers in the same major mode."
-  (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
-  (interactive "KSet key locally: \nCSet key %s locally to command: ")
+  (declare (compiler-macro (lambda (form) (keymap--compile-check key) form))
+           (advertised-calling-convention (key command) "29.1"))
+  (interactive "KSet key locally: \nCSet key %s locally to command: \np")
   (let ((map (current-local-map)))
     (unless map
       (use-local-map (setq map (make-sparse-keymap))))
+    (when interactive
+      (setq key (key-description key)))
     (keymap-set map key command)))
 
 (defun keymap-global-unset (key &optional remove)
   "Remove global binding of KEY (if any).
-KEY is a string that satisfies `key-valid-p'.
+When called interactively, KEY is a key sequence.  When called from
+Lisp, KEY is a string that satisfies `key-valid-p'.
 
-If REMOVE (interactively, the prefix arg), remove the binding
-instead of unsetting it.  See `keymap-unset' for details."
+If REMOVE is non-nil (interactively, the prefix arg), remove the
+binding instead of unsetting it.  See `keymap-unset' for details."
   (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (interactive
-   (list (key-description (read-key-sequence "Set key locally: "))
+   (list (key-description (read-key-sequence "Unset key globally: "))
          current-prefix-arg))
   (keymap-unset (current-global-map) key remove))
 
 (defun keymap-local-unset (key &optional remove)
   "Remove local binding of KEY (if any).
-KEY is a string that satisfies `key-valid-p'.
+When called interactively, KEY is a key sequence.  When called from
+Lisp, KEY is a string that satisfies `key-valid-p'.
 
-If REMOVE (interactively, the prefix arg), remove the binding
-instead of unsetting it.  See `keymap-unset' for details."
+If REMOVE is non-nil (interactively, the prefix arg), remove the
+binding instead of unsetting it.  See `keymap-unset' for details."
   (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (interactive
    (list (key-description (read-key-sequence "Unset key locally: "))
@@ -129,11 +151,11 @@ instead of unsetting it.  See `keymap-unset' for details."
   "Remove key sequence KEY from KEYMAP.
 KEY is a string that satisfies `key-valid-p'.
 
-If REMOVE, remove the binding instead of unsetting it.  This only
-makes a difference when there's a parent keymap.  When unsetting
-a key in a child map, it will still shadow the same key in the
-parent keymap.  Removing the binding will allow the key in the
-parent keymap to be used."
+If REMOVE is non-nil, remove the binding instead of unsetting it.
+This only makes a difference when there's a parent keymap.  When
+unsetting a key in a child map, it will still shadow the same key
+in the parent keymap.  Removing the binding will allow the key in
+the parent keymap to be used."
   (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (keymap--check key)
   (define-key keymap (key-parse key) nil remove))
@@ -147,7 +169,7 @@ in KEYMAP as NEWDEF those keys that are defined as OLDDEF in OLDMAP.
 If you don't specify OLDMAP, you can usually get the same results
 in a cleaner way with command remapping, like this:
   (define-key KEYMAP [remap OLDDEF] NEWDEF)
-\n(fn OLDDEF NEWDEF KEYMAP &optional OLDMAP)"
+\n(fn KEYMAP OLDDEF NEWDEF &optional OLDMAP)"
   ;; Don't document PREFIX in the doc string because we don't want to
   ;; advertise it.  It's meant for recursive calls only.  Here's its
   ;; meaning
@@ -186,14 +208,22 @@ a menu, so this function is not useful for non-menu keymaps."
   (declare (indent defun)
            (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (keymap--check key)
-  (when after
-    (keymap--check after))
+  (when (eq after t) (setq after nil)) ; nil and t are treated the same
+  (when (stringp after)
+    (keymap--check after)
+    (setq after (key-parse after)))
+  ;; If we're binding this key to another key, then parse that other
+  ;; key, too.
+  (when (stringp definition)
+    (keymap--check definition)
+    (setq definition (key-parse definition)))
   (define-key-after keymap (key-parse key) definition
-    (and after (key-parse after))))
+    after))
 
 (defun key-parse (keys)
   "Convert KEYS to the internal Emacs key representation.
-See `kbd' for a descripion of KEYS."
+KEYS should be a string describing a key sequence in the format
+returned by \\[describe-key] (`describe-key')."
   (declare (pure t) (side-effect-free t))
   ;; A pure function is expected to preserve the match data.
   (save-match-data
@@ -284,26 +314,26 @@ See `kbd' for a descripion of KEYS."
       res)))
 
 (defun key-valid-p (keys)
-  "Say whether KEYS is a valid key.
-A key is a string consisting of one or more key strokes.
-The key strokes are separated by single space characters.
+  "Return non-nil if KEYS, a string, is a valid key sequence.
+KEYS should be a string consisting of one or more key strokes,
+with a single space character separating one key stroke from another.
 
 Each key stroke is either a single character, or the name of an
-event, surrounded by angle brackets.  In addition, any key stroke
-may be preceded by one or more modifier keys.  Finally, a limited
-number of characters have a special shorthand syntax.
+event, surrounded by angle brackets <like-this>.  In addition, any
+key stroke may be preceded by one or more modifier keys.  Finally,
+a limited number of characters have a special shorthand syntax.
 
-Here's some example key sequences.
+Here are some example of valid key sequences.
 
   \"f\"           (the key `f')
-  \"S o m\"       (a three key sequence of the keys `S', `o' and `m')
-  \"C-c o\"       (a two key sequence of the keys `c' with the control modifier
-                 and then the key `o')
-  \"H-<left>\"    (the key named \"left\" with the hyper modifier)
+  \"S o m\"       (a three-key sequence of the keys `S', `o' and `m')
+  \"C-c o\"       (a two-key sequence: the key `c' with the control modifier
+                 followed by the key `o')
+  \"H-<left>\"    (the function key named \"left\" with the hyper modifier)
   \"M-RET\"       (the \"return\" key with a meta modifier)
   \"C-M-<space>\" (the \"space\" key with both the control and meta modifiers)
 
-These are the characters that have shorthand syntax:
+These are the characters that have special shorthand syntax:
 NUL, RET, TAB, LFD, ESC, SPC, DEL.
 
 Modifiers have to be specified in this order:
@@ -352,18 +382,20 @@ which is
 This function creates a `keyboard-translate-table' if necessary
 and then modifies one entry in it.
 
-Both KEY and TO are strings that satisfy `key-valid-p'."
+Both FROM and TO should be specified by strings that satisfy `key-valid-p'."
   (declare (compiler-macro
             (lambda (form) (keymap--compile-check from to) form)))
   (keymap--check from)
   (keymap--check to)
   (or (char-table-p keyboard-translate-table)
       (setq keyboard-translate-table
-	    (make-char-table 'keyboard-translate-table nil)))
-  (aset keyboard-translate-table (key-parse from) (key-parse to)))
+            (make-char-table 'keyboard-translate-table nil)))
+  (aset keyboard-translate-table
+        (aref (key-parse from) 0)
+        (aref (key-parse to) 0)))
 
 (defun keymap-lookup (keymap key &optional accept-default no-remap position)
-  "Return the binding for command KEY.
+  "Return the binding for command KEY in KEYMAP.
 KEY is a string that satisfies `key-valid-p'.
 
 If KEYMAP is nil, look up in the current keymaps.  If non-nil, it
@@ -385,15 +417,15 @@ in the current keymaps.  However, if the optional third argument
 NO-REMAP is non-nil, `keymap-lookup' returns the unmapped
 command.
 
-If KEY is a key sequence initiated with the mouse, the used keymaps
-will depend on the clicked mouse position with regard to the buffer
-and possible local keymaps on strings.
+If KEY is a mouse gesture, the keymaps used depend on the clicked
+mouse position with regards to the buffer, and local keymaps, if any,
+on display and overlay strings.
 
 If the optional argument POSITION is non-nil, it specifies a mouse
 position as returned by `event-start' and `event-end', and the lookup
 occurs in the keymaps associated with it instead of KEY.  It can also
 be a number or marker, in which case the keymap properties at the
-specified buffer position instead of point are used."
+specified buffer position are used instead of point."
   (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (keymap--check key)
   (when (and keymap position)
@@ -404,7 +436,7 @@ specified buffer position instead of point are used."
                    (symbolp value))
             (or (command-remapping value) value)
           value))
-    (key-binding (kbd key) accept-default no-remap position)))
+    (key-binding (key-parse key) accept-default no-remap position)))
 
 (defun keymap-local-lookup (keys &optional accept-default)
   "Return the binding for command KEYS in current local keymap only.
@@ -469,7 +501,7 @@ If MESSAGE (and interactively), message the result."
 
 (defun define-keymap (&rest definitions)
   "Create a new keymap and define KEY/DEFINITION pairs as key bindings.
-The new keymap is returned.
+Return the new keymap.
 
 Options can be given as keywords before the KEY/DEFINITION
 pairs.  Available keywords are:
@@ -559,22 +591,48 @@ In addition to the keywords accepted by `define-keymap', this
 macro also accepts a `:doc' keyword, which (if present) is used
 as the variable documentation string.
 
-\(fn VARIABLE-NAME &key DOC FULL PARENT SUPPRESS NAME PREFIX KEYMAP &rest [KEY DEFINITION]...)"
+The `:repeat' keyword can also be specified; it controls the
+`repeat-mode' behavior of the bindings in the keymap.  When it is
+non-nil, all commands in the map will have the `repeat-map'
+symbol property.
+
+More control is available over which commands are repeatable; the
+value can also be a property list with properties `:enter' and
+`:exit', for example:
+
+     :repeat (:enter (commands ...) :exit (commands ...))
+
+`:enter' specifies the list of additional commands that only
+enter `repeat-mode'.  When the list is empty, then only the
+commands defined in the map enter `repeat-mode'.  Specifying a
+list of commands is useful when there are commands that have the
+`repeat-map' symbol property, but don't exist in this specific
+map.
+
+`:exit' is a list of commands that exit `repeat-mode'.  When the
+list is empty, no commands in the map exit `repeat-mode'.
+Specifying a list of commands is useful when those commands exist
+in this specific map, but should not have the `repeat-map' symbol
+property.
+
+\(fn VARIABLE-NAME &key DOC FULL PARENT SUPPRESS NAME PREFIX KEYMAP REPEAT &rest [KEY DEFINITION]...)"
   (declare (indent 1))
   (let ((opts nil)
-        doc)
+        doc repeat props)
     (while (and defs
                 (keywordp (car defs))
                 (not (eq (car defs) :menu)))
       (let ((keyword (pop defs)))
         (unless defs
           (error "Uneven number of keywords"))
-        (if (eq keyword :doc)
-            (setq doc (pop defs))
-          (push keyword opts)
-          (push (pop defs) opts))))
+        (cond
+         ((eq keyword :doc) (setq doc (pop defs)))
+         ((eq keyword :repeat) (setq repeat (pop defs)))
+         (t (push keyword opts)
+            (push (pop defs) opts)))))
     (unless (zerop (% (length defs) 2))
       (error "Uneven number of key/definition pairs: %s" defs))
+
     (let ((defs defs)
           key seen-keys)
       (while defs
@@ -585,9 +643,28 @@ as the variable documentation string.
               (error "Duplicate definition for key '%s' in keymap '%s'"
                      key variable-name)
             (push key seen-keys)))))
-    `(defvar ,variable-name
-       (define-keymap ,@(nreverse opts) ,@defs)
-       ,@(and doc (list doc)))))
+
+    (when repeat
+      (let ((defs defs)
+            def)
+        (dolist (def (plist-get repeat :enter))
+          (push `(put ',def 'repeat-map ',variable-name) props))
+        (while defs
+          (pop defs)
+          (setq def (pop defs))
+          (when (and (memq (car def) '(function quote))
+                     (not (memq (cadr def) (plist-get repeat :exit))))
+            (push `(put ,def 'repeat-map ',variable-name) props)))))
+
+    (let ((defvar-form
+           `(defvar ,variable-name
+              (define-keymap ,@(nreverse opts) ,@defs)
+              ,@(and doc (list doc)))))
+      (if props
+          `(progn
+             ,defvar-form
+             ,@(nreverse props))
+        defvar-form))))
 
 (defun make-non-key-event (symbol)
   "Mark SYMBOL as an event that shouldn't be returned from `where-is'."

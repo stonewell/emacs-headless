@@ -131,17 +131,13 @@
 ;; feedmail-send-it.  Hers's the best way to use the stuff in this
 ;; file:
 ;;
-;; Save this file as feedmail.el somewhere on your elisp loadpath;
-;; byte-compile it.  Put the following lines in your init file:
+;; Put the following lines in your init file:
 ;;
 ;;     (setq send-mail-function 'feedmail-send-it)
-;;     (autoload 'feedmail-send-it "feedmail")
 ;;
 ;; If you plan to use the queue stuff, also use this:
 ;;
 ;;     (setq feedmail-enable-queue t)
-;;     (autoload 'feedmail-run-the-queue "feedmail")
-;;     (autoload 'feedmail-run-the-queue-no-prompts "feedmail")
 ;;     (setq auto-mode-alist (cons '("\\.fqm$" . mail-mode) auto-mode-alist))
 ;;
 ;; though VM users might find it more comfortable to use this instead of
@@ -173,11 +169,6 @@
 ;; If you are using the desktop.el library to restore your sessions, you might
 ;; like to add the suffix ".fqm" to the list of non-saved things via the variable
 ;; desktop-files-not-to-save.
-;;
-;; If you are planning to call feedmail-queue-reminder from your .emacs or
-;; something similar, you might need this:
-;;
-;;     (autoload 'feedmail-queue-reminder "feedmail")
 ;;
 ;; If you ever use rmail-resend and queue messages, you should do this:
 ;;
@@ -2520,22 +2511,20 @@ mapped to mostly alphanumerics for safety."
 				    feedmail-force-binary-write)
 			       'no-conversion
 			     coding-system-for-write)))
-                      (unwind-protect
-                          (progn
-                            (insert fcc)
-                            (unless feedmail-nuke-bcc-in-fcc
-                              (if bcc-holder (insert bcc-holder))
-                              (if resent-bcc-holder
-                                  (insert resent-bcc-holder)))
+                      (insert fcc)
+                      (unless feedmail-nuke-bcc-in-fcc
+                        (if bcc-holder (insert bcc-holder))
+                        (if resent-bcc-holder
+                            (insert resent-bcc-holder)))
 
-                            (run-hooks 'feedmail-before-fcc-hook)
+                      (run-hooks 'feedmail-before-fcc-hook)
 
-                            (when feedmail-nuke-body-in-fcc
-                              (goto-char eoh-marker)
-                              (if (natnump feedmail-nuke-body-in-fcc)
-                                  (forward-line feedmail-nuke-body-in-fcc))
-                              (delete-region (point) (point-max)))
-                            (mail-do-fcc eoh-marker))))))
+                      (when feedmail-nuke-body-in-fcc
+                        (goto-char eoh-marker)
+                        (if (natnump feedmail-nuke-body-in-fcc)
+                            (forward-line feedmail-nuke-body-in-fcc))
+                        (delete-region (point) (point-max)))
+                      (mail-do-fcc eoh-marker))))
 	      ;; User bailed out of one-last-look.
 	      (if feedmail-queue-runner-is-active
 		  (throw 'skip-me-q 'skip-me-q)
@@ -2775,7 +2764,7 @@ return that value."
   (cond
    ;; nil means do nothing
    ((eq nil feedmail-date-generator) nil)
-   ;; t is the same a using the function feedmail-default-date-generator, so let it and recurse
+   ;; t is the same as using the function feedmail-default-date-generator, so let it and recurse
    ((eq t feedmail-date-generator)
     (let ((feedmail-date-generator (feedmail-default-date-generator maybe-file)))
       (feedmail-fiddle-date maybe-file)))
@@ -2831,7 +2820,7 @@ probably not appropriate for you."
   (cond
    ;; nil means do nothing
    ((eq nil feedmail-message-id-generator) nil)
-   ;; t is the same a using the function feedmail-default-message-id-generator, so let it and recurse
+   ;; t is the same as using the function feedmail-default-message-id-generator, so let it and recurse
    ((eq t feedmail-message-id-generator)
     (let ((feedmail-message-id-generator (feedmail-default-message-id-generator maybe-file)))
       (feedmail-fiddle-message-id maybe-file)))
@@ -2873,7 +2862,7 @@ probably not appropriate for you."
   (cond
    ;; nil means do nothing
    ((eq nil feedmail-x-mailer-line) nil)
-   ;; t is the same a using the function feedmail-default-x-mailer-generator, so let it and recurse
+   ;; t is the same as using the function feedmail-default-x-mailer-generator, so let it and recurse
    ((eq t feedmail-x-mailer-line)
     (let ((feedmail-x-mailer-line (feedmail-default-x-mailer-generator)))
       (feedmail-fiddle-x-mailer)))
@@ -3055,30 +3044,30 @@ been weeded out."
 	(address-blob)
 	(this-line)
 	(this-line-end))
-    (unwind-protect
-	(with-current-buffer (get-buffer-create " *FQM scratch*")
-          (erase-buffer)
-	  (insert-buffer-substring message-buffer header-start header-end)
-	  (goto-char (point-min))
-	  (let ((case-fold-search t))
-	    (while (re-search-forward addr-regexp (point-max) t)
-	      (replace-match "")
-	      (setq this-line (match-beginning 0))
-	      (forward-line 1)
-	      ;; get any continuation lines
-	      (while (and (looking-at "^[ \t]+") (< (point) (point-max)))
-		(forward-line 1))
-	      (setq this-line-end (point-marker))
-	      ;; only keep if we don't have it already
-	      (setq address-blob
-		    (mail-strip-quoted-names (buffer-substring-no-properties this-line this-line-end)))
-	      (while (string-match "\\([, \t\n\r]*\\)\\([^, \t\n\r]+\\)" address-blob)
-		(setq simple-address (substring address-blob (match-beginning 2) (match-end 2)))
-		(setq address-blob (replace-match "" t t address-blob))
-		(if (not (member simple-address address-list))
-		    (push simple-address address-list)))
-	      ))
-	  (kill-buffer nil)))
+
+    (with-current-buffer (get-buffer-create " *FQM scratch*")
+      (erase-buffer)
+      (insert-buffer-substring message-buffer header-start header-end)
+      (goto-char (point-min))
+      (let ((case-fold-search t))
+	(while (re-search-forward addr-regexp (point-max) t)
+	  (replace-match "")
+	  (setq this-line (match-beginning 0))
+	  (forward-line 1)
+	  ;; get any continuation lines
+	  (while (and (looking-at "^[ \t]+") (< (point) (point-max)))
+	    (forward-line 1))
+	  (setq this-line-end (point-marker))
+	  ;; only keep if we don't have it already
+	  (setq address-blob
+		(mail-strip-quoted-names (buffer-substring-no-properties this-line this-line-end)))
+	  (while (string-match "\\([, \t\n\r]*\\)\\([^, \t\n\r]+\\)" address-blob)
+	    (setq simple-address (substring address-blob (match-beginning 2) (match-end 2)))
+	    (setq address-blob (replace-match "" t t address-blob))
+	    (if (not (member simple-address address-list))
+		(push simple-address address-list)))
+	  ))
+      (kill-buffer nil))
     (identity address-list)))
 
 

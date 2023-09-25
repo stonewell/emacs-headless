@@ -1,6 +1,6 @@
 ;;; vc-hg.el --- VC backend for the mercurial version control system  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 ;; Author: Ivan Kanis
 ;; Maintainer: emacs-devel@gnu.org
@@ -249,7 +249,10 @@ If `ask', you will be prompted for a branch type."
                     (error nil)))))))
     (when (and (eq 0 status)
 	       (> (length out) 0)
-	       (null (string-match ".*: No such file or directory$" out)))
+                         ;; Posix
+	       (null (or (string-match ".*: No such file or directory$" out)
+                         ;; MS-Windows
+                         (string-match ".*: The system cannot find the file specified$" out))))
       (let ((state (aref out 0)))
 	(cond
 	 ((eq state ?=) 'up-to-date)
@@ -497,7 +500,6 @@ This requires hg 4.4 or later, for the \"-L\" option of \"hg log\"."
     map))
 
 (defvar vc-hg--log-view-long-font-lock-keywords nil)
-(defvar font-lock-keywords)
 (defvar vc-hg-region-history-font-lock-keywords
   '((vc-hg-region-history-font-lock)))
 
@@ -578,7 +580,7 @@ This requires hg 4.4 or later, for the \"-L\" option of \"hg log\"."
 (defun vc-hg-annotate-command (file buffer &optional revision)
   "Execute \"hg annotate\" on FILE, inserting the contents in BUFFER.
 Optional arg REVISION is a revision to annotate from."
-  (apply #'vc-hg-command buffer 0 file "annotate" "-dq" "-n"
+  (apply #'vc-hg-command buffer 'async file "annotate" "-dq" "-n"
 	 (append (vc-switches 'hg 'annotate)
                  (if revision (list (concat "-r" revision))))))
 
@@ -1266,6 +1268,12 @@ REV is the revision to check out into WORKFILE."
     (add-hook 'after-save-hook #'vc-hg-resolve-when-done nil t)
     (vc-message-unresolved-conflicts buffer-file-name)))
 
+(defun vc-hg-clone (remote directory rev)
+  (if rev
+      (vc-hg-command nil 0 '() "clone" "--rev" rev remote directory)
+    (vc-hg-command nil 0 '() "clone" remote directory))
+
+  directory)
 
 ;; Modeled after the similar function in vc-bzr.el
 (defun vc-hg-revert (file &optional contents-done)
@@ -1366,17 +1374,28 @@ REV is the revision to check out into WORKFILE."
 ;; Follows vc-exec-after.
 (declare-function vc-set-async-update "vc-dispatcher" (process-buffer))
 
+(defvar vc-hg--program-version nil)
+
+(defun vc-hg--program-version ()
+  (or vc-hg--program-version
+      (setq vc-hg--program-version
+            (with-temp-buffer
+              (condition-case _ (vc-hg-command t 0 nil "version")
+                (error "0")
+                (:success
+                 (goto-char (point-min))
+                 (re-search-forward "Mercurial Distributed SCM (version \\([0-9][0-9.]+\\)")
+                 (string-trim-right (match-string 1) "\\.")))))))
+
 (defun vc-hg-dir-status-files (dir files update-function)
   ;; XXX: We can't pass DIR directly to 'hg status' because that
   ;; returns all ignored files if FILES is non-nil (bug#22481).
   (let ((default-directory dir))
-    ;; TODO: Use "--config 'status.relative=1'" instead of "re:"
-    ;; when we're allowed to depend on Mercurial 4.2+
-    ;; (it's a bit faster).
-    (vc-hg-command (current-buffer) 'async files
-                   "status" "re:" "-I" "."
-                   (concat "-mardu" (if files "i"))
-                   "-C"))
+    (apply #'vc-hg-command (current-buffer) 'async files
+           "status" (concat "-mardu" (if files "i")) "-C"
+           (if (version<= "4.2" (vc-hg--program-version))
+               '("--config" "commands.status.relative=1")
+             '("re:" "-I" "."))))
   (vc-run-delayed
     (vc-hg-after-dir-status update-function)))
 

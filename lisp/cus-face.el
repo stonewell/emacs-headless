@@ -1,6 +1,6 @@
 ;;; cus-face.el --- customization support for faces  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 1996-1997, 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 1999-2023 Free Software Foundation, Inc.
 ;;
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Keywords: help, faces
@@ -158,7 +158,7 @@
 		    (or (and (consp real-value) (plist-get real-value :style))
 		        'line))
                    (position (and (consp real-value)
-                                  (plist-get real-value :style))))
+                                  (plist-get real-value :position))))
 	       (list :color color :style style :position position))))
      ;; filter to make customized-value suitable for storing
      ,(lambda (cus-value)
