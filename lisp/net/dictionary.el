@@ -1,6 +1,6 @@
 ;;; dictionary.el --- Client for rfc2229 dictionary servers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 ;; Author: Torsten Hilbrich <torsten.hilbrich@gmx.net>
 ;; Keywords: interface, dictionary
@@ -309,12 +309,12 @@ Otherwise, `dictionary-search' displays definitions in a *Dictionary* buffer."
   :version "30.1")
 
 (defface dictionary-word-definition-face
-'((((supports (:family "DejaVu Serif")))
-   (:family "DejaVu Serif"))
-  (((type x))
-   (:font "Sans Serif"))
-  (t
-   (:font "default")))
+  '((((supports (:family "DejaVu Serif")))
+     (:family "DejaVu Serif"))
+    (((type x))
+     (:font "Sans Serif"))
+    (t
+     (:font "default")))
 "The face that is used for displaying the definition of the word."
 :group 'dictionary
 :version "28.1")
@@ -405,6 +405,22 @@ Otherwise, `dictionary-search' displays definitions in a *Dictionary* buffer."
   "M-SPC" #'scroll-down-command
   "DEL"   #'scroll-down-command)
 
+(easy-menu-define dictionary-mode-menu dictionary-mode-map
+  "Menu for the Dictionary mode."
+  '("Dictionary"
+    ["Search Definition" dictionary-search
+     :help "Look up a new word"]
+    ["List Matching Words" dictionary-match-words
+     :help "List all words matching a pattern"]
+    ["Lookup Word At Point" dictionary-lookup-definition
+     :help "Look up the word at point"]
+    ["Select Dictionary" dictionary-select-dictionary
+     :help "Select one or more dictionaries to search within"]
+    ["Select Match Strategy" dictionary-select-strategy
+     :help "Select the algorithm to match queries and entries with"]
+    ["Back" dictionary-previous
+     :help "Return to the previous match or location"]))
+
 (defvar dictionary-connection
   nil
   "The current network connection.")
@@ -422,6 +438,30 @@ Otherwise, `dictionary-search' displays definitions in a *Dictionary* buffer."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic function providing startup actions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar dictionary-tool-bar-map
+  (let ((map (make-sparse-keymap)))
+    ;; Most of these items are the same as in the default tool bar
+    ;; map, but with extraneous items removed, and with extra search
+    ;; and navigation items.
+    (tool-bar-local-item-from-menu 'find-file "new" map
+                                   nil :label "New File"
+			           :vert-only t)
+    (tool-bar-local-item-from-menu 'menu-find-file-existing "open" map
+                                   nil :label "Open" :vert-only t)
+    (tool-bar-local-item-from-menu 'dired "diropen" map nil :vert-only t)
+    (tool-bar-local-item-from-menu 'kill-this-buffer "close" map nil
+                                   :vert-only t)
+    (define-key-after map [separator-1] menu-bar-separator)
+    (tool-bar-local-item-from-menu 'dictionary-search "search"
+			           map dictionary-mode-map :vert-only t
+                                   :help "Start a new search query.")
+    (tool-bar-local-item-from-menu 'dictionary-previous "left-arrow"
+			           map dictionary-mode-map
+                                   :vert-only t
+                                   :help "Go backwards in history.")
+    map)
+  "Like the default `tool-bar-map', but with additions for Dictionary mode")
 
 ;;;###autoload
 (define-derived-mode dictionary-mode special-mode "Dictionary"
@@ -452,6 +492,8 @@ This is a quick reference to this mode describing the default key bindings:
   (make-local-variable 'dictionary-positions)
   (make-local-variable 'dictionary-default-dictionary)
   (make-local-variable 'dictionary-default-strategy)
+  ;; Replace the tool bar map with `dictionary-tool-bar-map'.
+  (setq-local tool-bar-map dictionary-tool-bar-map)
   (add-hook 'kill-buffer-hook #'dictionary-close t t))
 
 ;;;###autoload
@@ -745,7 +787,7 @@ FUNCTION is the callback which is called for each search result."
 Optional argument NOMATCHING controls whether to suppress the display
 of matching words."
 
-  (message "Searching for %s in %s" word dictionary)
+  (insert (format-message "Searching for `%s' in `%s'\n" word dictionary))
   (dictionary-send-command (concat "define "
 				   (dictionary-encode-charset dictionary "")
 				   " \""
@@ -757,13 +799,13 @@ of matching words."
     (if (dictionary-check-reply reply 552)
 	(progn
 	  (unless nomatching
-	    (insert "Word not found")
+	    (insert (format-message "Word `%s' not found\n" word))
 	    (dictionary-do-matching
              word
 	     dictionary
 	     "."
 	     (lambda (reply)
-               (insert ", maybe you are looking for one of these words\n\n")
+               (insert "Maybe you are looking for one of these words\n")
                (dictionary-display-only-match-result reply)))
 	    (dictionary-post-buffer)))
       (if (dictionary-check-reply reply 550)
@@ -1074,20 +1116,26 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 
 (defun dictionary-new-matching (word)
   "Run a new matching search on WORD."
-  (dictionary-ensure-buffer)
   (dictionary-store-positions)
-  (dictionary-do-matching word dictionary-default-dictionary
-			  dictionary-default-strategy
-			  'dictionary-display-match-result)
-  (dictionary-store-state 'dictionary-do-matching
+  (dictionary-ensure-buffer)
+  (dictionary-new-matching-internal word dictionary-default-dictionary
+                                    dictionary-default-strategy
+                                    'dictionary-display-match-result)
+  (dictionary-store-state 'dictionary-new-matching-internal
 			  (list word dictionary-default-dictionary
 				dictionary-default-strategy
 				'dictionary-display-match-result)))
 
+(defun dictionary-new-matching-internal (word dictionary strategy function)
+  "Start a new matching for WORD in DICTIONARY after preparing the buffer.
+FUNCTION is the callback which is called for each search result."
+  (dictionary-pre-buffer)
+  (dictionary-do-matching word dictionary strategy function))
+
 (defun dictionary-do-matching (word dictionary strategy function)
   "Search for WORD with STRATEGY in DICTIONARY and display them with FUNCTION."
-  (message "Lookup matching words for %s in %s using %s"
-	   word dictionary strategy)
+  (insert (format-message "Lookup matching words for `%s' in `%s' using `%s'\n"
+                          word dictionary strategy))
   (dictionary-send-command
    (concat "match " (dictionary-encode-charset dictionary "") " "
 	   (dictionary-encode-charset strategy "") " \""
@@ -1099,10 +1147,13 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
     (if (dictionary-check-reply reply 551)
 	(error "Strategy \"%s\" is invalid" strategy))
     (if (dictionary-check-reply reply 552)
-	(error (concat
-		"No match for \"%s\" with strategy \"%s\" in "
-		"dictionary \"%s\".")
-	       word strategy dictionary))
+	(let ((errmsg (format-message
+                       (concat
+		        "No match for `%s' with strategy `%s' in "
+		        "dictionary `%s'.")
+	               word strategy dictionary)))
+          (insert errmsg "\n")
+          (user-error errmsg)))
     (unless (dictionary-check-reply reply 152)
       (error "Unknown server answer: %s" (dictionary-reply reply)))
     (funcall function reply)))
@@ -1130,8 +1181,6 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 
 (defun dictionary-display-match-result (reply)
   "Display the results in REPLY from a match operation."
-  (dictionary-pre-buffer)
-
   (let ((number (nth 1 (dictionary-reply-list reply)))
 	(list (dictionary-simple-split-string (dictionary-read-answer) "\n+")))
     (insert number " matching word" (if (equal number "1") "" "s")
@@ -1229,7 +1278,7 @@ prompt for DICTIONARY."
   (interactive)
   (let ((word (current-word)))
     (unless word
-      (error "No word at point"))
+      (user-error "No word at point"))
     (dictionary-new-search (cons word dictionary-default-dictionary))))
 
 (defun dictionary-previous ()
@@ -1269,7 +1318,8 @@ prompt for DICTIONARY."
 (defun dictionary-popup-matching-words (&optional word)
   "Display entries matching WORD or the current word if not given."
   (interactive)
-  (dictionary-do-matching (or word (current-word) (error "Nothing to search for"))
+  (dictionary-do-matching (or word (current-word)
+                              (user-error "Nothing to search for"))
 			  dictionary-default-dictionary
 			  dictionary-default-popup-strategy
 			  'dictionary-process-popup-replies))

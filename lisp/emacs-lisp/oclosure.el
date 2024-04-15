@@ -1,6 +1,6 @@
 ;;; oclosure.el --- Open Closures       -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -139,12 +139,15 @@
                (:include cl--class)
                (:copier nil))
   "Metaclass for OClosure classes."
+  ;; The `allparents' slot is used for the predicate that checks if a given
+  ;; object is an OClosure of a particular type.
   (allparents nil :read-only t :type (list-of symbol)))
 
 (setf (cl--find-class 'oclosure)
       (oclosure--class-make 'oclosure
-                            "The root parent of all OClosure classes"
-                            nil nil '(oclosure)))
+                            "The root parent of all OClosure types"
+                            nil (list (cl--find-class 'function))
+                            '(oclosure)))
 (defun oclosure--p (oclosure)
   (not (not (oclosure-type oclosure))))
 
@@ -350,6 +353,7 @@ MUTABLE is a list of symbols indicating which of the BINDINGS
 should be mutable.
 No checking is performed."
   (declare (indent 3) (debug (sexp (&rest (sexp form)) sexp def-body)))
+  (cl-assert lexical-binding)          ;Can't work in dynbind dialect.
   ;; FIXME: Fundamentally `oclosure-lambda' should be a special form.
   ;; We define it here as a macro which expands to something that
   ;; looks like "normal code" in order to avoid backward compatibility
@@ -433,7 +437,7 @@ This has 2 uses:
 - For compiled code, this is used as a marker which cconv uses to check that
   immutable fields are indeed not mutated."
   (if (byte-code-function-p oclosure)
-      ;; Actually, this should never happen since the `cconv.el' should have
+      ;; Actually, this should never happen since `cconv.el' should have
       ;; optimized away the call to this function.
       oclosure
     ;; For byte-coded functions, we store the type as a symbol in the docstring

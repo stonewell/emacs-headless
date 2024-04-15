@@ -1,6 +1,6 @@
 ;;; image-mode.el --- support for visiting image files  -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2024 Free Software Foundation, Inc.
 ;;
 ;; Author: Richard Stallman <rms@gnu.org>
 ;; Keywords: multimedia
@@ -654,8 +654,9 @@ Key bindings:
   (unless (display-images-p)
     (error "Display does not support images"))
 
-  (major-mode-suspend)
-  (setq major-mode 'image-mode)
+  (unless (eq major-mode 'image-mode)
+    (major-mode-suspend)
+    (setq major-mode 'image-mode))
   (setq image-transform-resize image-auto-resize)
 
   ;; Bail out early if we have no image data.
@@ -772,9 +773,8 @@ to switch back to
 
 ;;;###autoload
 (defun image-mode-to-text ()
-  "Set a non-image mode as major mode in combination with image minor mode.
-A non-mage major mode found from `auto-mode-alist' or fundamental mode
-displays an image file as text."
+  "Set current buffer's modes be a non-image major mode, plus `image-minor-mode'.
+A non-image major mode displays an image file as text."
   ;; image-mode-as-text = normal-mode + image-minor-mode
   (let ((previous-image-type image-type)) ; preserve `image-type'
     (major-mode-restore '(image-mode image-mode-as-text))
@@ -785,15 +785,14 @@ displays an image file as text."
       (image-toggle-display-text))))
 
 (defun image-mode-as-hex ()
-  "Set `hexl-mode' as major mode in combination with image minor mode.
-A non-mage major mode found from `auto-mode-alist' or fundamental mode
-displays an image file as hex.  `image-minor-mode' provides the key
-\\<image-mode-map>\\[image-toggle-hex-display] to switch back to `image-mode' \
-to display an image file as
-the actual image.
+  "Set current buffer's modes be `hexl-mode' major mode, plus `image-minor-mode'.
+This will by default display an image file as hex.  `image-minor-mode'
+provides the key sequence \\<image-mode-map>\\[image-toggle-hex-display] to \
+switch back to `image-mode' to display
+an image file's buffer as an image.
 
 You can use `image-mode-as-hex' in `auto-mode-alist' when you want to
-display an image file as hex initially.
+display image files as hex by default.
 
 See commands `image-mode' and `image-minor-mode' for more information
 on these modes."

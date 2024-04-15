@@ -1,6 +1,6 @@
 ;;; esh-util.el --- general utilities  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -234,6 +234,57 @@ current buffer."
                 (eshell--mark-as-output start1 end1)))))
     (add-hook 'after-change-functions hook nil t)))
 
+(defun eshell--unmark-string-as-output (string)
+  "Unmark STRING as Eshell output."
+  (remove-list-of-text-properties
+   0 (length string)
+   '(rear-nonsticky front-sticky field insert-in-front-hooks)
+   string)
+  string)
+
+(defsubst eshell--region-p (object)
+  "Return non-nil if OBJECT is a pair of numbers or markers."
+  (and (consp object)
+       (number-or-marker-p (car object))
+       (number-or-marker-p (cdr object))))
+
+(defmacro eshell-with-temp-command (command &rest body)
+  "Temporarily insert COMMAND into the buffer and execute the forms in BODY.
+
+COMMAND can be a string to insert, a cons cell (START . END)
+specifying a region in the current buffer, or (:file . FILENAME)
+to temporarily insert the contents of FILENAME.
+
+Before executing BODY, narrow the buffer to the text for COMMAND
+and and set point to the beginning of the narrowed region.
+
+The value returned is the last form in BODY."
+  (declare (indent 1))
+  (let ((command-sym (make-symbol "command"))
+        (begin-sym (make-symbol "begin"))
+        (end-sym (make-symbol "end")))
+    `(let ((,command-sym ,command))
+       (if (eshell--region-p ,command-sym)
+           (save-restriction
+             (narrow-to-region (car ,command-sym) (cdr ,command-sym))
+             (goto-char (car ,command-sym))
+             ,@body)
+         ;; Since parsing relies partly on buffer-local state
+         ;; (e.g. that of `eshell-parse-argument-hook'), we need to
+         ;; perform the parsing in the Eshell buffer.
+         (let ((,begin-sym (point)) ,end-sym)
+           (with-silent-modifications
+             (if (stringp ,command-sym)
+                 (insert ,command-sym)
+               (forward-char (cadr (insert-file-contents (cdr ,command-sym)))))
+             (setq ,end-sym (point))
+             (unwind-protect
+                 (save-restriction
+                   (narrow-to-region ,begin-sym ,end-sym)
+                   (goto-char ,begin-sym)
+                   ,@body)
+               (delete-region ,begin-sym ,end-sym))))))))
+
 (defun eshell-find-delimiter
   (open close &optional bound reverse-p backslash-p)
   "From point, find the CLOSE delimiter corresponding to OPEN.
@@ -396,29 +447,34 @@ Prepend remote identification of `default-directory', if any."
 	 (parse-colon-path path-env))
       (parse-colon-path path-env))))
 
-(defun eshell-split-path (path)
-  "Split a path into multiple subparts."
-  (let ((len (length path))
-	(i 0) (li 0)
-	parts)
-    (if (and (eshell-under-windows-p)
-	     (> len 2)
-	     (eq (aref path 0) ?/)
-	     (eq (aref path 1) ?/))
-	(setq i 2))
-    (while (< i len)
-      (if (and (eq (aref path i) ?/)
-	       (not (get-text-property i 'escaped path)))
-	  (setq parts (cons (if (= li i) "/"
-			      (substring path li (1+ i))) parts)
-		li (1+ i)))
-      (setq i (1+ i)))
-    (if (< li i)
-	(setq parts (cons (substring path li i) parts)))
-    (if (and (eshell-under-windows-p)
-	     (string-match "\\`[A-Za-z]:\\'" (car (last parts))))
-	(setcar (last parts) (concat (car (last parts)) "/")))
-    (nreverse parts)))
+(defun eshell-split-filename (filename)
+  "Split a FILENAME into a list of file/directory components."
+  (let* ((remote (file-remote-p filename))
+         (filename (file-local-name filename))
+         (len (length filename))
+         (index 0) (curr-start 0)
+         parts)
+    (when (and (eshell-under-windows-p)
+               (string-prefix-p "//" filename))
+      (setq index 2))
+    (while (< index len)
+      (when (and (eq (aref filename index) ?/)
+                 (not (get-text-property index 'escaped filename)))
+        (push (if (= curr-start index) "/"
+                (substring filename curr-start (1+ index)))
+              parts)
+        (setq curr-start (1+ index)))
+      (setq index (1+ index)))
+    (when (< curr-start len)
+      (push (substring filename curr-start) parts))
+    (setq parts (nreverse parts))
+    (when (and (eshell-under-windows-p)
+               (string-match "\\`[A-Za-z]:\\'" (car parts)))
+      (setcar parts (concat (car parts) "/")))
+    (if remote (cons remote parts) parts)))
+
+(define-obsolete-function-alias 'eshell-split-path
+  'eshell-split-filename "30.1")
 
 (defun eshell-to-flat-string (value)
   "Make value a string.  If separated by newlines change them to spaces."

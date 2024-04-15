@@ -1,6 +1,6 @@
 ;;; mule-cmds.el --- commands for multilingual environment  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2024 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -350,9 +350,10 @@ This also sets the following values:
       if CODING-SYSTEM is ASCII-compatible"
   (check-coding-system coding-system)
   (setq-default buffer-file-coding-system coding-system)
-
-  (if (eq system-type 'darwin)
-      ;; The file-name coding system on Darwin systems is always utf-8.
+  (if (or (eq system-type 'darwin)
+          (eq system-type 'android))
+      ;; The file-name coding system on Darwin and Android systems is
+      ;; always UTF-8.
       (setq default-file-name-coding-system 'utf-8-unix)
     (if (and (or (not coding-system)
 		 (coding-system-get coding-system 'ascii-compatible-p)))
@@ -2159,7 +2160,9 @@ See `set-language-info-alist' for use in programs."
   (interactive
    (list (read-language-name
 	  'documentation
-	  (format-prompt "Describe language environment" current-language-environment))))
+	  (format-prompt "Describe language environment"
+                         current-language-environment)
+          current-language-environment)))
   (let ((help-buffer-under-preparation t))
     (if (null language-name)
 	(setq language-name current-language-environment))

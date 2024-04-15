@@ -1,5 +1,5 @@
 /* Elisp bindings for D-Bus.
-   Copyright (C) 2007-2023 Free Software Foundation, Inc.
+   Copyright (C) 2007-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1688,6 +1688,22 @@ xd_read_message_1 (DBusConnection *connection, Lisp_Object bus)
       key = list4 (mtype == DBUS_MESSAGE_TYPE_METHOD_CALL ? QCmethod : QCsignal,
 		   bus, build_string (interface), build_string (member));
       value = Fgethash (key, Vdbus_registered_objects_table, Qnil);
+
+      /* A signal could be registered with a nil interface or member.  */
+      if (mtype == DBUS_MESSAGE_TYPE_SIGNAL)
+	{
+	  key = list4 (QCsignal, bus, Qnil, build_string (member));
+	  value = CALLN (Fappend, value,
+			 Fgethash (key, Vdbus_registered_objects_table, Qnil));
+
+	  key = list4 (QCsignal, bus, build_string (interface), Qnil);
+	  value = CALLN (Fappend, value,
+			 Fgethash (key, Vdbus_registered_objects_table, Qnil));
+
+	  key = list4 (QCsignal, bus, Qnil, Qnil);
+	  value = CALLN (Fappend, value,
+			 Fgethash (key, Vdbus_registered_objects_table, Qnil));
+	}
 
       /* Loop over the registered functions.  Construct an event.  */
       for (; !NILP (value); value = CDR_SAFE (value))

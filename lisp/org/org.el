@@ -1,15 +1,15 @@
 ;;; org.el --- Outline-based notes management and organizer -*- lexical-binding: t; -*-
 
 ;; Carstens outline-mode for keeping track of everything.
-;; Copyright (C) 2004-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2024 Free Software Foundation, Inc.
 ;;
 ;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: Bastien Guerry <bzg@gnu.org>
-;; Keywords: outlines, hypermedia, calendar, wp
+;; Keywords: outlines, hypermedia, calendar, text
 ;; URL: https://orgmode.org
 ;; Package-Requires: ((emacs "26.1"))
 
-;; Version: 9.6.9
+;; Version: 9.6.15
 
 ;; This file is part of GNU Emacs.
 ;;
@@ -1140,6 +1140,24 @@ the following lines anywhere in the buffer:
   :package-version '(Org . "8.0")
   :type 'boolean)
 
+(defvar untrusted-content) ; defined in files.el
+(defvar org--latex-preview-when-risky nil
+  "If non-nil, enable LaTeX preview in Org buffers from unsafe source.
+
+Some specially designed LaTeX code may generate huge pdf or log files
+that may exhaust disk space.
+
+This variable controls how to handle LaTeX preview when rendering LaTeX
+fragments that originate from incoming email messages.  It has no effect
+when Org mode is unable to determine the origin of the Org buffer.
+
+An Org buffer is considered to be from unsafe source when the
+variable `untrusted-content' has a non-nil value in the buffer.
+
+If this variable is non-nil, LaTeX previews are rendered unconditionally.
+
+This variable may be renamed or changed in the future.")
+
 (defcustom org-insert-mode-line-in-empty-file nil
   "Non-nil means insert the first line setting Org mode in empty files.
 When the function `org-mode' is called interactively in an empty file, this
@@ -1230,7 +1248,7 @@ This applies to indirect buffers created with the commands
 Valid values are:
 current-window   Display in the current window
 other-window     Just display in another window.
-dedicated-frame  Create one new frame, and re-use it each time.
+dedicated-frame  Create one new frame, and reuse it each time.
 new-frame        Make a new frame each time.  Note that in this case
                  previously-made indirect buffers are kept, and you need to
                  kill these buffers yourself."
@@ -4558,12 +4576,16 @@ from file or URL, and return nil.
 If NOCACHE is non-nil, do a fresh fetch of FILE even if cached version
 is available.  This option applies only if FILE is a URL."
   (let* ((is-url (org-url-p file))
+         (is-remote (condition-case nil
+                        (file-remote-p file)
+                      ;; In case of error, be safe.
+                      (t t)))
          (cache (and is-url
                      (not nocache)
                      (gethash file org--file-cache))))
     (cond
      (cache)
-     (is-url
+     ((or is-url is-remote)
       (if (org--should-fetch-remote-resource-p file)
           (condition-case error
               (with-current-buffer (url-retrieve-synchronously file)
@@ -4582,7 +4604,7 @@ is available.  This option applies only if FILE is a URL."
                            file)
                   nil))
             (error (if noerror
-                       (message "Org could't download \"%s\": %s %S" file (car error) (cdr error))
+                       (message "Org couldn't download \"%s\": %s %S" file (car error) (cdr error))
                      (signal (car error) (cdr error)))))
         (funcall (if noerror #'message #'user-error)
                  "The remote resource %S is considered unsafe, and will not be downloaded."
@@ -4649,9 +4671,9 @@ returns non-nil if any of them match."
                      (propertize domain 'face '(:inherit org-link :weight normal))
                      ") as safe.\n ")
                   "")
-                (propertize "f" 'face 'success)
                 (if current-file
                     (concat
+                     (propertize "f" 'face 'success)
                      " to download this resource, and permanently mark all resources in "
                      (propertize current-file 'face 'underline)
                      " as safe.\n ")
@@ -4685,7 +4707,7 @@ returns non-nil if any of them match."
                               (if (and (= char ?f) current-file)
                                   (concat "file://" current-file) uri))
                              "\\'")))))
-          (prog1 (memq char '(?y ?n ?! ?d ?\s ?f))
+          (prog1 (memq char '(?y ?! ?d ?\s ?f))
             (quit-window t)))))))
 
 (defun org-extract-log-state-settings (x)
@@ -11346,7 +11368,7 @@ See also `org-scan-tags'."
   (let ((match0 match)
 	(re (concat
 	     "^&?\\([-+:]\\)?\\({[^}]+}\\|LEVEL\\([<=>]\\{1,2\\}\\)"
-	     "\\([0-9]+\\)\\|\\(\\(?:[[:alnum:]_]+\\(?:\\\\-\\)*\\)+\\)"
+	     "\\([0-9]+\\)\\|\\([[:alnum:]_]\\(?:[[:alnum:]_]\\|\\\\-\\)*\\)"
 	     "\\([<>=]\\{1,2\\}\\)"
 	     "\\({[^}]+}\\|\"[^\"]*\"\\|-?[.0-9]+\\(?:[eE][-+]?[0-9]+\\)?\\)"
 	     "\\|" org-tag-re "\\)"))
@@ -14035,6 +14057,7 @@ user."
       (unless deltadef
 	(let ((now (decode-time)))
 	  (setq day (nth 3 now) month (nth 4 now) year (nth 5 now))))
+      ;; FIXME: Duplicated value in ‘cond’: ""
       (cond ((member deltaw '("h" ""))
              (when (boundp 'org-time-was-given)
                (setq org-time-was-given t))
@@ -15695,6 +15718,7 @@ fragments in the buffer."
   (interactive "P")
   (cond
    ((not (display-graphic-p)) nil)
+   ((and untrusted-content (not org--latex-preview-when-risky)) nil)
    ;; Clear whole buffer.
    ((equal arg '(64))
     (org-clear-latex-preview (point-min) (point-max))
@@ -19984,7 +20008,7 @@ With argument N not nil or 1, move forward N - 1 lines first."
 	(if (eq special 'reversed)
 	    (when (and (= origin bol) (eq last-command this-command))
 	      (goto-char refpos))
-	  (when (or (> origin refpos) (= origin bol))
+	  (when (or (> origin refpos) (<= origin bol))
 	    (goto-char refpos)))))
      ((and (looking-at org-list-full-item-re)
 	   (memq (org-element-type (save-match-data (org-element-at-point)))
@@ -19999,7 +20023,7 @@ With argument N not nil or 1, move forward N - 1 lines first."
 	(if (eq special 'reversed)
 	    (when (and (= (point) origin) (eq last-command this-command))
 	      (goto-char after-bullet))
-	  (when (or (> origin after-bullet) (= (point) origin))
+	  (when (or (> origin after-bullet) (>= (point) origin))
 	    (goto-char after-bullet)))))
      ;; No special context.  Point is already at beginning of line.
      (t nil))))
@@ -20054,7 +20078,7 @@ With argument N not nil or 1, move forward N - 1 lines first."
 		   (goto-char tags)
 		 (end-of-line)))
 	      (t
-	       (if (or (< origin tags) (= origin (line-end-position)))
+	       (if (or (< origin tags) (>= origin (line-end-position)))
 		   (goto-char tags)
 		 (end-of-line))))))
      ((bound-and-true-p visual-line-mode)

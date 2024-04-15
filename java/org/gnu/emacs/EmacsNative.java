@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -26,6 +26,7 @@ import android.graphics.Bitmap;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.SurroundingText;
+import android.view.inputmethod.TextAttribute;
 import android.view.inputmethod.TextSnapshot;
 
 public final class EmacsNative
@@ -37,6 +38,9 @@ public final class EmacsNative
 
   /* Like `dup' in C.  */
   public static native int dup (int fd);
+
+  /* Like `close' in C.  */
+  public static native int close (int fd);
 
   /* Obtain the fingerprint of this build of Emacs.  The fingerprint
      can be used to determine the dump file name.  */
@@ -87,6 +91,13 @@ public final class EmacsNative
      DUMPFILE is the dump file to use, or NULL if Emacs is to load
      loadup.el itself.  */
   public static native void initEmacs (String argv[], String dumpFile);
+
+  /* Call shut_down_emacs to auto-save and unlock files in the main
+     thread, then return.  */
+  public static native void shutDownEmacs ();
+
+  /* Garbage collect and clear each frame's image cache.  */
+  public static native void onLowMemory ();
 
   /* Abort and generate a native core dump.  */
   public static native void emacsAbort ();
@@ -174,6 +185,23 @@ public final class EmacsNative
   public static native long sendExpose (short window, int x, int y,
 					int width, int height);
 
+  /* Send an ANDROID_DND_DRAG event.  */
+  public static native long sendDndDrag (short window, int x, int y);
+
+  /* Send an ANDROID_DND_URI event.  */
+  public static native long sendDndUri (short window, int x, int y,
+					String text);
+
+  /* Send an ANDROID_DND_TEXT event.  */
+  public static native long sendDndText (short window, int x, int y,
+					 String text);
+
+  /* Send an ANDROID_NOTIFICATION_CANCELED event.  */
+  public static native void sendNotificationDeleted (String tag);
+
+  /* Send an ANDROID_NOTIFICATION_ACTION event.  */
+  public static native void sendNotificationAction (String tag, String action);
+
   /* Return the file name associated with the specified file
      descriptor, or NULL if there is none.  */
   public static native byte[] getProcName (int fd);
@@ -219,6 +247,9 @@ public final class EmacsNative
 						   int leftLength,
 						   int rightLength);
   public static native void finishComposingText (short window);
+  public static native void replaceText (short window, int start, int end,
+					 String text, int newCursorPosition,
+					 TextAttribute attributes);
   public static native String getSelectedText (short window, int flags);
   public static native String getTextAfterCursor (short window, int length,
 						  int flags);
@@ -250,7 +281,7 @@ public final class EmacsNative
   public static native int[] getSelection (short window);
 
 
-  /* Graphics functions used as a replacement for potentially buggy
+  /* Graphics functions used as replacements for potentially buggy
      Android APIs.  */
 
   public static native void blitRect (Bitmap src, Bitmap dest, int x1,
@@ -258,7 +289,6 @@ public final class EmacsNative
 
   /* Increment the generation ID of the specified BITMAP, forcing its
      texture to be re-uploaded to the GPU.  */
-
   public static native void notifyPixelsChanged (Bitmap bitmap);
 
 
@@ -282,6 +312,13 @@ public final class EmacsNative
      in the process.  */
   public static native boolean ftruncate (int fd);
 
+
+  /* Functions that assist in generating content file names.  */
+
+  /* Calculate an 8 digit checksum for the byte array DISPLAYNAME
+     suitable for inclusion in a content file name.  */
+  public static native String displayNameHash (byte[] displayName);
+
   static
   {
     /* Older versions of Android cannot link correctly with shared
@@ -292,15 +329,17 @@ public final class EmacsNative
        Every time you add a new shared library dependency to Emacs,
        please add it here as well.  */
 
-    libraryDeps = new String[] { "png_emacs", "selinux_emacs",
+    libraryDeps = new String[] { "c++_shared", "gnustl_shared",
+				 "stlport_shared", "gabi++_shared",
+				 "png_emacs", "selinux_emacs",
 				 "crypto_emacs", "pcre_emacs",
 				 "packagelistparser_emacs",
 				 "gnutls_emacs", "gmp_emacs",
 				 "nettle_emacs", "p11-kit_emacs",
 				 "tasn1_emacs", "hogweed_emacs",
-				 "jansson_emacs", "jpeg_emacs",
+				 "jpeg_emacs",
 				 "tiff_emacs", "xml2_emacs",
-				 "icuuc_emacs",
+				 "icuuc_emacs", "harfbuzz_emacs",
 				 "tree-sitter_emacs", };
 
     for (String dependency : libraryDeps)

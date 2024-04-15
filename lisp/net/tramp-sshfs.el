@@ -1,6 +1,6 @@
 ;;; tramp-sshfs.el --- Tramp access functions via sshfs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -60,7 +60,7 @@
 		;; These are for remote processes.
                 (tramp-login-program        "ssh")
                 (tramp-login-args           (("-q") ("-l" "%u") ("-p" "%p")
-				             ("-e" "none") ("-t" "-t")
+				             ("-e" "none") ("%a" "%a")
 					     ("%h") ("%l")))
                 (tramp-direct-async         t)
                 (tramp-remote-shell         ,tramp-default-remote-shell)
@@ -322,11 +322,11 @@ arguments to pass to the OPERATION."
 	   v (tramp-get-method-parameter v 'tramp-login-program)
 	   nil outbuf display
 	   (tramp-expand-args
-	    v 'tramp-login-args
+	    v 'tramp-login-args nil
 	    ?h (or (tramp-file-name-host v) "")
 	    ?u (or (tramp-file-name-user v) "")
 	    ?p (or (tramp-file-name-port v) "")
-	    ?l command))
+            ?a "-t" ?l command))
 
 	;; Synchronize stderr.
 	(when tmpstderr
@@ -424,7 +424,7 @@ connection if a previous connection has died for some reason."
 		(tramp-fuse-mount-spec vec)
 		(tramp-fuse-mount-point vec)
 		(tramp-expand-args
-		 vec 'tramp-mount-args
+		 vec 'tramp-mount-args nil
 		 ?p (or (tramp-file-name-port vec) ""))))))
       (tramp-error
        vec 'file-error "Error mounting %s" (tramp-fuse-mount-spec vec)))

@@ -1,6 +1,6 @@
 ;;; htmlfontify.el --- htmlize a buffer/source tree with optional hyperlinks -*- lexical-binding: t -*-
 
-;; Copyright (C) 2002-2003, 2009-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2003, 2009-2024 Free Software Foundation, Inc.
 
 ;; Emacs Lisp Archive Entry
 ;; Package: htmlfontify
@@ -586,6 +586,7 @@ If a window system is unavailable, calls `hfy-fallback-color-values'."
 (defvar hfy-cperl-mode-kludged-p nil)
 
 (defun hfy-kludge-cperl-mode ()
+  ;; FIXME: Still?
   "CPerl mode does its damnedest not to do some of its fontification when not
 in a windowing system - try to trick it..."
   (declare (obsolete nil "28.1"))

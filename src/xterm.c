@@ -1,6 +1,6 @@
 /* X Communication module for terminals which understand the X protocol.
 
-Copyright (C) 1989, 1993-2023 Free Software Foundation, Inc.
+Copyright (C) 1989, 1993-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -616,9 +616,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
     - x_clear_errors
 
   Callers using this set should consult the comment(s) on top of the
-  aformentioned functions.  They should not be used when the requests
+  aforementioned functions.  They should not be used when the requests
   being made do not require roundtrips to the X server, and obtaining
-  the details of any error generated is unecessary, as
+  the details of any error generated is unnecessary, as
   `x_uncatch_errors' will always synchronize with the X server, which
   is a potentially slow operation.  */
 
@@ -1167,7 +1167,7 @@ static struct terminal *x_create_terminal (struct x_display_info *);
 static void x_frame_rehighlight (struct x_display_info *);
 
 static void x_clip_to_row (struct window *, struct glyph_row *,
-			   enum glyph_row_area, GC);
+			   enum glyph_row_area, GC, XRectangle *);
 static struct scroll_bar *x_window_to_scroll_bar (Display *, Window, int);
 static struct frame *x_window_to_frame (struct x_display_info *, int);
 static void x_scroll_bar_report_motion (struct frame **, Lisp_Object *,
@@ -5036,7 +5036,7 @@ x_dnd_note_self_drop (struct x_display_info *dpyinfo, Window target,
   XSETFRAME (lval, f);
   x_dnd_action = None;
   x_dnd_action_symbol
-    = safe_call2 (Vx_dnd_native_test_function,
+    = safe_calln (Vx_dnd_native_test_function,
 		  Fposn_at_x_y (make_fixnum (win_x),
 				make_fixnum (win_y),
 				lval, Qnil),
@@ -5173,7 +5173,7 @@ record_event (char *locus, int type)
 
 
 
-/* Miscelaneous event handling functions.  */
+/* Miscellaneous event handling functions.  */
 
 static void
 x_toolkit_position (struct frame *f, int x, int y,
@@ -7292,6 +7292,11 @@ x_sync_init_fences (struct frame *f)
 	  && dpyinfo->xsync_minor < 1))
     return;
 
+  /* Suppress errors around XSyncCreateFence requests, since its
+     implementations on certain X servers erroneously reject valid
+     drawables, such as the frame's inner window.  (bug#69762) */
+
+  x_catch_errors (dpyinfo->display);
   output->sync_fences[0]
     = XSyncCreateFence (FRAME_X_DISPLAY (f),
 			/* The drawable given below is only used to
@@ -7303,6 +7308,9 @@ x_sync_init_fences (struct frame *f)
     = XSyncCreateFence (FRAME_X_DISPLAY (f),
 			FRAME_X_WINDOW (f),
 			False);
+  if (x_had_errors_p (dpyinfo->display))
+    output->sync_fences[1] = output->sync_fences[0] = None;
+  x_uncatch_errors_after_check ();
 
   XChangeProperty (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
 		   dpyinfo->Xatom_net_wm_sync_fences, XA_CARDINAL,
@@ -7842,9 +7850,10 @@ x_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
   Display *display = FRAME_X_DISPLAY (f);
   GC gc = f->output_data.x->normal_gc;
   struct face *face = p->face;
+  XRectangle clip_rect;
 
   /* Must clip because of partially visible lines.  */
-  x_clip_to_row (w, row, ANY_AREA, gc);
+  x_clip_to_row (w, row, ANY_AREA, gc, &clip_rect);
 
   if (p->bx >= 0 && !p->overlay_p)
     {
@@ -7914,6 +7923,29 @@ x_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
 
       memset (&attrs, 0, sizeof attrs);
 #endif
+      XRectangle image_rect, dest;
+      int px, py, pwidth, pheight;
+
+      /* Intersect the destination rectangle with that of the row.
+	 Setting a clip mask overrides the clip rectangles provided by
+	 x_clip_to_row, so clipping must be performed by hand.  */
+
+      image_rect.x = p->x;
+      image_rect.y = p->y;
+      image_rect.width = p->wd;
+      image_rect.height = p->h;
+
+      if (!gui_intersect_rectangles (&clip_rect, &image_rect, &dest))
+	/* The entire destination rectangle falls outside the row.  */
+	goto undo_clip;
+
+      /* Extrapolate the source rectangle from the difference between
+	 the destination and image rectangles.  */
+
+      px = dest.x - image_rect.x;
+      py = dest.y - image_rect.y;
+      pwidth = dest.width;
+      pheight = dest.height;
 
       if (p->wd > 8)
 	bits = (char *) (p->bits + p->dh);
@@ -7985,15 +8017,16 @@ x_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
 	  x_xr_apply_ext_clip (f, gc);
 	  XRenderComposite (display, PictOpSrc, picture,
 			    None, FRAME_X_PICTURE (f),
-			    0, 0, 0, 0, p->x, p->y, p->wd, p->h);
+			    px, py, px, py, dest.x, dest.y,
+			    pwidth, pheight);
 	  x_xr_reset_ext_clip (f);
 
 	  XRenderFreePicture (display, picture);
 	}
       else
 #endif
-	XCopyArea (display, pixmap, drawable, gc, 0, 0,
-		   p->wd, p->h, p->x, p->y);
+	XCopyArea (display, pixmap, drawable, gc, px, py,
+		   pwidth, pheight, dest.x, dest.y);
       XFreePixmap (display, pixmap);
 
       if (p->overlay_p)
@@ -8003,6 +8036,8 @@ x_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
 	  XFreePixmap (display, clipmask);
 	}
     }
+
+  undo_clip:
 #endif  /* not USE_CAIRO */
 
   x_reset_clip_rectangles (f, gc);
@@ -11269,7 +11304,7 @@ x_clear_frame (struct frame *f)
 
 /* Send a message to frame F telling the event loop to track whether
    or not an hourglass is being displayed.  This is required to ignore
-   the right events when the hourglass is mapped without callig XSync
+   the right events when the hourglass is mapped without calling XSync
    after displaying or hiding the hourglass.  */
 
 static void
@@ -11793,7 +11828,9 @@ x_frame_highlight (struct frame *f)
   x_stop_ignoring_errors (dpyinfo);
   unblock_input ();
   gui_update_cursor (f, true);
-  x_set_frame_alpha (f);
+
+  if (!FRAME_X_OUTPUT (f)->alpha_identical_p)
+    x_set_frame_alpha (f);
 }
 
 static void
@@ -11817,7 +11854,15 @@ x_frame_unhighlight (struct frame *f)
   unblock_input ();
 
   gui_update_cursor (f, true);
-  x_set_frame_alpha (f);
+
+  /* Eschew modifying the frame alpha when the alpha values for
+     focused and background frames are identical; otherwise, this will
+     upset the order in which changes to the alpha property
+     immediately subsequent to a focus change are propagated into a
+     frame's alpha property.  (bug#66398) */
+
+  if (!FRAME_X_OUTPUT (f)->alpha_identical_p)
+    x_set_frame_alpha (f);
 }
 
 /* The focus has changed.  Update the frames as necessary to reflect
@@ -12527,7 +12572,7 @@ x_dnd_process_quit (struct frame *f, Time timestamp)
 /* This function is defined far away from the rest of the XDND code so
    it can utilize `x_any_window_to_frame'.  */
 
-/* Implementors beware!  On most other platforms (where drag-and-drop
+/* Implementers beware!  On most other platforms (where drag-and-drop
    data is not provided via selections, but some kind of serialization
    mechanism), it is usually much easier to implement a suitable
    primitive instead of copying the C code here, and then to build
@@ -13333,13 +13378,12 @@ xi_focus_handle_for_device (struct x_display_info *dpyinfo,
 	 frame's user time.  */
       x_display_set_last_user_time (dpyinfo, event->time,
 				    event->send_event, false);
-
       device->focus_frame = NULL;
 
       /* So, unfortunately, the X Input Extension is implemented such
-	 that means XI_Leave events will not have their focus field
-	 set if the core focus is transferred to another window after
-	 an entry event that pretends to (or really does) set the
+	 that XI_Leave events will not have their focus field set if
+	 the core focus is transferred to another window after an
+	 entry event that pretends to (or really does) set the
 	 implicit focus.  In addition, if the core focus is set, but
 	 the extension focus on the client pointer is not, all
 	 XI_Enter events will have their focus fields set, despite not
@@ -14507,18 +14551,19 @@ x_query_pointer (Display *dpy, Window w, Window *root_return,
    `x', `y', `x_root' and `y_root'.  This function should not access
    any other fields in EVENT without also initializing the
    corresponding fields in `bv' under the XI_ButtonPress and
-   XI_ButtonRelease labels inside `handle_one_xevent'.  */
+   XI_ButtonRelease labels inside `handle_one_xevent'.
+
+   XI2 indicates that this click comes from XInput2 rather than core
+   event.   */
 
 static Lisp_Object
 x_construct_mouse_click (struct input_event *result,
                          const XButtonEvent *event,
-                         struct frame *f)
+                         struct frame *f, bool xi2)
 {
   int x = event->x;
   int y = event->y;
 
-  /* Make the event type NO_EVENT; we'll change that when we decide
-     otherwise.  */
   result->kind = MOUSE_CLICK_EVENT;
   result->code = event->button - Button1;
   result->timestamp = event->time;
@@ -14527,6 +14572,29 @@ x_construct_mouse_click (struct input_event *result,
 		       | (event->type == ButtonRelease
 			  ? up_modifier
 			  : down_modifier));
+
+  /* Convert pre-XInput2 wheel events represented as mouse-clicks.  */
+  if (!xi2)
+    {
+      Lisp_Object base
+        = Fcdr_safe (Fassq (make_fixnum (result->code + 1),
+                            Fsymbol_value (Qmouse_wheel_buttons)));
+      int wheel
+        = (NILP (base) ? -1
+           : BASE_EQ (base, Qwheel_down)  ? 0
+           : BASE_EQ (base, Qwheel_up)    ? 1
+           : BASE_EQ (base, Qwheel_left)  ? 2
+           : BASE_EQ (base, Qwheel_right) ? 3
+           : -1);
+      if (wheel >= 0)
+        {
+          result->kind = (event->type != ButtonRelease ? NO_EVENT
+		          : wheel & 2 ? HORIZ_WHEEL_EVENT : WHEEL_EVENT);
+          result->code = 0;         /* Not used.  */
+          result->modifiers &= ~(up_modifier || down_modifier);
+          result->modifiers |= wheel & 1 ? up_modifier : down_modifier;
+        }
+    }
 
   /* If result->window is not the frame's edit widget (which can
      happen with GTK+ scroll bars, for example), translate the
@@ -20270,20 +20338,23 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	  /* See if keysym should make Emacs quit.  */
 
-	  if (keysym == dpyinfo->quit_keysym
-	      && (xkey.time - dpyinfo->quit_keysym_time
-		  <= 350))
+	  if (dpyinfo->quit_keysym)
 	    {
-	      Vquit_flag = Qt;
-	      goto done_keysym;
-	    }
+	      if (keysym == dpyinfo->quit_keysym
+		  && (xkey.time - dpyinfo->quit_keysym_time
+		      <= 350))
+		{
+		  Vquit_flag = Qt;
+		  goto done_keysym;
+		}
 
-	  if (keysym == dpyinfo->quit_keysym)
-	    {
-	      /* Otherwise, set the last time that keysym was
-		 pressed.  */
-	      dpyinfo->quit_keysym_time = xkey.time;
-	      goto done_keysym;
+	      if (keysym == dpyinfo->quit_keysym)
+		{
+		  /* Otherwise, set the last time that keysym was
+		     pressed.  */
+		  dpyinfo->quit_keysym_time = xkey.time;
+		  goto done_keysym;
+		}
 	    }
 
           /* If not using XIM/XIC, and a compose sequence is in progress,
@@ -21131,7 +21202,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  }
 
 		Lisp_Object window = window_from_coordinates
-		  (f, xmotion.x, xmotion.y, 0, false, false);
+		  (f, xmotion.x, xmotion.y, 0, false, false, false);
 
 		/* A window will be autoselected only when it is not
 		   selected now and the last mouse movement event was
@@ -21834,13 +21905,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			&& event->xbutton.time > ignore_next_mouse_click_timeout)
 		      {
 			ignore_next_mouse_click_timeout = 0;
-			x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+			x_construct_mouse_click (&inev.ie, &event->xbutton,
+			                         f, false);
 		      }
 		    if (event->type == ButtonRelease)
 		      ignore_next_mouse_click_timeout = 0;
 		  }
 		else
-		  x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+		  x_construct_mouse_click (&inev.ie, &event->xbutton, f, false);
 
 		*finish = X_EVENT_DROP;
 		goto OTHER;
@@ -21862,7 +21934,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
                 int x = event->xbutton.x;
                 int y = event->xbutton.y;
 
-                window = window_from_coordinates (f, x, y, 0, true, true);
+                window = window_from_coordinates (f, x, y, 0, true, true, true);
                 tab_bar_p = EQ (window, f->tab_bar_window);
 
                 if (tab_bar_p)
@@ -21883,7 +21955,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
                 int x = event->xbutton.x;
                 int y = event->xbutton.y;
 
-                window = window_from_coordinates (f, x, y, 0, true, true);
+                window = window_from_coordinates (f, x, y, 0, true, true, true);
                 tool_bar_p = (EQ (window, f->tool_bar_window)
 			      && (event->xbutton.type != ButtonRelease
 				  || f->last_tool_bar_item != -1));
@@ -21910,13 +21982,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
                           && event->xbutton.time > ignore_next_mouse_click_timeout)
                         {
                           ignore_next_mouse_click_timeout = 0;
-                          x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+                          x_construct_mouse_click (&inev.ie, &event->xbutton,
+                                                   f, false);
                         }
                       if (event->type == ButtonRelease)
                         ignore_next_mouse_click_timeout = 0;
                     }
                   else
-                    x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+                    x_construct_mouse_click (&inev.ie, &event->xbutton,
+                                             f, false);
 
 		  if (!NILP (tab_bar_arg))
 		    inev.ie.arg = tab_bar_arg;
@@ -22616,7 +22690,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			    continue;
 
 			  window = window_from_coordinates (f, real_x, real_y, NULL,
-							    false, false);
+							    false, false, false);
 
 			  if (WINDOWP (window))
 			    scroll_height = XWINDOW (window)->pixel_height;
@@ -23059,7 +23133,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			  || !NILP (focus_follows_mouse)))
 		    {
 		      static Lisp_Object last_mouse_window;
-		      Lisp_Object window = window_from_coordinates (f, ev.x, ev.y, 0, false, false);
+		      Lisp_Object window = window_from_coordinates (f, ev.x, ev.y, 0, false, false,
+								    false);
 
 		      /* A window will be autoselected only when it is not
 			 selected now and the last mouse movement event was
@@ -23637,7 +23712,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      int x = bv.x;
 		      int y = bv.y;
 
-		      window = window_from_coordinates (f, x, y, 0, true, true);
+		      window = window_from_coordinates (f, x, y, 0, true, true, true);
 		      tab_bar_p = EQ (window, f->tab_bar_window);
 
 		      if (tab_bar_p)
@@ -23658,7 +23733,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      int x = bv.x;
 		      int y = bv.y;
 
-		      window = window_from_coordinates (f, x, y, 0, true, true);
+		      window = window_from_coordinates (f, x, y, 0, true, true, true);
 		      /* Ignore button release events if the mouse
 			 wasn't previously pressed on the tool bar.
 			 We do this because otherwise selecting some
@@ -23692,13 +23767,13 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 				&& xev->time > ignore_next_mouse_click_timeout)
 			      {
 				ignore_next_mouse_click_timeout = 0;
-				x_construct_mouse_click (&inev.ie, &bv, f);
+				x_construct_mouse_click (&inev.ie, &bv, f, true);
 			      }
 			    if (xev->evtype == XI_ButtonRelease)
 			      ignore_next_mouse_click_timeout = 0;
 			  }
 			else
-			  x_construct_mouse_click (&inev.ie, &bv, f);
+			  x_construct_mouse_click (&inev.ie, &bv, f, true);
 
 			if (!NILP (tab_bar_arg))
 			  inev.ie.arg = tab_bar_arg;
@@ -24200,20 +24275,23 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		  /* See if keysym should make Emacs quit.  */
 
-		  if (keysym == dpyinfo->quit_keysym
-		      && (xev->time - dpyinfo->quit_keysym_time
-			  <= 350))
+		  if (dpyinfo->quit_keysym)
 		    {
-		      Vquit_flag = Qt;
-		      goto xi_done_keysym;
-		    }
+		      if (keysym == dpyinfo->quit_keysym
+			  && (xev->time - dpyinfo->quit_keysym_time
+			      <= 350))
+			{
+			  Vquit_flag = Qt;
+			  goto xi_done_keysym;
+			}
 
-		  if (keysym == dpyinfo->quit_keysym)
-		    {
-		      /* Otherwise, set the last time that keysym was
-			 pressed.  */
-		      dpyinfo->quit_keysym_time = xev->time;
-		      goto xi_done_keysym;
+		      if (keysym == dpyinfo->quit_keysym)
+			{
+			  /* Otherwise, set the last time that keysym
+			     was pressed.  */
+			  dpyinfo->quit_keysym_time = xev->time;
+			  goto xi_done_keysym;
+			}
 		    }
 
 		  /* First deal with keysyms which have defined
@@ -24661,7 +24739,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  int x = xev->event_x;
 		  int y = xev->event_y;
 
-		  window = window_from_coordinates (f, x, y, 0, true, true);
+		  window = window_from_coordinates (f, x, y, 0, true, true, true);
 		  /* Ignore button release events if the mouse
 		     wasn't previously pressed on the tool bar.
 		     We do this because otherwise selecting some
@@ -25646,13 +25724,17 @@ XTread_socket (struct terminal *terminal, struct input_event *hold_quit)
 /* Set clipping for output in glyph row ROW.  W is the window in which
    we operate.  GC is the graphics context to set clipping in.
 
+   If RECT_RETURN is non-NULL, return the clip rectangle within
+   *RECT_RETURN.
+
    ROW may be a text row or, e.g., a mode line.  Text rows must be
    clipped to the interior of the window dedicated to text display,
    mode lines must be clipped to the whole window.  */
 
 static void
 x_clip_to_row (struct window *w, struct glyph_row *row,
-	       enum glyph_row_area area, GC gc)
+	       enum glyph_row_area area, GC gc,
+	       XRectangle *rect_return)
 {
   struct frame *f = XFRAME (WINDOW_FRAME (w));
   XRectangle clip_rect;
@@ -25667,6 +25749,9 @@ x_clip_to_row (struct window *w, struct glyph_row *row,
   clip_rect.height = row->visible_height;
 
   x_set_clip_rectangles (f, gc, &clip_rect, 1);
+
+  if (rect_return)
+    *rect_return = clip_rect;
 }
 
 
@@ -25715,7 +25800,7 @@ x_draw_hollow_cursor (struct window *w, struct glyph_row *row)
 	wd -= 1;
     }
   /* Set clipping, draw the rectangle, and reset clipping again.  */
-  x_clip_to_row (w, row, TEXT_AREA, gc);
+  x_clip_to_row (w, row, TEXT_AREA, gc, NULL);
   x_draw_rectangle (f, gc, x, y, wd, h - 1);
   x_reset_clip_rectangles (f, gc);
 }
@@ -25785,7 +25870,7 @@ x_draw_bar_cursor (struct window *w, struct glyph_row *row, int width, enum text
 	  FRAME_DISPLAY_INFO (f)->scratch_cursor_gc = gc;
 	}
 
-      x_clip_to_row (w, row, TEXT_AREA, gc);
+      x_clip_to_row (w, row, TEXT_AREA, gc, NULL);
 
       if (kind == BAR_CURSOR)
 	{
@@ -27151,7 +27236,7 @@ xim_open_dpy (struct x_display_info *dpyinfo, char *resource_name)
 	  /* Now try to determine the coding system that should be
 	     used.  locale is in Host Portable Character Encoding, and
 	     as such can be passed to build_string as is.  */
-	  dpyinfo->xim_coding = safe_call1 (Vx_input_coding_function,
+	  dpyinfo->xim_coding = safe_calln (Vx_input_coding_function,
 					    build_string (locale));
 	}
     }
@@ -28754,6 +28839,36 @@ x_focus_frame (struct frame *f, bool noactivate)
      friends being set.  */
   block_input ();
 
+#ifdef HAVE_GTK3
+  /* read_minibuf assumes that calling Fx_focus_frame on a frame that
+     is already selected won't move the focus elsewhere, and thereby
+     disrupt any focus redirection to e.g. a minibuffer frame that
+     might be activated between that call being made and the
+     consequent XI_FocusIn/Out events arriving.  This is true whether
+     the focus is ultimately transferred back to the frame it was
+     initially on or not.
+
+     GTK 3 moves the keyboard focus to the edit widget's window
+     whenever it receives a FocusIn event targeting the outer window.
+     This operation gives rise to a FocusOut event that clears
+     device->focus_frame, which in turn prompts xi_handle_focus_change
+     to clear the display's focus frame.  The next FocusIn event
+     destined for the same frame registers as a new focus, which
+     cancels any focus redirection from that frame.
+
+     To prevent this chain of events from disrupting focus redirection
+     when the minibuffer is activated twice in rapid succession while
+     configured to redirect focus to a minibuffer frame, ignore frames
+     which hold the input focus and are connected to a minibuffer
+     window.  (bug#65116)*/
+
+  if (f == dpyinfo->x_focus_frame && !FRAME_HAS_MINIBUF_P (f))
+    {
+      unblock_input ();
+      return;
+    }
+#endif /* HAVE_GTK3 */
+
   if (FRAME_X_EMBEDDED_P (f))
     /* For Xembedded frames, normally the embedder forwards key
        events.  See XEmbed Protocol Specification at
@@ -29313,6 +29428,17 @@ x_free_frame_resources (struct frame *f)
   xi_unlink_touch_points (f);
 #endif
 
+  /* We must free faces before destroying windows because some
+     font-driver (e.g. xft) access a window while finishing a face.
+
+     This function must be called to remove this frame's fontsets from
+     Vfontset_list, and is itself responsible for not issuing X requests
+     if the connection has already been terminated.  Otherwise, a future
+     call to a function that iterates over all existing fontsets might
+     crash, as they are not prepared to receive dead frames.
+     (bug#66151) */
+  free_frame_faces (f);
+
   /* If a display connection is dead, don't try sending more
      commands to the X server.  */
   if (dpyinfo->display)
@@ -29322,10 +29448,6 @@ x_free_frame_resources (struct frame *f)
       if (f->pointer_invisible)
 	XTtoggle_invisible_pointer (f, 0);
 
-      /* We must free faces before destroying windows because some
-	 font-driver (e.g. xft) access a window while finishing a
-	 face.  */
-      free_frame_faces (f);
       tear_down_x_back_buffer (f);
 
       if (f->output_data.x->icon_desc)
@@ -30610,7 +30732,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 	    terminal_list = terminal->next_terminal;
 	    unblock_input ();
 	    kset_system_key_alist (terminal->kboard,
-				   safe_call1 (Qvendor_specific_keysyms,
+				   safe_calln (Qvendor_specific_keysyms,
 					       (vendor
 						? build_string (vendor)
 						: empty_unibyte_string)));
@@ -31452,7 +31574,6 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 				      dpyinfo->selection_tracking_window,
 				      selection_name,
 				      (XFixesSetSelectionOwnerNotifyMask
-				       | XFixesSetSelectionOwnerNotifyMask
 				       | XFixesSelectionClientCloseNotifyMask));
 	}
 
@@ -32043,7 +32164,7 @@ x_initialize (void)
 
 #ifdef HAVE_X_I18N
 
-/* Notice that a change has occured on F that requires its input
+/* Notice that a change has occurred on F that requires its input
    method state to be reset.  */
 
 static void
@@ -32365,6 +32486,12 @@ syms_of_xterm (void)
   DEFSYM (Qexpose, "expose");
   DEFSYM (Qdont_save, "dont-save");
 
+  DEFSYM (Qmouse_wheel_buttons, "mouse-wheel-buttons");
+  DEFSYM (Qwheel_up,    "wheel-up");
+  DEFSYM (Qwheel_down,  "wheel-down");
+  DEFSYM (Qwheel_left,  "wheel-left");
+  DEFSYM (Qwheel_right, "wheel-right");
+
 #ifdef USE_GTK
   xg_default_icon_file = build_pure_c_string ("icons/hicolor/scalable/apps/emacs.svg");
   staticpro (&xg_default_icon_file);
@@ -32457,38 +32584,45 @@ Android does not support scroll bars at all.  */);
   DEFSYM (Qreally_fast, "really-fast");
 
   DEFVAR_LISP ("x-ctrl-keysym", Vx_ctrl_keysym,
-    doc: /* Which keys Emacs uses for the ctrl modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `ctrl' means use the Ctrl_L and Ctrl_R keysyms.
-The default is nil, which is the same as `ctrl'.  */);
+    doc: /* Which modifer value Emacs reports when Ctrl is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Ctrl modifier (i.e. the keysym Ctrl_L or Ctrl_R) depressed, with nil or
+any other value equivalent to `ctrl'.  */);
   Vx_ctrl_keysym = Qnil;
 
   DEFVAR_LISP ("x-alt-keysym", Vx_alt_keysym,
-    doc: /* Which keys Emacs uses for the alt modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `alt' means use the Alt_L and Alt_R keysyms.
-The default is nil, which is the same as `alt'.  */);
+    doc: /* Which modifer value Emacs reports when Alt is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Alt modifier (e.g. the keysym Alt_L or Alt_R, if the keyboard features a
+dedicated key for Meta) depressed, with nil or any other value
+equivalent to `alt'.  */);
   Vx_alt_keysym = Qnil;
 
   DEFVAR_LISP ("x-hyper-keysym", Vx_hyper_keysym,
-    doc: /* Which keys Emacs uses for the hyper modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `hyper' means use the Hyper_L and Hyper_R
-keysyms.  The default is nil, which is the same as `hyper'.  */);
+    doc: /* Which modifer value Emacs reports when Hyper is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Hyper modifier (i.e. the keysym Hyper_L or Hyper_R) depressed, with nil
+or any other value equivalent to `hyper'.  */);
   Vx_hyper_keysym = Qnil;
 
   DEFVAR_LISP ("x-meta-keysym", Vx_meta_keysym,
-    doc: /* Which keys Emacs uses for the meta modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `meta' means use the Meta_L and Meta_R keysyms.
-The default is nil, which is the same as `meta'.  */);
+    doc: /* Which modifer value Emacs reports when Meta is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Meta modifier (e.g. the keysym Alt_L or Alt_R, when the keyboard does
+not feature a dedicated key for Meta) depressed, with nil or any other
+value equivalent to `meta'.  */);
   Vx_meta_keysym = Qnil;
 
   DEFVAR_LISP ("x-super-keysym", Vx_super_keysym,
-    doc: /* Which keys Emacs uses for the super modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `super' means use the Super_L and Super_R
-keysyms.  The default is nil, which is the same as `super'.  */);
+    doc: /* Which modifer value Emacs reports when Super is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Super modifier (i.e. the keysym Super_L or Super_R) depressed, with nil
+or any other value equivalent to `super'.  */);
   Vx_super_keysym = Qnil;
 
   DEFVAR_LISP ("x-wait-for-event-timeout", Vx_wait_for_event_timeout,
@@ -32504,10 +32638,7 @@ If set to a non-float value, there will be no wait at all.  */);
 
   DEFVAR_LISP ("x-keysym-table", Vx_keysym_table,
     doc: /* Hash table of character codes indexed by X keysym codes.  */);
-  Vx_keysym_table = make_hash_table (hashtest_eql, 900,
-				     DEFAULT_REHASH_SIZE,
-				     DEFAULT_REHASH_THRESHOLD,
-				     Qnil, false);
+  Vx_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None, false);
 
   DEFVAR_BOOL ("x-frame-normalize-before-maximize",
 	       x_frame_normalize_before_maximize,
@@ -32778,17 +32909,12 @@ frame placement via frame parameters, `set-frame-position', and
 
 This is used to support quitting on devices that do not have any kind
 of physical keyboard, or where the physical keyboard is incapable of
-entering `C-g'.  It defaults to `XF86XK_AudioLowerVolume' on XFree86
-and X.Org servers, and is unset.
+entering `C-g'.
 
 The value is an alist associating between strings, describing X server
 vendor names, and a single number describing the keysym to use.  The
 keysym to use for each display connection is determined upon
 connection setup, and does not reflect further changes to this
 variable.  */);
-  Vx_quit_keysym
-    = list2 (Fcons (build_string ("The X.Org Foundation"),
-		    make_int (269025041)),
-	     Fcons (build_string ("The XFree86 Project, Inc."),
-		    make_int (269025041)));
+  Vx_quit_keysym = Qnil;
 }

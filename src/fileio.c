@@ -1,6 +1,6 @@
 /* File IO for GNU Emacs.
 
-Copyright (C) 1985-1988, 1993-2023 Free Software Foundation, Inc.
+Copyright (C) 1985-1988, 1993-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -203,7 +203,7 @@ check_vfs_filename (Lisp_Object encoded, const char *reason)
 #ifdef HAVE_LIBSELINUX
 
 /* Return whether SELinux is enabled and pertinent to FILE.  Provide
-   for cases where FILE is or is a constitutent of a special
+   for cases where FILE is or is a constituent of a special
    directory, such as /assets or /content on Android.  */
 
 static bool
@@ -847,7 +847,7 @@ Each element in COMPONENTS must be a string or nil.
 DIRECTORY or the non-final elements in COMPONENTS may or may not end
 with a slash -- if they don't end with a slash, a slash will be
 inserted before concatenating.
-usage: (record DIRECTORY &rest COMPONENTS) */)
+usage: (file-name-concat DIRECTORY &rest COMPONENTS)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
 {
   ptrdiff_t chars = 0, bytes = 0, multibytes = 0, eargs = 0;
@@ -4778,7 +4778,7 @@ by calling `format-decode', which see.  */)
     make_gap (total - GAP_SIZE + 1);
 
   if (beg_offset != 0 || (!NILP (replace)
-			  && !EQ (replace, Qunbound)))
+			  && !BASE_EQ (replace, Qunbound)))
     {
       if (emacs_fd_lseek (fd, beg_offset, SEEK_SET) < 0)
 	report_file_error ("Setting file position", orig_filename);
@@ -5628,7 +5628,15 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
          changed to a call to `stat'.  */
 
       if (emacs_fstatat (AT_FDCWD, fn, &st1, 0) == 0
-	  && st.st_dev == st1.st_dev && st.st_ino == st1.st_ino)
+	  && st.st_dev == st1.st_dev
+	  && (st.st_ino == st1.st_ino
+#if defined HAVE_ANDROID && !defined ANDROID_STUBIFY
+	      /* `st1.st_ino' == 0 indicates that the inode number
+		 cannot be extracted from this document file, despite
+		 `st' potentially being backed by a real file.  */
+	      || st1.st_ino == 0
+#endif /* defined HAVE_ANDROID && !defined ANDROID_STUBIFY */
+	      ))
 	{
 	  /* Use the heuristic if it appears to be valid.  With neither
 	     O_EXCL nor O_TRUNC, if Emacs happened to write nothing to the

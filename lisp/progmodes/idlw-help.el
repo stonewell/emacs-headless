@@ -1,6 +1,6 @@
 ;;; idlw-help.el --- HTML Help code for IDLWAVE  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2024 Free Software Foundation, Inc.
 ;;
 ;; Authors: JD Smith <jd.smith@utoledo.edu>
 ;;          Carsten Dominik <dominik@science.uva.nl>
@@ -631,7 +631,7 @@ Needs additional info stored in global `idlwave-completion-help-info'."
 Those words in `idlwave-completion-help-links' have links.  The
 `idlwave-help-link' face is used for this."
   (if idlwave-highlight-help-links-in-completion
-      (with-current-buffer (get-buffer "*Completions*")
+      (with-current-buffer "*Completions*"
 	(save-excursion
 	  (let* ((case-fold-search t)
 		 (props (list 'face 'idlwave-help-link))

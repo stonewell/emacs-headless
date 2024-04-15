@@ -1,6 +1,6 @@
 ;;; dbus-tests.el --- Tests of D-Bus integration into Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2024 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
@@ -68,22 +68,35 @@
   "Check type conversion functions."
   (skip-unless dbus--test-enabled-session-bus)
 
-  (let ((ustr "0123abc_xyz\x01\xff")
-	(mstr "Grüß Göttin"))
+  (let ((ustr (string-to-unibyte "0123abc_xyz\x01\xff"))
+	(mstr (string-to-multibyte "Grüß Göttin"))
+        (kstr (encode-coding-string "парола" 'koi8)))
     (should
      (string-equal
       (dbus-byte-array-to-string (dbus-string-to-byte-array "")) ""))
     (should
      (string-equal
-      (dbus-byte-array-to-string (dbus-string-to-byte-array ustr)) ustr))
+      (dbus-byte-array-to-string (dbus-string-to-byte-array nil)) ""))
     (should
      (string-equal
-      (dbus-byte-array-to-string (dbus-string-to-byte-array mstr) 'multibyte)
-      mstr))
-    ;; Should not work for multibyte strings.
-    (should-not
+      ;; The conversion could return a multibyte string, so we make it unibyte.
+      (string-to-unibyte
+       (dbus-byte-array-to-string (dbus-string-to-byte-array ustr)))
+      ustr))
+    (should
+     (string-equal
+      ;; The conversion could return a multibyte string, so we make it unibyte.
+      (string-to-unibyte (dbus-byte-array-to-string (mapcar 'identity ustr)))
+      ustr))
+    (should
      (string-equal
       (dbus-byte-array-to-string (dbus-string-to-byte-array mstr)) mstr))
+    (should
+     (string-equal
+      ;; The conversion could return a multibyte string, so we make it unibyte.
+      (string-to-unibyte
+       (dbus-byte-array-to-string (dbus-string-to-byte-array kstr)))
+      kstr))
 
     (should
      (string-equal
@@ -465,6 +478,9 @@
   (should (eq (dbus-unregister-service bus dbus--test-service) :non-existent))
   (should-not (member dbus--test-service (dbus-list-known-names bus)))
 
+  ;; Unregistering a unique name returns nil.
+  (should-not (dbus-unregister-service bus ":1.1"))
+
   ;; A service name is a string, constructed of at least two words
   ;; separated by ".".
   (should
@@ -562,10 +578,10 @@ This includes initialization and closing the bus."
    ((null args)
     :ignore)
    ;; One argument.
-   ((= 1 (length args))
+   ((length= args 1)
     (car args))
    ;; Two arguments.
-   ((= 2 (length args))
+   ((length= args 2)
     `(:error ,dbus-error-invalid-args
              ,(format-message "Wrong arguments %s" args)))
    ;; More than two arguments.
@@ -1949,7 +1965,7 @@ The argument EXPECTED-ARGS is a list of expected arguments for the method."
         (let ((result (dbus-get-all-managed-objects
                        :session dbus--test-service dbus--test-path)))
           (should
-           (= 3 (length result)))
+           (length= result 3))
 
           (dolist (interface interfaces)
             (pcase-let ((`(,iname ,objs) interface))
@@ -1967,7 +1983,7 @@ The argument EXPECTED-ARGS is a list of expected arguments for the method."
                        :session dbus--test-service
                        (concat dbus--test-path "/obj0"))))
           (should
-           (= 2 (length result)))
+           (length= result 2))
 
           (dolist (interface interfaces)
             (pcase-let ((`(,iname ,objs) interface))
@@ -1986,7 +2002,7 @@ The argument EXPECTED-ARGS is a list of expected arguments for the method."
                        :session dbus--test-service
                        (concat dbus--test-path "/obj0/obj2"))))
           (should
-           (= 1 (length result)))
+           (length= result 1))
 
           (dolist (interface interfaces)
             (pcase-let ((`(,iname ,objs) interface))

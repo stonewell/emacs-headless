@@ -1,6 +1,6 @@
 ;;; elisp-mode-tests.el --- Tests for emacs-lisp-mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2024 Free Software Foundation, Inc.
 
 ;; Author: Dmitry Gutov <dgutov@yandex.ru>
 ;; Author: Stephen Leake <stephen_leake@member.fsf.org>
@@ -1130,6 +1130,15 @@ evaluation of BODY."
                       (lambda ()
                         (emacs-lisp-mode)
                         (indent-region (point-min) (point-max)))))
+
+(ert-deftest elisp-tests-syntax-propertize ()
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (insert "(a '@)")                   ;bug#24542
+    (should (equal (scan-sexps (+ (point-min) 3) 1) (1- (point-max))))
+    (erase-buffer)
+    (insert "(a ,@)")
+    (should-error (scan-sexps (+ (point-min) 3) 1))))
 
 (provide 'elisp-mode-tests)
 ;;; elisp-mode-tests.el ends here

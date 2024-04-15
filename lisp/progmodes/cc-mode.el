@@ -1,6 +1,6 @@
 ;;; cc-mode.el --- major mode for editing C and similar languages -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1987, 1992-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2024 Free Software Foundation, Inc.
 
 ;; Authors:    2003- Alan Mackenzie
 ;;             1998- Martin Stjernholm
@@ -256,8 +256,11 @@ control).  See \"cc-mode.el\" for more info."
 	(put 'c-initialize-cc-mode initprop c-initialization-ok))))
 
   ;; Set up text conversion, for Emacs >= 30.0
+  ;; This is needed here because CC-mode's implementation of
+  ;; electricity does not rely on `post-self-insert-hook' (which is
+  ;; already handled adequately by `analyze-text-conversion').
   (when (boundp 'post-text-conversion-hook)
-    (add-hook 'post-text-conversion-hook #'c-post-text-conversion))
+    (add-hook 'post-text-conversion-hook #'c-post-text-conversion nil t))
 
   (unless new-style-init
     (c-init-language-vars-for 'c-mode)))
@@ -1279,7 +1282,9 @@ Note that the style variables are always made local to the buffer."
   ;; VALUE (which should not be nil).
   ;; `(let ((-pos- ,pos)
   ;;	 (-value- ,value))
-  (c-put-char-property pos 'syntax-table value)
+  (if (equal value '(15))
+      (c-put-string-fence pos)
+    (c-put-char-property pos 'syntax-table value))
   (c-put-char-property pos 'c-fl-syn-tab value)
   (cond
    ((null c-min-syn-tab-mkr)
@@ -1372,8 +1377,14 @@ Note that the style variables are always made local to the buffer."
 		       (not (nth 3 s))
 		       (c-get-char-property (1- (point)) 'c-fl-syn-tab))
 		    (c-put-char-property pos 'syntax-table '(1))
-		    (c-put-char-properties (1+ pos) (c-point 'eol pos)
-					   'syntax-table '(1)))
+		    ;; Remove syntax-table text properties from template
+		    ;; delimiters.
+		    (c-clear-char-property-with-value
+		     (1+ pos) (c-point 'eol pos)
+		     'syntax-table c-<-as-paren-syntax)
+		    (c-clear-char-property-with-value
+		     (1+ pos) (c-point 'eol pos)
+		     'syntax-table c->-as-paren-syntax))
 		  (setq pos (point)))
 	      (setq pos (1+ pos)))))))))
 
@@ -2452,7 +2463,7 @@ with // and /*, not more generic line and block comments."
 			   (backward-char)
 			   (setq pseudo (c-cheap-inside-bracelist-p (c-parse-state)))))))
 	       (goto-char pseudo))
-	     t)
+	     (or pseudo (> (point) bod-lim)))
 	   ;; Move forward to the start of the next declaration.
 	   (progn (c-forward-syntactic-ws)
 		  ;; Have we got stuck in a comment at EOB?
@@ -2891,15 +2902,19 @@ This function attempts to use file contents to determine whether
 the code is C or C++ and based on that chooses whether to enable
 `c-mode' or `c++-mode'."
   (interactive)
-  (if (save-excursion
-        (save-restriction
-          (save-match-data
-            (widen)
-            (goto-char (point-min))
-            (re-search-forward c-or-c++-mode--regexp
-                               (+ (point) c-guess-region-max) t))))
-      (c++-mode)
-    (c-mode)))
+  (let ((mode
+	 (if (save-excursion
+	       (save-restriction
+		 (save-match-data
+		   (widen)
+		   (goto-char (point-min))
+		   (re-search-forward c-or-c++-mode--regexp
+				      (+ (point) c-guess-region-max) t))))
+	     'c++-mode
+	   'c-mode)))
+    (funcall (if (fboundp 'major-mode-remap)
+		 (major-mode-remap mode)
+	       mode))))
 
 
 ;; Support for C++

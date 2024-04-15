@@ -1,6 +1,6 @@
 /* Parameters and display hooks for terminal devices.
 
-Copyright (C) 1985-1986, 1993-1994, 2001-2023 Free Software Foundation,
+Copyright (C) 1985-1986, 1993-1994, 2001-2024 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -343,6 +343,10 @@ enum event_kind
      the notification that was clicked.  */
   , NOTIFICATION_CLICKED_EVENT
 #endif /* HAVE_HAIKU */
+#ifdef HAVE_ANDROID
+  /* In a NOTIFICATION_EVENT, .arg is a lambda to evaluate.  */
+  , NOTIFICATION_EVENT
+#endif /* HAVE_ANDROID */
 };
 
 /* Bit width of an enum event_kind tag at the start of structs and unions.  */

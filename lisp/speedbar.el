@@ -1,6 +1,6 @@
 ;;; speedbar.el --- quick access to files and tags in a frame  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: file, tags, tools
@@ -294,6 +294,7 @@ A nil value means don't show the file in the list."
 				       (border-width . 0)
 				       (menu-bar-lines . 0)
 				       (tool-bar-lines . 0)
+				       (tab-bar-lines . 0)
 				       (unsplittable . t)
 				       (left-fringe . 0)
 				       )
@@ -304,7 +305,8 @@ attached to and added to this list before the new frame is initialized."
   :group 'speedbar
   :type '(repeat (cons :format "%v"
 		       (symbol :tag "Parameter")
-		       (sexp :tag "Value"))))
+		       (sexp :tag "Value")))
+  :version "30.1")
 
 (defcustom speedbar-use-imenu-flag t
   "Non-nil means use imenu for file parsing, nil to use etags.
@@ -631,7 +633,7 @@ function `speedbar-extension-list-to-regex'.")
   (append '(".[ch]\\(\\+\\+\\|pp\\|c\\|h\\|xx\\)?" ".tex\\(i\\(nfo\\)?\\)?"
 	    ".el" ".emacs" ".l" ".lsp" ".p" ".java" ".js" ".f\\(90\\|77\\|or\\)?")
 	  (if speedbar-use-imenu-flag
-	      '(".ad[abs]" ".p[lm]" ".tcl" ".m" ".scm" ".pm" ".py" ".g"
+	      '(".ad[abs]" ".p[lm]" ".tcl" ".m" ".scm" ".pm" ".py" ".g" ".lua"
 		;; html is not supported by default, but an imenu tags package
 		;; is available.  Also, html files are nice to be able to see.
 		".s?html"
@@ -3488,7 +3490,7 @@ functions to do caching and flushing if appropriate."
 
     nil
 
-(eval-when-compile (condition-case nil (require 'imenu) (error nil)))
+(eval-when-compile (require 'imenu))
 (declare-function imenu--make-index-alist "imenu" (&optional no-error))
 
 (defun speedbar-fetch-dynamic-imenu (file)

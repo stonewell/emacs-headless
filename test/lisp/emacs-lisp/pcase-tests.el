@@ -1,6 +1,6 @@
 ;;; pcase-tests.el --- Test suite for pcase macro.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2012-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -159,5 +159,19 @@
 
   (should-error (pcase-setq a)
                 :type '(wrong-number-of-arguments)))
+
+(ert-deftest pcase-tests-mutually-exclusive ()
+  (dolist (x '((functionp consp nil)
+               (functionp stringp t)
+               (compiled-function-p consp t)
+               (keywordp symbolp nil)
+               (keywordp symbol-with-pos-p nil)
+               (keywordp stringp t)))
+    (if (nth 2 x)
+        (should (pcase--mutually-exclusive-p (nth 0 x) (nth 1 x)))
+      (should-not (pcase--mutually-exclusive-p (nth 0 x) (nth 1 x))))
+    (if (nth 2 x)
+        (should (pcase--mutually-exclusive-p (nth 1 x) (nth 0 x)))
+      (should-not (pcase--mutually-exclusive-p (nth 1 x) (nth 0 x))))))
 
 ;;; pcase-tests.el ends here.

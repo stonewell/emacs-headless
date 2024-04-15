@@ -1,6 +1,6 @@
 ;;; vc-git.el --- VC backend for the git version control system -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2024 Free Software Foundation, Inc.
 
 ;; Author: Alexandre Julliard <julliard@winehq.org>
 ;; Keywords: vc tools
@@ -89,6 +89,7 @@
 ;; - make-version-backups-p (file)                 NOT NEEDED
 ;; - previous-revision (file rev)                  OK
 ;; - next-revision (file rev)                      OK
+;; - file-name-changes (rev)                       OK
 ;; - check-headers ()                              COULD BE SUPPORTED
 ;; - delete-file (file)                            OK
 ;; - rename-file (old new)                         OK
@@ -147,6 +148,18 @@ comparing changes.  See Man page `git-blame' for more."
 
 (defcustom vc-git-shortlog-switches nil
   "String or list of strings giving Git log switches for shortlogs."
+  :type '(choice (const :tag "None" nil)
+                 (string :tag "Argument String")
+                 (repeat :tag "Argument List" :value ("") string))
+  :version "30.1")
+
+(defcustom vc-git-file-name-changes-switches '("-M" "-C")
+  "String or list of string to pass to Git when finding previous names.
+
+This option should usually at least contain '-M'.  You can adjust
+the flags to change the similarity thresholds (default 50%).  Or
+add `--find-copies-harder' (slower in large projects, since it
+uses a full scan)."
   :type '(choice (const :tag "None" nil)
                  (string :tag "Argument String")
                  (repeat :tag "Argument List" :value ("") string))
@@ -416,15 +429,20 @@ in the order given by `git status'."
 
 (defun vc-git-mode-line-string (file)
   "Return a string for `vc-mode-line' to put in the mode line for FILE."
-  (let* ((rev (vc-working-revision file 'Git))
-         (disp-rev (or (vc-git--symbolic-ref file)
-                       (and rev (substring rev 0 7))))
-         (def-ml (vc-default-mode-line-string 'Git file))
-         (help-echo (get-text-property 0 'help-echo def-ml))
-         (face   (get-text-property 0 'face def-ml)))
-    (propertize (concat (substring def-ml 0 4) disp-rev)
-                'face face
-                'help-echo (concat help-echo "\nCurrent revision: " rev))))
+  (pcase-let* ((backend-name "Git")
+               (state (vc-state file))
+               (`(,state-echo ,face ,indicator)
+                (vc-mode-line-state state))
+               (rev (vc-working-revision file 'Git))
+               (disp-rev (or (vc-git--symbolic-ref file)
+                             (and rev (substring rev 0 7))))
+               (state-string (concat (unless (eq vc-display-status 'no-backend)
+                                       backend-name)
+                                     indicator disp-rev)))
+    (propertize state-string 'face face 'help-echo
+                (concat state-echo " under the " backend-name
+                        " version control system"
+                        "\nCurrent revision: " rev))))
 
 (cl-defstruct (vc-git-extra-fileinfo
             (:copier nil)
@@ -799,27 +817,31 @@ or an empty string if none."
     cmds))
 
 (defun vc-git-dir-extra-headers (dir)
-  (let ((str (with-output-to-string
-               (with-current-buffer standard-output
-                 (vc-git--out-ok "symbolic-ref" "HEAD"))))
+  (let ((str (vc-git--out-str "symbolic-ref" "HEAD"))
 	(stash-list (vc-git-stash-list))
         (default-directory dir)
         (in-progress (vc-git--cmds-in-progress))
 
-	branch remote remote-url stash-button stash-string)
+	branch remote-url stash-button stash-string tracking-branch)
     (if (string-match "^\\(refs/heads/\\)?\\(.+\\)$" str)
 	(progn
 	  (setq branch (match-string 2 str))
-	  (setq remote
-		(with-output-to-string
-		  (with-current-buffer standard-output
-		    (vc-git--out-ok "config"
-                                    (concat "branch." branch ".remote")))))
-	  (when (string-match "\\([^\n]+\\)" remote)
-	    (setq remote (match-string 1 remote)))
-          (when (> (length remote) 0)
-	    (setq remote-url (vc-git-repository-url dir remote))))
-      (setq branch "not (detached HEAD)"))
+          (let ((remote (vc-git--out-str
+                         "config" (concat "branch." branch ".remote")))
+                (merge (vc-git--out-str
+                        "config" (concat "branch." branch ".merge"))))
+            (when (string-match "\\([^\n]+\\)" remote)
+	      (setq remote (match-string 1 remote)))
+            (when (string-match "^\\(refs/heads/\\)?\\(.+\\)$" merge)
+              (setq tracking-branch (match-string 2 merge)))
+            (pcase remote
+              ("."
+               (setq remote-url "none (tracking local branch)"))
+              ((pred (not string-empty-p))
+               (setq
+                remote-url (vc-git-repository-url dir remote)
+                tracking-branch (concat remote "/" tracking-branch))))))
+      (setq branch "none (detached HEAD)"))
     (when stash-list
       (let* ((len (length stash-list))
              (limit
@@ -872,6 +894,11 @@ or an empty string if none."
      (propertize "Branch     : " 'face 'vc-dir-header)
      (propertize branch
 		 'face 'vc-dir-header-value)
+     (when tracking-branch
+       (concat
+        "\n"
+        (propertize "Tracking   : " 'face 'vc-dir-header)
+        (propertize tracking-branch 'face 'vc-dir-header-value)))
      (when remote-url
        (concat
 	"\n"
@@ -1393,9 +1420,16 @@ This prompts for a branch to merge from."
     (vc-message-unresolved-conflicts buffer-file-name)))
 
 (defun vc-git-clone (remote directory rev)
-  (if rev
-      (vc-git--out-ok "clone" "--branch" rev remote directory)
+  "Attempt to clone REMOTE repository into DIRECTORY at revision REV."
+  (cond
+   ((null rev)
     (vc-git--out-ok "clone" remote directory))
+   ((ignore-errors
+      (vc-git--out-ok "clone" "--branch" rev remote directory)))
+   ((vc-git--out-ok "clone" remote directory)
+    (let ((default-directory directory))
+      (vc-git--out-ok "checkout" rev)))
+   ((error "Failed to check out %s at %s" remote rev)))
   directory)
 
 ;;; HISTORY FUNCTIONS
@@ -1411,7 +1445,16 @@ This prompts for a branch to merge from."
 ;; Long explanation here:
 ;; https://stackoverflow.com/questions/46487476/git-log-follow-graph-skips-commits
 (defcustom vc-git-print-log-follow nil
-  "If true, follow renames in Git logs for a single file."
+  "If non-nil, use the flag `--follow' when producing single file logs.
+
+A non-nil value will make the printed log automatically follow
+the file renames.  The downsides is that the log produced this
+way may omit certain (merge) commits, and that `log-view-diff'
+fails on commits that used the previous name, in that log buffer.
+
+When this variable is nil, and the log ends with a rename, we
+show a button below that which allows to show the log for the
+file name before the rename."
   :type 'boolean
   :version "26.1")
 
@@ -1720,7 +1763,7 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
                       "^refs/\\(heads\\|tags\\|remotes\\)/\\(.*\\)$")))
         (while (re-search-forward regexp nil t)
           (push (match-string 2) table))))
-    table))
+    (nreverse table)))
 
 (defun vc-git-revision-completion-table (files)
   (letrec ((table (lazy-completion-table
@@ -1830,8 +1873,11 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
 (defun vc-git--rev-parse (rev)
   (with-temp-buffer
     (and
-     (vc-git--out-ok "rev-parse" rev)
-     (buffer-substring-no-properties (point-min) (+ (point-min) 40)))))
+     (apply #'vc-git--out-ok "rev-parse"
+            (append (when vc-use-short-revision '("--short"))
+                    (list rev)))
+     (goto-char (point-min))
+     (buffer-substring-no-properties (point) (pos-eol)))))
 
 (defun vc-git-next-revision (file rev)
   "Git-specific version of `vc-next-revision'."
@@ -1860,6 +1906,31 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
                    (point)
                    (progn (forward-line 1) (1- (point)))))))))
     (or (vc-git-symbolic-commit next-rev) next-rev)))
+
+(defun vc-git-file-name-changes (rev)
+  (with-temp-buffer
+    (let ((root (vc-git-root default-directory)))
+      (unless vc-git-print-log-follow
+        (apply #'vc-git-command (current-buffer) t nil
+               "diff"
+               "--name-status"
+               "--diff-filter=ADCR"
+               (concat rev "^") rev
+               (vc-switches 'git 'file-name-changes)))
+      (let (res)
+        (goto-char (point-min))
+        (while (re-search-forward "^\\([ADCR]\\)[0-9]*\t\\([^\n\t]+\\)\\(?:\t\\([^\n\t]+\\)\\)?" nil t)
+          (pcase (match-string 1)
+            ("A" (push (cons nil (match-string 2)) res))
+            ("D" (push (cons (match-string 2) nil) res))
+            ((or "C" "R") (push (cons (match-string 2) (match-string 3)) res))
+            ;; ("M" (push (cons (match-string 1) (match-string 1)) res))
+            ))
+        (mapc (lambda (c)
+                (if (car c) (setcar c (expand-file-name (car c) root)))
+                (if (cdr c) (setcdr c (expand-file-name (cdr c) root))))
+              res)
+        (nreverse res)))))
 
 (defun vc-git-delete-file (file)
   (vc-git-command nil 0 file "rm" "-f" "--"))
@@ -1927,6 +1998,7 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
 (defvar compilation-environment)
 
 ;; Derived from `lgrep'.
+;;;###autoload
 (defun vc-git-grep (regexp &optional files dir)
   "Run git grep, searching for REGEXP in FILES in directory DIR.
 The search is limited to file names matching shell pattern FILES.
@@ -2163,7 +2235,16 @@ The difference to vc-do-command is that this function always invokes
     (apply #'process-file vc-git-program nil buffer nil "--no-pager" command args)))
 
 (defun vc-git--out-ok (command &rest args)
+  "Run `git COMMAND ARGS...' and insert standard output in current buffer.
+Return whether the process exited with status zero."
   (zerop (apply #'vc-git--call '(t nil) command args)))
+
+(defun vc-git--out-str (command &rest args)
+  "Run `git COMMAND ARGS...' and return standard output as a string.
+The exit status is ignored."
+  (with-output-to-string
+    (with-current-buffer standard-output
+      (apply #'vc-git--out-ok command args))))
 
 (defun vc-git--run-command-string (file &rest args)
   "Run a git command on FILE and return its output as string.

@@ -1,6 +1,6 @@
 /* Buffer manipulation primitives for GNU Emacs.
 
-Copyright (C) 1985-2023 Free Software Foundation, Inc.
+Copyright (C) 1985-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -210,11 +210,6 @@ bset_buffer_file_coding_system (struct buffer *b, Lisp_Object val)
   b->buffer_file_coding_system_ = val;
 }
 static void
-bset_case_fold_search (struct buffer *b, Lisp_Object val)
-{
-  b->case_fold_search_ = val;
-}
-static void
 bset_ctl_arrow (struct buffer *b, Lisp_Object val)
 {
   b->ctl_arrow_ = val;
@@ -330,6 +325,11 @@ static void
 bset_name (struct buffer *b, Lisp_Object val)
 {
   b->name_ = val;
+}
+static void
+bset_last_name (struct buffer *b, Lisp_Object val)
+{
+  b->last_name_ = val;
 }
 static void
 bset_overwrite_mode (struct buffer *b, Lisp_Object val)
@@ -519,8 +519,11 @@ See also `find-buffer-visiting'.  */)
   return Qnil;
 }
 
-Lisp_Object
-get_truename_buffer (register Lisp_Object filename)
+DEFUN ("get-truename-buffer", Fget_truename_buffer, Sget_truename_buffer, 1, 1, 0,
+       doc: /* Return the buffer with `file-truename' equal to FILENAME (a string).
+If there is no such live buffer, return nil.
+See also `find-buffer-visiting'.  */)
+  (register Lisp_Object filename)
 {
   register Lisp_Object tail, buf;
 
@@ -528,6 +531,22 @@ get_truename_buffer (register Lisp_Object filename)
     {
       if (!STRINGP (BVAR (XBUFFER (buf), file_truename))) continue;
       if (!NILP (Fstring_equal (BVAR (XBUFFER (buf), file_truename), filename)))
+	return buf;
+    }
+  return Qnil;
+}
+
+DEFUN ("find-buffer", Ffind_buffer, Sfind_buffer, 2, 2, 0,
+       doc: /* Return the buffer with buffer-local VARIABLE `equal' to VALUE.
+If there is no such live buffer, return nil.
+See also `find-buffer-visiting'.  */)
+  (Lisp_Object variable, Lisp_Object value)
+{
+  register Lisp_Object tail, buf;
+
+  FOR_EACH_LIVE_BUFFER (tail, buf)
+    {
+      if (!NILP (Fequal (value, Fbuffer_local_value (variable, buf))))
 	return buf;
     }
   return Qnil;
@@ -633,6 +652,7 @@ even if it is dead.  The return value is never nil.  */)
   name = Fcopy_sequence (buffer_or_name);
   set_string_intervals (name, NULL);
   bset_name (b, name);
+  bset_last_name (b, name);
 
   b->inhibit_buffer_hooks = !NILP (inhibit_buffer_hooks);
   bset_undo_list (b, SREF (name, 0) != ' ' ? Qnil : Qt);
@@ -782,14 +802,20 @@ DEFUN ("make-indirect-buffer", Fmake_indirect_buffer, Smake_indirect_buffer,
 BASE-BUFFER should be a live buffer, or the name of an existing buffer.
 
 NAME should be a string which is not the name of an existing buffer.
+
+Interactively, prompt for BASE-BUFFER (offering the current buffer as
+the default), and for NAME (offering as default the name of a recently
+used buffer).
+
 Optional argument CLONE non-nil means preserve BASE-BUFFER's state,
 such as major and minor modes, in the indirect buffer.
-
 CLONE nil means the indirect buffer's state is reset to default values.
 
 If optional argument INHIBIT-BUFFER-HOOKS is non-nil, the new buffer
 does not run the hooks `kill-buffer-hook',
-`kill-buffer-query-functions', and `buffer-list-update-hook'.  */)
+`kill-buffer-query-functions', and `buffer-list-update-hook'.
+
+Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
   (Lisp_Object base_buffer, Lisp_Object name, Lisp_Object clone,
    Lisp_Object inhibit_buffer_hooks)
 {
@@ -846,6 +872,7 @@ does not run the hooks `kill-buffer-hook',
   name = Fcopy_sequence (name);
   set_string_intervals (name, NULL);
   bset_name (b, name);
+  bset_last_name (b, name);
 
   /* An indirect buffer shares undo list of its base (Bug#18180).  */
   bset_undo_list (b, BVAR (b->base_buffer, undo_list));
@@ -1262,6 +1289,17 @@ Return nil if BUFFER has been killed.  */)
   return BVAR (decode_buffer (buffer), name);
 }
 
+DEFUN ("buffer-last-name", Fbuffer_last_name, Sbuffer_last_name, 0, 1, 0,
+       doc: /* Return last name of BUFFER, as a string.
+BUFFER defaults to the current buffer.
+
+This is the name BUFFER had before the last time it was renamed or
+immediately before it was killed.  */)
+  (Lisp_Object buffer)
+{
+  return BVAR (decode_buffer (buffer), last_name);
+}
+
 DEFUN ("buffer-file-name", Fbuffer_file_name, Sbuffer_file_name, 0, 1, 0,
        doc: /* Return name of file BUFFER is visiting, or nil if none.
 No argument or nil as argument means use the current buffer.  */)
@@ -1632,6 +1670,7 @@ This does not change the name of the visited file (if any).  */)
   (register Lisp_Object newname, Lisp_Object unique)
 {
   register Lisp_Object tem, buf;
+  Lisp_Object oldname = BVAR (current_buffer, name);
   Lisp_Object requestedname = newname;
 
   CHECK_STRING (newname);
@@ -1649,12 +1688,12 @@ This does not change the name of the visited file (if any).  */)
       if (NILP (unique) && XBUFFER (tem) == current_buffer)
 	return BVAR (current_buffer, name);
       if (!NILP (unique))
-	newname = Fgenerate_new_buffer_name (newname,
-	                                     BVAR (current_buffer, name));
+	newname = Fgenerate_new_buffer_name (newname, oldname);
       else
 	error ("Buffer name `%s' is in use", SDATA (newname));
     }
 
+  bset_last_name (current_buffer, oldname);
   bset_name (current_buffer, newname);
 
   /* Catch redisplay's attention.  Unless we do this, the mode lines for
@@ -1739,7 +1778,7 @@ exists, return the buffer `*scratch*' (creating it if necessary).  */)
   if (!NILP (notsogood))
     return notsogood;
   else
-    return safe_call (1, Qget_scratch_buffer_create);
+    return safe_calln (Qget_scratch_buffer_create);
 }
 
 /* The following function is a safe variant of Fother_buffer: It doesn't
@@ -1760,7 +1799,7 @@ other_buffer_safely (Lisp_Object buffer)
      becoming dead under our feet.  safe_call below could return nil
      if recreating *scratch* in Lisp, which does some fancy stuff,
      signals an error in some weird use case.  */
-  buf = safe_call (1, Qget_scratch_buffer_create);
+  buf = safe_calln (Qget_scratch_buffer_create);
   if (NILP (buf))
     {
       AUTO_STRING (scratch, "*scratch*");
@@ -1951,8 +1990,16 @@ cleaning up all windows currently displaying the buffer to be killed. */)
       Lisp_Object tail, other;
 
       FOR_EACH_LIVE_BUFFER (tail, other)
-	if (XBUFFER (other)->base_buffer == b)
-	  Fkill_buffer (other);
+	{
+	  struct buffer *obuf = XBUFFER (other);
+	  if (obuf->base_buffer == b)
+	    {
+	      Fkill_buffer (other);
+	      if (BUFFER_LIVE_P (obuf))
+		error ("Unable to kill buffer whose indirect buffer `%s' cannot be killed",
+		       SDATA (BVAR (obuf, name)));
+	    }
+	}
 
       /* Exit if we now have killed the base buffer (Bug#11665).  */
       if (!BUFFER_LIVE_P (b))
@@ -2067,6 +2114,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
      This gets rid of them for certain.  */
   reset_buffer_local_variables (b, 1);
 
+  bset_last_name (b, BVAR (b, name));
   bset_name (b, Qnil);
 
   block_input ();
@@ -2988,7 +3036,7 @@ the normal hook `change-major-mode-hook'.  */)
    But still return the total number of overlays.
 */
 
-ptrdiff_t
+static ptrdiff_t
 overlays_in (ptrdiff_t beg, ptrdiff_t end, bool extend,
 	     Lisp_Object **vec_ptr, ptrdiff_t *len_ptr,
 	     bool empty, bool trailing,
@@ -3111,56 +3159,38 @@ mouse_face_overlay_overlaps (Lisp_Object overlay)
 {
   ptrdiff_t start = OVERLAY_START (overlay);
   ptrdiff_t end = OVERLAY_END (overlay);
-  ptrdiff_t n, i, size;
-  Lisp_Object *v, tem;
-  Lisp_Object vbuf[10];
-  USE_SAFE_ALLOCA;
+  Lisp_Object tem;
+  struct itree_node *node;
 
-  size = ARRAYELTS (vbuf);
-  v = vbuf;
-  n = overlays_in (start, end, 0, &v, &size, true, false, NULL);
-  if (n > size)
+  ITREE_FOREACH (node, current_buffer->overlays,
+                 start, min (end, ZV) + 1,
+                 ASCENDING)
     {
-      SAFE_NALLOCA (v, 1, n);
-      overlays_in (start, end, 0, &v, &n, true, false, NULL);
+      if (node->begin < end && node->end > start
+          && node->begin < node->end
+          && !EQ (node->data, overlay)
+          && (tem = Foverlay_get (overlay, Qmouse_face),
+	      !NILP (tem)))
+	return true;
     }
-
-  for (i = 0; i < n; ++i)
-    if (!EQ (v[i], overlay)
-	&& (tem = Foverlay_get (overlay, Qmouse_face),
-	    !NILP (tem)))
-      break;
-
-  SAFE_FREE ();
-  return i < n;
+  return false;
 }
 
 /* Return the value of the 'display-line-numbers-disable' property at
    EOB, if there's an overlay at ZV with a non-nil value of that property.  */
-Lisp_Object
+bool
 disable_line_numbers_overlay_at_eob (void)
 {
-  ptrdiff_t n, i, size;
-  Lisp_Object *v, tem = Qnil;
-  Lisp_Object vbuf[10];
-  USE_SAFE_ALLOCA;
+  Lisp_Object tem = Qnil;
+  struct itree_node *node;
 
-  size = ARRAYELTS (vbuf);
-  v = vbuf;
-  n = overlays_in (ZV, ZV, 0, &v, &size, false, false, NULL);
-  if (n > size)
+  ITREE_FOREACH (node, current_buffer->overlays, ZV, ZV, ASCENDING)
     {
-      SAFE_NALLOCA (v, 1, n);
-      overlays_in (ZV, ZV, 0, &v, &n, false, false, NULL);
+      if ((tem = Foverlay_get (node->data, Qdisplay_line_numbers_disable),
+	   !NILP (tem)))
+	return true;
     }
-
-  for (i = 0; i < n; ++i)
-    if ((tem = Foverlay_get (v[i], Qdisplay_line_numbers_disable),
-	 !NILP (tem)))
-      break;
-
-  SAFE_FREE ();
-  return tem;
+  return false;
 }
 
 
@@ -4656,6 +4686,7 @@ init_buffer_once (void)
   /* These used to be stuck at 0 by default, but now that the all-zero value
      means Qnil, we have to initialize them explicitly.  */
   bset_name (&buffer_local_flags, make_fixnum (0));
+  bset_last_name (&buffer_local_flags, make_fixnum (0));
   bset_mark (&buffer_local_flags, make_fixnum (0));
   bset_local_var_alist (&buffer_local_flags, make_fixnum (0));
   bset_keymap (&buffer_local_flags, make_fixnum (0));
@@ -4673,7 +4704,6 @@ init_buffer_once (void)
   XSETFASTINT (BVAR (&buffer_local_flags, mode_line_format), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, abbrev_mode), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, overwrite_mode), idx); ++idx;
-  XSETFASTINT (BVAR (&buffer_local_flags, case_fold_search), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, auto_fill_function), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, selective_display), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, selective_display_ellipses), idx); ++idx;
@@ -4766,7 +4796,6 @@ init_buffer_once (void)
   bset_tab_line_format (&buffer_defaults, Qnil);
   bset_abbrev_mode (&buffer_defaults, Qnil);
   bset_overwrite_mode (&buffer_defaults, Qnil);
-  bset_case_fold_search (&buffer_defaults, Qt);
   bset_auto_fill_function (&buffer_defaults, Qnil);
   bset_selective_display (&buffer_defaults, Qnil);
   bset_selective_display_ellipses (&buffer_defaults, Qt);
@@ -5196,10 +5225,6 @@ Format with `format-mode-line' to produce a string value.  */);
 		     doc: /*  Non-nil if Abbrev mode is enabled.
 Use the command `abbrev-mode' to change this variable.  */);
 
-  DEFVAR_PER_BUFFER ("case-fold-search", &BVAR (current_buffer, case_fold_search),
-		     Qnil,
-		     doc: /* Non-nil if searches and matches should ignore case.  */);
-
   DEFVAR_PER_BUFFER ("fill-column", &BVAR (current_buffer, fill_column),
 		     Qintegerp,
 		     doc: /* Column beyond which automatic line-wrapping should happen.
@@ -5359,8 +5384,8 @@ visual lines rather than logical lines.  See the documentation of
 		     Qstringp,
 		     doc: /* Name of default directory of current buffer.
 It should be an absolute directory name; on GNU and Unix systems,
-these names start with `/' or `~' and end with `/'.
-To interactively change the default directory, use command `cd'. */);
+these names start with "/" or "~" and end with "/".
+To interactively change the default directory, use the command `cd'. */);
 
   DEFVAR_PER_BUFFER ("auto-fill-function", &BVAR (current_buffer, auto_fill_function),
 		     Qnil,
@@ -5875,10 +5900,20 @@ Use Custom to set this variable and update the display.  */);
 						     text_conversion_style),
 		     Qnil,
     doc: /* How the on screen keyboard's input method should insert in this buffer.
-When nil, the input method will be disabled and an ordinary keyboard
+
+If nil, the input method will be disabled and an ordinary keyboard
 will be displayed in its place.
-When the symbol `action', the input method will insert text directly, but
-will send `return' key events instead of inserting new line characters.
+
+If the value is the symbol `action', the input method will insert text
+directly, but will send `return' key events instead of inserting new
+line characters.
+
+If the value is the symbol `password', an input method capable of ASCII
+input will be enabled, and will not save the entered text where it will
+be retrieved for text suggestions or other features not suitable for
+handling sensitive information, in addition to reporting `return' as
+when `action'.
+
 Any other value means that the input method will insert text directly.
 
 If you need to make non-buffer local changes to this variable, use
@@ -5886,7 +5921,7 @@ If you need to make non-buffer local changes to this variable, use
 
 This variable does not take immediate effect when set; rather, it
 takes effect upon the next redisplay after the selected window or
-buffer changes.  */);
+its buffer changes.  */);
 
   DEFVAR_LISP ("kill-buffer-query-functions", Vkill_buffer_query_functions,
 	       doc: /* List of functions called with no args to query before killing a buffer.
@@ -5931,6 +5966,12 @@ If `delete-auto-save-files' is nil, any autosave deletion is inhibited.  */);
 	       doc: /* Non-nil means delete auto-save file when a buffer is saved.
 This is the default.  If nil, auto-save file deletion is inhibited.  */);
   delete_auto_save_files = 1;
+
+  DEFVAR_LISP ("case-fold-search", Vcase_fold_search,
+	       doc: /* Non-nil if searches and matches should ignore case.  */);
+  Vcase_fold_search = Qt;
+  DEFSYM (Qcase_fold_search, "case-fold-search");
+  Fmake_variable_buffer_local (Qcase_fold_search);
 
   DEFVAR_LISP ("clone-indirect-buffer-hook", Vclone_indirect_buffer_hook,
 	       doc: /* Normal hook to run in the new buffer at the end of `make-indirect-buffer'.
@@ -6010,10 +6051,13 @@ There is no reason to change that value except for debugging purposes.  */);
   defsubr (&Sbuffer_list);
   defsubr (&Sget_buffer);
   defsubr (&Sget_file_buffer);
+  defsubr (&Sget_truename_buffer);
+  defsubr (&Sfind_buffer);
   defsubr (&Sget_buffer_create);
   defsubr (&Smake_indirect_buffer);
   defsubr (&Sgenerate_new_buffer_name);
   defsubr (&Sbuffer_name);
+  defsubr (&Sbuffer_last_name);
   defsubr (&Sbuffer_file_name);
   defsubr (&Sbuffer_base_buffer);
   defsubr (&Sbuffer_local_value);

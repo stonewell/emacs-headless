@@ -1,6 +1,6 @@
 ;;; shell.el --- specialized comint.el for running the shell -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1993-1997, 2000-2023 Free Software Foundation,
+;; Copyright (C) 1988, 1993-1997, 2000-2024 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Olin Shivers <shivers@cs.cmu.edu>
@@ -606,6 +606,9 @@ Shell buffers.  It implements `shell-completion-execonly' for
 
 (defvar sh-shell-file)
 
+(declare-function w32-application-type "w32proc.c"
+                  (program) t)
+
 (define-derived-mode shell-mode comint-mode "Shell"
   "Major mode for interacting with an inferior shell.
 \\<shell-mode-map>
@@ -754,6 +757,11 @@ command."
 		  ((string-equal shell "ksh") "echo $PWD ~-")
 		  ;; Bypass any aliases.  TODO all shells could use this.
 		  ((string-equal shell "bash") "command dirs")
+		  ((and (string-equal shell "bash.exe")
+                        (eq system-type 'windows-nt)
+                        (eq (w32-application-type (executable-find "bash.exe"))
+                            'msys))
+                   "command pwd -W")
 		  ((string-equal shell "zsh") "dirs -l")
 		  (t "dirs")))
       ;; Bypass a bug in certain versions of bash.

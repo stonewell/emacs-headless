@@ -1,10 +1,10 @@
 ;;; flymake.el --- A universal on-the-fly syntax checker  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2024 Free Software Foundation, Inc.
 
 ;; Author: Pavel Kobyakov <pk_at_work@yahoo.com>
 ;; Maintainer: João Távora <joaotavora@gmail.com>
-;; Version: 1.3.6
+;; Version: 1.3.7
 ;; Keywords: c languages tools
 ;; Package-Requires: ((emacs "26.1") (eldoc "1.14.0") (project "0.7.1"))
 
@@ -715,7 +715,7 @@ associated `flymake-category' return DEFAULT."
     (delete-overlay ov)))
 
 (defun flymake--eol-overlay-summary (src-ovs)
-  "Helper function for `flymake--eol-overlay-update'."
+  "Helper function for `flymake--update-eol-overlays'."
   (cl-flet ((summarize (d)
               (propertize (flymake-diagnostic-oneliner d t) 'face
                           (flymake--lookup-type-property (flymake--diag-type d)
@@ -744,7 +744,7 @@ associated `flymake-category' return DEFAULT."
 
 (defun flymake--update-eol-overlays ()
   "Update the `before-string' property of end-of-line overlays."
-  (save-excursion
+  (save-restriction
     (widen)
     (dolist (o (overlays-in (point-min) (point-max)))
       (when (overlay-get o 'flymake--eol-overlay)
@@ -809,6 +809,7 @@ Return nil or the overlay created."
                         (flymake--diag-orig-end e))
                   (flymake--delete-overlay eov)))
     (setq ov (make-overlay beg end))
+    (setf (flymake--diag-overlay diagnostic) ov)
     (when (= (overlay-start ov) (overlay-end ov))
       ;; Some backends report diagnostics with invalid bounds.  Don't
       ;; bother.
@@ -863,7 +864,6 @@ Return nil or the overlay created."
     (overlay-put ov 'evaporate t)
     (overlay-put ov 'flymake-overlay t)
     (overlay-put ov 'flymake-diagnostic diagnostic)
-    (setf (flymake--diag-overlay diagnostic) ov)
     ;; Handle `flymake-show-diagnostics-at-end-of-line'
     ;;
     (when flymake-show-diagnostics-at-end-of-line
@@ -1569,13 +1569,19 @@ correctly.")
     ,flymake-mode-line-lighter
     mouse-face mode-line-highlight
     help-echo
-    ,(lambda (&rest _)
-       (concat
-        (format "%s known backends\n" (hash-table-count flymake--state))
-        (format "%s running\n" (length (flymake-running-backends)))
-        (format "%s disabled\n" (length (flymake-disabled-backends)))
-        "mouse-1: Display minor mode menu\n"
-        "mouse-2: Show help for minor mode"))
+    ,(lambda (w &rest _)
+       (with-current-buffer (window-buffer w)
+         ;; Mouse can activate tool-tip without window being active.
+         ;; `flymake--state' is buffer local and is null when line
+         ;; lighter appears in *Help* `describe-mode'.
+         (concat
+          (unless (null flymake--state)
+            (concat
+             (format "%s known backends\n"  (hash-table-count flymake--state))
+             (format "%s running\n" (length (flymake-running-backends)))
+             (format "%s disabled\n" (length (flymake-disabled-backends)))))
+          "mouse-1: Display minor mode menu\n"
+          "mouse-2: Show help for minor mode")))
     keymap
     ,(let ((map (make-sparse-keymap)))
        (define-key map [mode-line down-mouse-1]
@@ -1637,14 +1643,18 @@ correctly.")
 
 (defvar flymake--mode-line-counter-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (vector 'mode-line mouse-wheel-down-event)
-                #'flymake--mode-line-counter-scroll-prev)
-    (define-key map [mode-line wheel-down]
-                #'flymake--mode-line-counter-scroll-prev)
-    (define-key map (vector 'mode-line mouse-wheel-up-event)
-                #'flymake--mode-line-counter-scroll-next)
-    (define-key map [mode-line wheel-up]
-                #'flymake--mode-line-counter-scroll-next)
+    ;; BEWARE: `mouse-wheel-UP-event' corresponds to `wheel-DOWN' events
+    ;; and vice versa!!
+    (with-suppressed-warnings
+        ((obsolete mouse-wheel-up-event mouse-wheel-down-event))
+      (define-key map (vector 'mode-line mouse-wheel-down-event)
+                  #'flymake--mode-line-counter-scroll-prev)
+      (define-key map [mode-line wheel-down]
+                  #'flymake--mode-line-counter-scroll-next)
+      (define-key map (vector 'mode-line mouse-wheel-up-event)
+                  #'flymake--mode-line-counter-scroll-next)
+      (define-key map [mode-line wheel-up]
+                  #'flymake--mode-line-counter-scroll-prev))
     map))
 
 (defun flymake--mode-line-counter-1 (type)

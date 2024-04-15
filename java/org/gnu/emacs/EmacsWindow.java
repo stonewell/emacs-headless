@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -22,10 +22,15 @@ package org.gnu.emacs;
 import java.lang.IllegalStateException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashMap;
+import java.util.ListIterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import android.app.Activity;
+
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ContentResolver;
 import android.content.Context;
 
 import android.graphics.Rect;
@@ -33,14 +38,18 @@ import android.graphics.Canvas;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 
-import android.view.View;
-import android.view.ViewManager;
+import android.net.Uri;
+
+import android.view.DragEvent;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.InputDevice;
+import android.view.View;
+import android.view.ViewManager;
 import android.view.WindowManager;
 
+import android.util.SparseArray;
 import android.util.Log;
 
 import android.os.Build;
@@ -93,15 +102,17 @@ public final class EmacsWindow extends EmacsHandleObject
   public EmacsWindow parent;
 
   /* List of all children in stacking order.  This must be kept
-     consistent with their Z order!  */
+     consistent with their Z order!
+
+     Synchronize access to this list with itself.  */
   public ArrayList<EmacsWindow> children;
 
   /* Map between pointer identifiers and last known position.  Used to
      compute which pointer changed upon a touch event.  */
-  private HashMap<Integer, Coordinate> pointerMap;
+  private SparseArray<Coordinate> pointerMap;
 
   /* The window consumer currently attached, if it exists.  */
-  private EmacsWindowAttachmentManager.WindowConsumer attached;
+  private EmacsWindowManager.WindowConsumer attached;
 
   /* The window background scratch GC.  foreground is always the
      window background.  */
@@ -144,6 +155,20 @@ public final class EmacsWindow extends EmacsHandleObject
   /* The position of this window relative to the root window.  */
   public int xPosition, yPosition;
 
+  /* The position of the last drag and drop event received; both
+     values are -1 if no drag and drop operation is under way.  */
+  private int dndXPosition, dndYPosition;
+
+  /* Identifier binding this window to the activity created for it, or
+     -1 if the window should be attached to system-created activities
+     (i.e. the activity launched by the system at startup).  Value is
+     meaningless under API level 29 and earlier.  */
+  public long attachmentToken;
+
+  /* Whether this window should be preserved during window pruning,
+     and whether this window has previously been attached to a task.  */
+  public boolean preserve, previouslyAttached;
+
   public
   EmacsWindow (short handle, final EmacsWindow parent, int x, int y,
 	       int width, int height, boolean overrideRedirect)
@@ -151,7 +176,7 @@ public final class EmacsWindow extends EmacsHandleObject
     super (handle);
 
     rect = new Rect (x, y, x + width, y + height);
-    pointerMap = new HashMap<Integer, Coordinate> ();
+    pointerMap = new SparseArray<Coordinate> ();
 
     /* Create the view from the context's UI thread.  The window is
        unmapped, so the view is GONE.  */
@@ -165,7 +190,11 @@ public final class EmacsWindow extends EmacsHandleObject
 
     if (parent != null)
       {
-	parent.children.add (this);
+	synchronized (parent.children)
+	  {
+	    parent.children.add (this);
+	  }
+
         EmacsService.SERVICE.runOnUiThread (new Runnable () {
 	    @Override
 	    public void
@@ -190,6 +219,9 @@ public final class EmacsWindow extends EmacsHandleObject
 	    return size () > 10;
 	  }
 	};
+
+    dndXPosition = -1;
+    dndYPosition = -1;
   }
 
   public void
@@ -214,9 +246,14 @@ public final class EmacsWindow extends EmacsHandleObject
   destroyHandle () throws IllegalStateException
   {
     if (parent != null)
-      parent.children.remove (this);
+      {
+	synchronized (parent.children)
+	  {
+	    parent.children.remove (this);
+	  }
+      }
 
-    EmacsActivity.invalidateFocus ();
+    EmacsActivity.invalidateFocus (4);
 
     if (!children.isEmpty ())
       throw new IllegalStateException ("Trying to destroy window with "
@@ -228,12 +265,12 @@ public final class EmacsWindow extends EmacsHandleObject
 	run ()
 	{
 	  ViewManager parent;
-	  EmacsWindowAttachmentManager manager;
+	  EmacsWindowManager manager;
 
 	  if (EmacsActivity.focusedWindow == EmacsWindow.this)
 	    EmacsActivity.focusedWindow = null;
 
-	  manager = EmacsWindowAttachmentManager.MANAGER;
+	  manager = EmacsWindowManager.MANAGER;
 	  view.setVisibility (View.GONE);
 
 	  /* If the window manager is set, use that instead.  */
@@ -254,12 +291,12 @@ public final class EmacsWindow extends EmacsHandleObject
   }
 
   public void
-  setConsumer (EmacsWindowAttachmentManager.WindowConsumer consumer)
+  setConsumer (EmacsWindowManager.WindowConsumer consumer)
   {
     attached = consumer;
   }
 
-  public EmacsWindowAttachmentManager.WindowConsumer
+  public EmacsWindowManager.WindowConsumer
   getAttachedConsumer ()
   {
     return attached;
@@ -338,6 +375,9 @@ public final class EmacsWindow extends EmacsHandleObject
     requestViewLayout ();
   }
 
+  /* Return WM layout parameters for an override redirect window with
+     the geometry provided here.  */
+
   private WindowManager.LayoutParams
   getWindowLayoutParams ()
   {
@@ -360,15 +400,15 @@ public final class EmacsWindow extends EmacsHandleObject
     return params;
   }
 
-  private Context
+  private Activity
   findSuitableActivityContext ()
   {
     /* Find a recently focused activity.  */
     if (!EmacsActivity.focusedActivities.isEmpty ())
       return EmacsActivity.focusedActivities.get (0);
 
-    /* Return the service context, which probably won't work.  */
-    return EmacsService.SERVICE;
+    /* Resort to the last activity to be focused.  */
+    return EmacsActivity.lastFocusedActivity;
   }
 
   public synchronized void
@@ -390,9 +430,9 @@ public final class EmacsWindow extends EmacsHandleObject
 	    public void
 	    run ()
 	    {
-	      EmacsWindowAttachmentManager manager;
+	      EmacsWindowManager manager;
 	      WindowManager windowManager;
-	      Context ctx;
+	      Activity ctx;
 	      Object tem;
 	      WindowManager.LayoutParams params;
 
@@ -401,10 +441,10 @@ public final class EmacsWindow extends EmacsHandleObject
 
 	      if (!overrideRedirect)
 		{
-		  manager = EmacsWindowAttachmentManager.MANAGER;
+		  manager = EmacsWindowManager.MANAGER;
 
 		  /* If parent is the root window, notice that there are new
-		     children available for interested activites to pick
+		     children available for interested activities to pick
 		     up.  */
 		  manager.registerWindow (EmacsWindow.this);
 
@@ -423,11 +463,23 @@ public final class EmacsWindow extends EmacsHandleObject
                        activity using the system window manager.  */
 
 		  ctx = findSuitableActivityContext ();
+
+		  if (ctx == null)
+		    {
+		      Log.w (TAG, "failed to attach override-redirect window"
+			     + " for want of activity");
+		      return;
+		    }
+
 		  tem = ctx.getSystemService (Context.WINDOW_SERVICE);
 		  windowManager = (WindowManager) tem;
 
-		  /* Calculate layout parameters.  */
+		  /* Calculate layout parameters and propagate the
+		     activity's token into it.  */
+
 		  params = getWindowLayoutParams ();
+		  params.token = (ctx.findViewById (android.R.id.content)
+				  .getWindowToken ());
 		  view.setLayoutParams (params);
 
 		  /* Attach the view.  */
@@ -485,9 +537,9 @@ public final class EmacsWindow extends EmacsHandleObject
 	public void
 	run ()
 	{
-	  EmacsWindowAttachmentManager manager;
+	  EmacsWindowManager manager;
 
-	  manager = EmacsWindowAttachmentManager.MANAGER;
+	  manager = EmacsWindowManager.MANAGER;
 
 	  view.setVisibility (View.GONE);
 
@@ -620,19 +672,58 @@ public final class EmacsWindow extends EmacsHandleObject
   public void
   onKeyDown (int keyCode, KeyEvent event)
   {
-    int state, state_1;
+    int state, state_1, extra_ignored;
     long serial;
     String characters;
 
+    if (keyCode == KeyEvent.KEYCODE_BACK)
+      {
+	/* New Android systems display Back navigation buttons on a
+	   row of virtual buttons at the bottom of the screen.  These
+	   buttons function much as physical buttons do, in that key
+	   down events are produced when a finger taps them, even if
+	   the finger is not ultimately released after the OS's
+	   gesture navigation is activated.
+
+	   Deliver onKeyDown events in onKeyUp instead, so as not to
+	   navigate backwards during gesture navigation.  */
+
+	return;
+      }
+
     state = eventModifiers (event);
 
+    /* Num Lock, Scroll Lock and Meta aren't supported by systems older
+       than Android 3.0. */
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB)
+      extra_ignored = (KeyEvent.META_NUM_LOCK_ON
+		       | KeyEvent.META_SCROLL_LOCK_ON
+		       | KeyEvent.META_META_MASK);
+    else
+      extra_ignored = 0;
+
     /* Ignore meta-state understood by Emacs for now, or key presses
-       such as Ctrl+C and Meta+C will not be recognized as an ASCII
-       key press event.  */
+       such as Ctrl+C and Meta+C will not be recognized as ASCII key
+       press events.  */
 
     state_1
       = state & ~(KeyEvent.META_ALT_MASK | KeyEvent.META_CTRL_MASK
-		  | KeyEvent.META_SYM_ON | KeyEvent.META_META_MASK);
+		  | KeyEvent.META_SYM_ON | extra_ignored);
+
+    /* There's no distinction between Right Alt and Alt Gr on Android,
+       so restore META_ALT_RIGHT_ON if set in state to enable composing
+       characters.  (bug#69321) */
+
+    if ((state & KeyEvent.META_ALT_RIGHT_ON) != 0)
+      {
+	state_1 |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON;
+
+	/* If Alt is also not depressed, remove its bit from the mask
+	   reported to Emacs.  */
+	if ((state & KeyEvent.META_ALT_LEFT_ON) == 0)
+	  state &= ~KeyEvent.META_ALT_MASK;
+      }
 
     synchronized (eventStrings)
       {
@@ -653,25 +744,59 @@ public final class EmacsWindow extends EmacsHandleObject
   public void
   onKeyUp (int keyCode, KeyEvent event)
   {
-    int state, state_1;
+    int state, state_1, unicode_char, extra_ignored;
     long time;
 
     /* Compute the event's modifier mask.  */
     state = eventModifiers (event);
 
+    /* Num Lock, Scroll Lock and Meta aren't supported by systems older
+       than Android 3.0. */
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB)
+      extra_ignored = (KeyEvent.META_NUM_LOCK_ON
+		       | KeyEvent.META_SCROLL_LOCK_ON
+		       | KeyEvent.META_META_MASK);
+    else
+      extra_ignored = 0;
+
     /* Ignore meta-state understood by Emacs for now, or key presses
-       such as Ctrl+C and Meta+C will not be recognized as an ASCII
-       key press event.  */
+       such as Ctrl+C and Meta+C will not be recognized as ASCII key
+       press events.  */
 
     state_1
       = state & ~(KeyEvent.META_ALT_MASK | KeyEvent.META_CTRL_MASK
-		  | KeyEvent.META_SYM_ON | KeyEvent.META_META_MASK);
+		  | KeyEvent.META_SYM_ON | extra_ignored);
 
-    EmacsNative.sendKeyRelease (this.handle,
-				event.getEventTime (),
-				state, keyCode,
-				getEventUnicodeChar (event,
-						     state_1));
+    /* There's no distinction between Right Alt and Alt Gr on Android,
+       so restore META_ALT_RIGHT_ON if set in state to enable composing
+       characters.  */
+
+    if ((state & KeyEvent.META_ALT_RIGHT_ON) != 0)
+      {
+	state_1 |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON;
+
+	/* If Alt is also not depressed, remove its bit from the mask
+	   reported to Emacs.  */
+	if ((state & KeyEvent.META_ALT_LEFT_ON) == 0)
+	  state &= ~KeyEvent.META_ALT_MASK;
+      }
+
+    unicode_char = getEventUnicodeChar (event, state_1);
+
+    if (keyCode == KeyEvent.KEYCODE_BACK)
+      {
+	/* If the key press's been canceled, return immediately.  */
+
+	if ((event.getFlags () & KeyEvent.FLAG_CANCELED) != 0)
+	  return;
+
+	EmacsNative.sendKeyPress (this.handle, event.getEventTime (),
+				  state, keyCode, unicode_char);
+      }
+
+    EmacsNative.sendKeyRelease (this.handle, event.getEventTime (),
+				state, keyCode, unicode_char);
 
     if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
       {
@@ -691,23 +816,16 @@ public final class EmacsWindow extends EmacsHandleObject
   public void
   onFocusChanged (boolean gainFocus)
   {
-    EmacsActivity.invalidateFocus ();
+    EmacsActivity.invalidateFocus (gainFocus ? 6 : 5);
   }
 
-  /* Notice that the activity has been detached or destroyed.
-
-     ISFINISHING is set if the activity is not the main activity, or
-     if the activity was not destroyed in response to explicit user
-     action.  */
+  /* Notice that the activity (or its task) has been detached or
+     destroyed by explicit user action.  */
 
   public void
-  onActivityDetached (boolean isFinishing)
+  onActivityDetached ()
   {
-    /* Destroy the associated frame when the activity is detached in
-       response to explicit user action.  */
-
-    if (isFinishing)
-      EmacsNative.sendWindowAction (this.handle, 0);
+    EmacsNative.sendWindowAction (this.handle, 0);
   }
 
 
@@ -886,7 +1004,8 @@ public final class EmacsWindow extends EmacsHandleObject
       case MotionEvent.ACTION_CANCEL:
 	/* Primary pointer released with index 0.  */
 	pointerID = event.getPointerId (0);
-	coordinate = pointerMap.remove (pointerID);
+	coordinate = pointerMap.get (pointerID);
+	pointerMap.delete (pointerID);
 	break;
 
       case MotionEvent.ACTION_POINTER_DOWN:
@@ -894,8 +1013,8 @@ public final class EmacsWindow extends EmacsHandleObject
 	   it in the map.  */
 	pointerIndex = event.getActionIndex ();
 	pointerID = event.getPointerId (pointerIndex);
-	coordinate = new Coordinate ((int) event.getX (0),
-				     (int) event.getY (0),
+	coordinate = new Coordinate ((int) event.getX (pointerIndex),
+				     (int) event.getY (pointerIndex),
 				     buttonForEvent (event),
 				     pointerID);
 	pointerMap.put (pointerID, coordinate);
@@ -905,7 +1024,8 @@ public final class EmacsWindow extends EmacsHandleObject
 	/* Pointer removed.  Remove it from the map.  */
 	pointerIndex = event.getActionIndex ();
 	pointerID = event.getPointerId (pointerIndex);
-	coordinate = pointerMap.remove (pointerID);
+	coordinate = pointerMap.get (pointerID);
+	pointerMap.delete (pointerID);
 	break;
 
       default:
@@ -1163,10 +1283,20 @@ public final class EmacsWindow extends EmacsHandleObject
     /* Reparent this window to the other window.  */
 
     if (parent != null)
-      parent.children.remove (this);
+      {
+	synchronized (parent.children)
+	  {
+	    parent.children.remove (this);
+	  }
+      }
 
     if (otherWindow != null)
-      otherWindow.children.add (this);
+      {
+	synchronized (otherWindow.children)
+	  {
+	    otherWindow.children.add (this);
+	  }
+      }
 
     parent = otherWindow;
 
@@ -1185,11 +1315,11 @@ public final class EmacsWindow extends EmacsHandleObject
 	public void
 	run ()
 	{
-	  EmacsWindowAttachmentManager manager;
+	  EmacsWindowManager manager;
 	  ViewManager parent;
 
 	  /* First, detach this window if necessary.  */
-	  manager = EmacsWindowAttachmentManager.MANAGER;
+	  manager = EmacsWindowManager.MANAGER;
 	  manager.detachWindow (EmacsWindow.this);
 
 	  /* Also unparent this view.  */
@@ -1239,9 +1369,12 @@ public final class EmacsWindow extends EmacsHandleObject
     if (parent == null)
       return;
 
-    /* Remove and add this view again.  */
-    parent.children.remove (this);
-    parent.children.add (this);
+    synchronized (parent.children)
+      {
+	/* Remove and add this view again.  */
+	parent.children.remove (this);
+	parent.children.add (this);
+      }
 
     /* Request a relayout.  */
     EmacsService.SERVICE.runOnUiThread (new Runnable () {
@@ -1261,9 +1394,12 @@ public final class EmacsWindow extends EmacsHandleObject
     if (parent == null)
       return;
 
-    /* Remove and add this view again.  */
-    parent.children.remove (this);
-    parent.children.add (this);
+    synchronized (parent.children)
+      {
+	/* Remove and add this view again.  */
+	parent.children.remove (this);
+	parent.children.add (this);
+      }
 
     /* Request a relayout.  */
     EmacsService.SERVICE.runOnUiThread (new Runnable () {
@@ -1274,6 +1410,86 @@ public final class EmacsWindow extends EmacsHandleObject
 	  view.lower ();
 	}
       });
+  }
+
+  public synchronized void
+  reconfigure (final EmacsWindow window, final int stackMode)
+  {
+    ListIterator<EmacsWindow> iterator;
+    EmacsWindow object;
+
+    /* This does nothing here.  */
+    if (parent == null)
+      return;
+
+    /* If window is NULL, call lower or upper subject to
+       stackMode.  */
+
+    if (window == null)
+      {
+	if (stackMode == 1) /* ANDROID_BELOW */
+	  lower ();
+	else
+	  raise ();
+
+	return;
+      }
+
+    /* Otherwise, if window.parent is distinct from this, return.  */
+    if (window.parent != this.parent)
+      return;
+
+    /* Synchronize with the parent's child list.  Iterate over each
+       item until WINDOW is encountered, before moving this window to
+       the location prescribed by STACKMODE.  */
+
+    synchronized (parent.children)
+      {
+	/* Remove this window from parent.children, for it will be
+	   reinserted before or after WINDOW.  */
+	parent.children.remove (this);
+
+	/* Create an iterator.  */
+	iterator = parent.children.listIterator ();
+
+	while (iterator.hasNext ())
+	  {
+	    object = iterator.next ();
+
+	    if (object == window)
+	      {
+		/* Now place this before or after the cursor of the
+		   iterator.  */
+
+		if (stackMode == 0) /* ANDROID_ABOVE */
+		  iterator.add (this);
+		else
+		  {
+		    iterator.previous ();
+		    iterator.add (this);
+		  }
+
+		/* Effect the same adjustment upon the view
+		   hierarchy.  */
+
+		EmacsService.SERVICE.runOnUiThread (new Runnable () {
+		    @Override
+		    public void
+		    run ()
+		    {
+		      if (stackMode == 0)
+			view.moveAbove (window.view);
+		      else
+			view.moveBelow (window.view);
+		    }
+		  });
+	      }
+	  }
+
+	/* parent.children does not list WINDOW, which should never
+	   transpire.  */
+	EmacsNative.emacsAbort ();
+      }
   }
 
   public synchronized int[]
@@ -1335,10 +1551,11 @@ public final class EmacsWindow extends EmacsHandleObject
   {
     int[] array;
 
-    /* This is supposed to translate coordinates to the root
-       window.  */
+    /* This is supposed to translate coordinates to the root window,
+       whose origin point, in this context, is that of the toplevel
+       activity host to this view.  */
     array = new int[2];
-    EmacsService.SERVICE.getLocationOnScreen (view, array);
+    EmacsService.SERVICE.getLocationInWindow (view, array);
 
     /* Now, the coordinates of the view should be in array.  Offset X
        and Y by them.  */
@@ -1451,5 +1668,215 @@ public final class EmacsWindow extends EmacsHandleObject
 					 xPosition, yPosition,
 					 rect.width (), rect.height ());
       }
+  }
+
+
+
+  /* Drag and drop.
+
+     Android 7.0 and later permit multiple windows to be juxtaposed
+     on-screen, consequently enabling items selected from one window
+     to be dragged onto another.  Data is transferred across program
+     boundaries using ClipData items, much the same way clipboard data
+     is transferred.
+
+     When an item is dropped, Emacs must ascertain whether the clip
+     data represents plain text, a content URI incorporating a file,
+     or some other data.  This is implemented by examining the clip
+     data's ``description'', which enumerates each of the MIME data
+     types the clip data is capable of providing data in.
+
+     If the clip data represents plain text, then that text is copied
+     into a string and conveyed to Lisp code.  Otherwise, Emacs must
+     solicit rights to access the URI from the system, absent which it
+     is accounted plain text and reinterpreted as such, to cue the
+     user that something has gone awry.
+
+     Moreover, events are regularly sent as the item being dragged
+     travels across the frame, even if it might not be dropped.  This
+     facilitates cursor motion and scrolling in response, as provided
+     by the options dnd-indicate-insertion-point and
+     dnd-scroll-margin.  */
+
+  /* Register the drag and drop event EVENT.  */
+
+  public boolean
+  onDragEvent (DragEvent event)
+  {
+    ClipData data;
+    ClipDescription description;
+    int i, j, x, y, itemCount;
+    String type, uriString;
+    Uri uri;
+    EmacsActivity activity;
+    StringBuilder builder;
+    ContentResolver resolver;
+
+    x = (int) event.getX ();
+    y = (int) event.getY ();
+
+    switch (event.getAction ())
+      {
+      case DragEvent.ACTION_DRAG_STARTED:
+	/* Return true to continue the drag and drop operation.  */
+	return true;
+
+      case DragEvent.ACTION_DRAG_LOCATION:
+	/* Send this drag motion event to Emacs.  Skip this when the
+	   integer position hasn't changed, for Android sends events
+	   even if the movement from the previous position of the drag
+	   is less than 1 pixel on either axis.  */
+
+	if (x != dndXPosition || y != dndYPosition)
+	  {
+	    EmacsNative.sendDndDrag (handle, x, y);
+	    dndXPosition = x;
+	    dndYPosition = y;
+	  }
+
+	return true;
+
+      case DragEvent.ACTION_DROP:
+	/* Reset this view's record of the previous drag and drop
+	   event's position.  */
+	dndXPosition = -1;
+	dndYPosition = -1;
+
+	/* Judge whether this is plain text, or if it's a file URI for
+	   which permissions must be requested.  */
+
+	data = event.getClipData ();
+	description = data.getDescription ();
+	itemCount = data.getItemCount ();
+
+	/* If there are insufficient items within the clip data,
+	   return false.  */
+
+	if (itemCount < 1)
+	  return false;
+
+	/* Search for plain text data within the clipboard.  */
+
+	for (i = 0; i < description.getMimeTypeCount (); ++i)
+	  {
+	    type = description.getMimeType (i);
+
+	    if (type.equals (ClipDescription.MIMETYPE_TEXT_PLAIN)
+		|| type.equals (ClipDescription.MIMETYPE_TEXT_HTML))
+	      {
+		/* The data being dropped is plain text; encode it
+		   suitably and send it to the main thread.  */
+		type = (data.getItemAt (0).coerceToText (EmacsService.SERVICE)
+			.toString ());
+		EmacsNative.sendDndText (handle, x, y, type);
+		return true;
+	      }
+	    else if (type.equals (ClipDescription.MIMETYPE_TEXT_URILIST))
+	      {
+		/* The data being dropped is a list of URIs; encode it
+		   suitably and send it to the main thread.  */
+		type = (data.getItemAt (0).coerceToText (EmacsService.SERVICE)
+			.toString ());
+		EmacsNative.sendDndUri (handle, x, y, type);
+		return true;
+	      }
+	  }
+
+	/* There's no plain text data within this clipboard item, so
+	   each item within should be treated as a content URI
+	   designating a file.  */
+
+	/* Collect the URIs into a string with each suffixed
+	   by newlines, much as in a text/uri-list.  */
+	builder = new StringBuilder ();
+
+	for (i = 0; i < itemCount; ++i)
+	  {
+	    /* If the item dropped is a URI, send it to the
+	       main thread.  */
+
+	    uri = data.getItemAt (i).getUri ();
+
+	    /* Attempt to acquire permissions for this URI;
+	       failing which, insert it as text instead.  */
+
+	    if (uri != null
+		&& uri.getScheme () != null
+		&& uri.getScheme ().equals ("content")
+		&& (activity = EmacsActivity.lastFocusedActivity) != null)
+	      {
+		if ((activity.requestDragAndDropPermissions (event) == null))
+		  uri = null;
+		else
+		  {
+		    resolver = activity.getContentResolver ();
+
+		    /* Substitute a content file name for the URI, if
+		       possible.  */
+		    uriString = EmacsService.buildContentName (uri, resolver);
+
+		    if (uriString != null)
+		      {
+			builder.append (uriString).append ("\n");
+			continue;
+		      }
+		  }
+	      }
+
+	    if (uri != null)
+	      builder.append (uri.toString ()).append ("\n");
+	    else
+	      {
+		/* Treat each URI that Emacs cannot secure
+		   permissions for as plain text.  */
+		type = (data.getItemAt (i)
+			.coerceToText (EmacsService.SERVICE)
+			.toString ());
+		EmacsNative.sendDndText (handle, x, y, type);
+	      }
+	  }
+
+	/* Now send each URI to Emacs.  */
+
+	if (builder.length () > 0)
+	  EmacsNative.sendDndUri (handle, x, y, builder.toString ());
+	return true;
+
+      default:
+	/* Reset this view's record of the previous drag and drop
+	   event's position.  */
+	dndXPosition = -1;
+	dndYPosition = -1;
+      }
+
+    return true;
+  }
+
+
+
+  /* Miscellaneous functions for debugging graphics code.  */
+
+  /* Recreate the activity to which this window is attached, if any.
+     This is nonfunctional on Android 2.3.7 and earlier.  */
+
+  public void
+  recreateActivity ()
+  {
+    final EmacsWindowManager.WindowConsumer attached;
+
+    attached = this.attached;
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.HONEYCOMB)
+      return;
+
+    view.post (new Runnable () {
+	@Override
+	public void
+	run ()
+	{
+	  if (attached instanceof EmacsActivity)
+	    ((EmacsActivity) attached).recreate ();
+	}
+      });
   }
 };

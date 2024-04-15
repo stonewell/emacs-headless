@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -38,8 +38,9 @@ import android.preference.*;
    option, which would not be possible otherwise, as there is no
    command line on Android.
 
-   Android provides a preferences activity, but it is deprecated.
-   Unfortunately, there is no alternative that looks the same way.  */
+   This file extends a deprecated preferences activity, but no suitable
+   alternative exists that is identical in appearance to system settings
+   forms.  */
 
 @SuppressWarnings ("deprecation")
 public class EmacsPreferencesActivity extends PreferenceActivity

@@ -1,6 +1,7 @@
 ;;; sh-script.el --- shell-script editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1997, 1999, 2001-2024 Free Software Foundation,
+;; Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>
 ;; Old-Version: 2.0f
@@ -869,7 +870,7 @@ See `sh-feature'.")
   "Default expressions to highlight in Shell Script modes.  See `sh-feature'.")
 
 (defvar sh-font-lock-keywords-var-1
-  '((sh "[ \t]in\\>"))
+  '((sh "[ \t]\\(in\\|do\\)\\>"))
   "Subdued level highlighting for Shell Script modes.")
 
 (defvar sh-font-lock-keywords-var-2 ()
@@ -1053,7 +1054,8 @@ subshells can nest."
                     ;; a normal command rather than the real `in' keyword.
                     ;; I.e. we should look back to try and find the
                     ;; corresponding `case'.
-                    (and (looking-at ";\\(?:;&?\\|[&|]\\)\\|\\_<in")
+                    ;; Also recognize OpenBSD's case X { ... } (bug#55764).
+                    (and (looking-at ";\\(?:;&?\\|[&|]\\)\\|\\_<in\\|.{")
                          ;; ";; esac )" is a case that looks
                          ;; like a case-pattern but it's really just a close
                          ;; paren after a case statement.  I.e. if we skipped
@@ -1637,6 +1639,8 @@ not written in Bash or sh."
     (setq-local treesit-defun-type-regexp "function_definition")
     (treesit-major-mode-setup)))
 
+(derived-mode-add-parents 'bash-ts-mode '(sh-mode))
+
 (advice-add 'bash-ts-mode :around #'sh--redirect-bash-ts-mode
             ;; Give it lower precedence than normal advice, so other
             ;; advices take precedence over it.
@@ -1809,8 +1813,8 @@ before the newline and in that case point should be just before the token."
   (concat "\\(?:^\\|[^\\]\\)\\(?:\\\\\\\\\\)*"
           "\\(" sh-smie--sh-operators-re "\\)"))
 
-(defun sh-smie--sh-keyword-in-p ()
-  "Assuming we're looking at \"in\", return non-nil if it's a keyword.
+(defun sh-smie--sh-keyword-in/do-p (tok)
+  "When looking at TOK (either \"in\" or \"do\"), non-nil if TOK is a keyword.
 Does not preserve point."
   (let ((forward-sexp-function nil)
         (words nil)                     ;We've seen words.
@@ -1832,7 +1836,10 @@ Does not preserve point."
        ((equal prev ";")
         (if words (setq newline t)
           (setq res 'keyword)))
-       ((member prev '("case" "for" "select")) (setq res 'keyword))
+       ((member prev (if (string= tok "in")
+                         '("case" "for" "select")
+                       '("for" "select")))
+        (setq res 'keyword))
        ((assoc prev smie-grammar) (setq res 'word))
        (t
         (if newline
@@ -1844,7 +1851,7 @@ Does not preserve point."
   "Non-nil if TOK (at which we're looking) really is a keyword."
   (cond
    ((looking-at "[[:alnum:]_]+=") nil)
-   ((equal tok "in") (sh-smie--sh-keyword-in-p))
+   ((member tok '("in" "do")) (sh-smie--sh-keyword-in/do-p tok))
    (t (sh-smie--keyword-p))))
 
 (defun sh-smie--default-forward-token ()
@@ -2053,9 +2060,9 @@ May return nil if the line should not be treated as continued."
                              (sh-var-value 'sh-indent-for-case-label)))
     (`(:before . ,(or "(" "{" "[" "while" "if" "for" "case"))
      (cond
-      ((and (equal token "{") (smie-rule-parent-p "for"))
+      ((and (equal token "{") (smie-rule-parent-p "for" "case"))
        (let ((data (smie-backward-sexp "in")))
-         (when (equal (nth 2 data) "for")
+         (when (member (nth 2 data) '("for" "case"))
            `(column . ,(smie-indent-virtual)))))
       ((not (smie-rule-prev-p "&&" "||" "|"))
        (when (smie-rule-hanging-p)
@@ -2299,7 +2306,7 @@ Point should be before the newline."
 When used interactively, insert the proper starting #!-line,
 and make the visited file executable via `executable-set-magic',
 perhaps querying depending on the value of `executable-query'.
-(If given a prefix (i.e., `\\[universal-argument]') don't insert any starting #!
+(If given a prefix (i.e., \\[universal-argument]) don't insert any starting #!
 line.)
 
 When this function is called noninteractively, INSERT-FLAG (the third
@@ -3187,12 +3194,6 @@ shell command and conveniently use this command."
 
 (defvar-local sh--shellcheck-process nil)
 
-(defalias 'sh--json-read
-  (if (fboundp 'json-parse-buffer)
-      (lambda () (json-parse-buffer :object-type 'alist))
-    (require 'json)
-    'json-read))
-
 (defun sh-shellcheck-flymake (report-fn &rest _args)
   "Flymake backend using the shellcheck program.
 Takes a Flymake callback REPORT-FN as argument, as expected of a
@@ -3216,7 +3217,7 @@ member of `flymake-diagnostic-functions'."
                     (with-current-buffer (process-buffer proc)
                       (goto-char (point-min))
                       (thread-last
-                        (sh--json-read)
+                        (json-parse-buffer :object-type 'alist)
                         (alist-get 'comments)
                         (seq-filter
                          (lambda (item)

@@ -1,6 +1,6 @@
 ;;; comint.el --- general command interpreter in a window stuff -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1990, 1992-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1988, 1990, 1992-2024 Free Software Foundation, Inc.
 
 ;; Author: Olin Shivers <shivers@cs.cmu.edu>
 ;;	Simon Marshall <simon@gnu.org>
@@ -254,7 +254,7 @@ This variable is buffer-local."
 See also `comint-read-input-ring' and `comint-write-input-ring'.
 `comint-mode' makes this a buffer-local variable.  You probably want
 to set this in a mode hook, rather than customize the default value."
-  :type '(choice (const :tag "nil" nil)
+  :type '(choice (const :tag "Disable input history" nil)
 		 file)
   :group 'comint)
 
@@ -3510,7 +3510,7 @@ the completions."
 
     ;; Read the next key, to process SPC.
     (let (key first)
-      (if (with-current-buffer (get-buffer "*Completions*")
+      (if (with-current-buffer "*Completions*"
 	    (setq-local comint-displayed-dynamic-completions
                         completions)
 	    (setq key (read-key-sequence nil)

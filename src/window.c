@@ -1,6 +1,6 @@
 /* Window creation, deletion and examination for GNU Emacs.
    Does not include redisplay.
-   Copyright (C) 1985-1987, 1993-1998, 2000-2023 Free Software
+   Copyright (C) 1985-1987, 1993-1998, 2000-2024 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -526,7 +526,7 @@ select_window (Lisp_Object window, Lisp_Object norecord,
     /* Do not select a tooltip window (Bug#47207).  */
     error ("Cannot select a tooltip window");
 
-  /* We deinitely want to select WINDOW, not the mini-window.  */
+  /* We definitely want to select WINDOW, not the mini-window.  */
   f->select_mini_window_flag = false;
 
   /* Make the selected window's buffer current.  */
@@ -1680,7 +1680,8 @@ check_window_containing (struct window *w, void *user_data)
 
 Lisp_Object
 window_from_coordinates (struct frame *f, int x, int y,
-			 enum window_part *part, bool tab_bar_p, bool tool_bar_p)
+			 enum window_part *part, bool menu_bar_p,
+			 bool tab_bar_p, bool tool_bar_p)
 {
   Lisp_Object window;
   struct check_window_data cw;
@@ -1692,6 +1693,21 @@ window_from_coordinates (struct frame *f, int x, int y,
   window = Qnil;
   cw.window = &window, cw.x = x, cw.y = y; cw.part = part;
   foreach_window (f, check_window_containing, &cw);
+
+#if defined (HAVE_WINDOW_SYSTEM) && ! defined (HAVE_EXT_MENU_BAR)
+  /* If not found above, see if it's in the menu bar window, if a menu
+     bar exists.  */
+  if (NILP (window)
+      && menu_bar_p
+      && WINDOWP (f->menu_bar_window)
+      && WINDOW_TOTAL_LINES (XWINDOW (f->menu_bar_window)) > 0
+      && (coordinates_in_window (XWINDOW (f->menu_bar_window), x, y)
+	  != ON_NOTHING))
+    {
+      *part = ON_TEXT;
+      window = f->menu_bar_window;
+    }
+#endif
 
 #if defined (HAVE_WINDOW_SYSTEM)
   /* If not found above, see if it's in the tab bar window, if a tab
@@ -1746,7 +1762,7 @@ function returns nil.  */)
 				   + FRAME_INTERNAL_BORDER_WIDTH (f)),
 				  (FRAME_PIXEL_Y_FROM_CANON_Y (f, y)
 				   + FRAME_INTERNAL_BORDER_WIDTH (f)),
-				  0, false, false);
+				  0, false, false, false);
 }
 
 ptrdiff_t
@@ -3813,7 +3829,7 @@ run_window_change_functions_1 (Lisp_Object symbol, Lisp_Object buffer,
 	     frame.  Make sure to record changes for each live frame
 	     in window_change_record later.  */
 	  window_change_record_frames = true;
-	  safe_call1 (XCAR (funs), window_or_frame);
+	  safe_calln (XCAR (funs), window_or_frame);
 	}
 
       funs = XCDR (funs);
@@ -4135,6 +4151,8 @@ set_window_buffer (Lisp_Object window, Lisp_Object buffer,
 			     buffer);
       w->start_at_line_beg = false;
       w->force_start = false;
+      /* Flush the base_line cache since it applied to another buffer.  */
+      w->base_line_number = 0;
     }
 
   wset_redisplay (w);
@@ -5315,7 +5333,17 @@ resize_mini_window_apply (struct window *w, int delta)
   w->pixel_top = r->pixel_top + r->pixel_height;
   w->top_line = r->top_line + r->total_lines;
 
-  /* Enforce full redisplay of the frame.  */
+  /* Enforce full redisplay of the frame.  If f->redisplay is already
+     set, which it generally is in the wake of a ConfigureNotify
+     (frame resize) event, merely setting f->redisplay is insufficient
+     for redisplay_internal to continue redisplaying the frame, as
+     redisplay_internal cannot distinguish between f->redisplay set
+     before it calls redisplay_window and that after, so garbage the
+     frame as well.  */
+
+  if (f->redisplay)
+    SET_FRAME_GARBAGED (f);
+
   /* FIXME: Shouldn't some of the caller do it?  */
   fset_redisplay (f);
   adjust_frame_glyphs (f);
@@ -5352,7 +5380,14 @@ grow_mini_window (struct window *w, int delta)
       grow = call3 (Qwindow__resize_root_window_vertically,
 		    root, make_fixnum (- delta), Qt);
 
-      if (FIXNUMP (grow) && window_resize_check (r, false))
+      if (FIXNUMP (grow)
+	  /* It might be impossible to resize the window, in which case
+	     calling resize_mini_window_apply will set off an infinite
+	     loop where the redisplay cycle so forced returns to
+	     resize_mini_window, making endless attempts to expand the
+	     minibuffer window to this impossible size.  (bug#69140) */
+	  && XFIXNUM (grow) != 0
+	  && window_resize_check (r, false))
 	resize_mini_window_apply (w, -XFIXNUM (grow));
     }
 }
@@ -6469,13 +6504,16 @@ When calling from a program, supply as argument a number, nil, or `-'.  */)
 }
 
 DEFUN ("other-window-for-scrolling", Fother_window_for_scrolling, Sother_window_for_scrolling, 0, 0, 0,
-       doc: /* Return the other window for \"other window scroll\" commands.
-If in the minibuffer, `minibuffer-scroll-window' if non-nil
-specifies the window.
-Otherwise, if `other-window-scroll-buffer' is non-nil, a window
-showing that buffer is used, popping the buffer up if necessary.
-Finally, look for a neighboring window on the selected frame,
-followed by all visible frames on the current terminal.  */)
+       doc: /* Return \"the other\" window for \"other window scroll\" commands.
+If in the minibuffer, and `minibuffer-scroll-window' is non-nil,
+it specifies the window to use.
+Otherwise, if `other-window-scroll-buffer' is a buffer, a window
+showing that buffer is the window to use, popping it up if necessary.
+Otherwise, if `other-window-scroll-default' is a function, call it,
+and the window it returns is the window to use.
+Finally, the function looks for a neighboring window on the selected
+frame, followed by windows on all the visible frames on the current
+terminal.  */)
   (void)
 {
   Lisp_Object window;
@@ -7074,6 +7112,10 @@ current at the start of the function.  If DONT-SET-MINIWINDOW is non-nil,
 the mini-window of the frame doesn't get set to the corresponding element
 of CONFIGURATION.
 
+This function consults the variable `window-restore-killed-buffer-windows'
+when restoring a window whose buffer was killed after CONFIGURATION was
+recorded.
+
 If CONFIGURATION was made from a frame that is now deleted,
 only frame-independent values can be restored.  In this case,
 the return value is nil.  Otherwise the value is t.  */)
@@ -7084,6 +7126,7 @@ the return value is nil.  Otherwise the value is t.  */)
   struct Lisp_Vector *saved_windows;
   Lisp_Object new_current_buffer;
   Lisp_Object frame;
+  Lisp_Object kept_windows = Qnil;
   Lisp_Object old_frame = selected_frame;
   struct frame *f;
   ptrdiff_t old_point = -1;
@@ -7324,6 +7367,13 @@ the return value is nil.  Otherwise the value is t.  */)
 		   BUF_PT (XBUFFER (w->contents)),
 		   BUF_PT_BYTE (XBUFFER (w->contents)));
 	      w->start_at_line_beg = true;
+	      if (FUNCTIONP (window_restore_killed_buffer_windows)
+		  && !MINI_WINDOW_P (w))
+		kept_windows = Fcons (listn (6, window, p->buffer,
+					     Fmarker_last_position (p->start),
+					     Fmarker_last_position (p->pointm),
+					     p->dedicated, Qt),
+				      kept_windows);
 	    }
 	  else if (!NILP (w->start))
 	    /* Leaf window has no live buffer, get one.  */
@@ -7339,11 +7389,25 @@ the return value is nil.  Otherwise the value is t.  */)
 	      set_marker_restricted_both (w->pointm, w->contents, 0, 0);
 	      set_marker_restricted_both (w->old_pointm, w->contents, 0, 0);
 	      w->start_at_line_beg = true;
-	      if (!NILP (w->dedicated))
-		/* Record this window as dead.  */
-		dead_windows = Fcons (window, dead_windows);
-	      /* Make sure window is no more dedicated.  */
-	      wset_dedicated (w, Qnil);
+	      if (!MINI_WINDOW_P (w))
+		{
+		  if (FUNCTIONP (window_restore_killed_buffer_windows))
+		    kept_windows
+		      = Fcons (listn (6, window, p->buffer,
+				      Fmarker_last_position (p->start),
+				      Fmarker_last_position (p->pointm),
+				      p->dedicated, Qnil),
+			       kept_windows);
+		  else if (EQ (window_restore_killed_buffer_windows, Qdelete)
+			   || (!NILP (p->dedicated)
+			       && (NILP (window_restore_killed_buffer_windows)
+				   || EQ (window_restore_killed_buffer_windows,
+					  Qdedicated))))
+		    /* Try to delete this window later.  */
+		    dead_windows = Fcons (window, dead_windows);
+		  /* Make sure window is no more dedicated.  */
+		  wset_dedicated (w, Qnil);
+		}
 	    }
 	}
 
@@ -7447,6 +7511,11 @@ the return value is nil.  Otherwise the value is t.  */)
   minibuf_selected_window = data->minibuf_selected_window;
 
   SAFE_FREE ();
+
+  if (!NILP (Vrun_hooks) && FUNCTIONP (window_restore_killed_buffer_windows))
+    safe_calln (window_restore_killed_buffer_windows,
+		frame, kept_windows, Qconfiguration);
+
   return FRAME_LIVE_P (f) ? Qt : Qnil;
 }
 
@@ -7810,7 +7879,11 @@ means no margin.
 
 Leave margins unchanged if WINDOW is not large enough to accommodate
 margins of the desired width.  Return t if any margin was actually
-changed and nil otherwise.  */)
+changed and nil otherwise.
+
+The margins specified by calling this function may be later overridden
+by invoking `set-window-buffer' for the same WINDOW, with its
+KEEP-MARGINS argument nil or omitted.  */)
   (Lisp_Object window, Lisp_Object left_width, Lisp_Object right_width)
 {
   struct window *w = set_window_margins (decode_live_window (window),
@@ -8440,6 +8513,9 @@ syms_of_window (void)
   DEFSYM (Qheader_line_format, "header-line-format");
   DEFSYM (Qtab_line_format, "tab-line-format");
   DEFSYM (Qno_other_window, "no-other-window");
+  DEFSYM (Qconfiguration, "configuration");
+  DEFSYM (Qdelete, "delete");
+  DEFSYM (Qdedicated, "dedicated");
 
   DEFVAR_LISP ("temp-buffer-show-function", Vtemp_buffer_show_function,
 	       doc: /* Non-nil means call as function to display a help buffer.
@@ -8596,6 +8672,62 @@ at least one window on that frame has been added, deleted or changed
 its buffer or its total or body size since the last redisplay.  Each
 call is performed with the frame temporarily selected.  */);
   Vwindow_configuration_change_hook = Qnil;
+
+  DEFVAR_LISP ("window-restore-killed-buffer-windows",
+	       window_restore_killed_buffer_windows,
+	       doc: /* Control restoring windows whose buffer was killed.
+This variable specifies how the functions `set-window-configuration' and
+`window-state-put' shall handle a window whose buffer has been killed
+since the corresponding configuration or state was recorded.  Any such
+window may be live -- in which case it shows some other buffer -- or
+dead at the time one of these functions is called.
+
+By default, `set-window-configuration' leaves the window alone if it is
+live, while `window-state-put' deletes it.  The following values can be
+used to override the default behavior for dead windows in the case of
+`set-window-configuration' and for dead and live windows in the case of
+`window-state-put'.
+
+ - t means to restore the window and show some other buffer in it.
+
+ - `delete' means to try to delete the window.
+
+ - `dedicated' means to try to delete the window if and only if it is
+   dedicated to its buffer.
+
+ - nil, the default, which means that `set-window-configuration' will
+   try to delete the window if and only if it is dedicated to its
+   buffer while `window-state-put' will unconditionally try to delete
+   it.
+
+ - a function means to restore the window and show some other buffer in
+   it, like if the value were t, but also to add an entry for that
+   window to a list that will be later passed as argument to that
+   function.
+
+If a window cannot be deleted (typically, because it is the last window
+on its frame), show another buffer in it.
+
+If the value is a function, it should take three arguments.  The first
+argument specifies the frame whose windows have been restored.  The
+third argument is the symbol `configuration' if the windows are
+restored by `set-window-configuration' and the symbol `state' if the
+windows are restored by `window-state-put'.
+
+The second argument specifies a list of entries for all windows whose
+previous buffers have been found dead at the time
+`set-window-configuration' or `window-state-put' tried to restore them
+(minibuffer windows are excluded).  This means that the function
+specified by this variable may also delete windows which were found to
+be alive by `set-window-configuration'.
+
+Each entry is a list of six values: the window whose buffer was found
+dead, the dead buffer or its name, the positions of window-start and
+window-point of the buffer in that window, the dedicated state of the
+window as reported by `window-dedicated-p', and a boolean -- t if the
+window was live when `set-window-configuration' tried to restore it,
+and nil otherwise.  */);
+  window_restore_killed_buffer_windows = Qnil;
 
   DEFVAR_LISP ("recenter-redisplay", Vrecenter_redisplay,
 	       doc: /* Non-nil means `recenter' redraws entire frame.

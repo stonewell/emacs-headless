@@ -1,6 +1,6 @@
 ;;; csharp-mode.el --- Support for editing C#  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
 
 ;; Author     : Theodor Thornhill <theo@thornhill.no>
 ;;              Jostein Kjønigsen <jostein@kjonigsen.net>
@@ -495,9 +495,20 @@ compilation and evaluation time conflicts."
        (unless (eq (char-after) ?{)
          (ignore-errors (backward-up-list 1 t t)))
        (save-excursion
-         ;; 'new' should be part of the line
+         ;; 'new' should be part of the line, but should not trigger if
+         ;; statement has already ended, like for 'var x = new X();'.
+         ;; Also, deal with the possible end of line obscured by a
+         ;; trailing comment.
          (goto-char (c-point 'iopl))
-         (looking-at ".*new.*")))
+         (when (looking-at-p ".*new.*")
+           (if (re-search-forward ";" (pos-eol) t 1)
+               ;; If the ';' is inside a comment, the statement hasn't
+               ;; likely ended, so we should accept as object init.
+               ;; Example:
+               ;; var x = new         // This should return true ;
+               ;; var x = new();      // This should return false ;
+               (nth 4 (syntax-ppss (point)))
+             t))))
      ;; Line should not already be terminated
      (save-excursion
        (goto-char (c-point 'eopl))
@@ -997,6 +1008,8 @@ Key bindings:
   (treesit-major-mode-setup)
 
   (add-to-list 'auto-mode-alist '("\\.cs\\'" . csharp-ts-mode)))
+
+(derived-mode-add-parents 'csharp-ts-mode '(csharp-mode))
 
 (provide 'csharp-mode)
 

@@ -22,6 +22,18 @@ Steps to take before starting on the first pretest in any release sequence:
     You can use 'gnupload --delete' (see below for more gnupload details).
     (We currently don't bother with this.)
 
+4.  Check that all new Lisp libraries belong to sensible packages.
+    Run "make -C lisp finder-data" and check the diff of the generated
+    file against the previously released Emacs version to see what has
+    changed.
+
+5. If this is an emergency release without a prior pretest, inform the
+   maintainers of the bundled packages which are developed separately
+   to make sure they install adjustments required for an official
+   release.  Currently, these packages include:
+
+    . Tramp
+
 General steps (for each step, check for possible errors):
 
 1.    git pull     # fetch from the repository

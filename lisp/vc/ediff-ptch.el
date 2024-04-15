@@ -1,6 +1,6 @@
 ;;; ediff-ptch.el --- Ediff's  patch support  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Michael Kifer <kifer@cs.stonybrook.edu>
 ;; Package: ediff
@@ -721,10 +721,11 @@ optional argument, then use it."
 	     nil ; don't redisplay
 	     shell-command-switch   ; usually -c
 	     (format "%s %s %s %s"
-		     ediff-patch-program
+		     (shell-quote-argument ediff-patch-program)
 		     ediff-patch-options
 		     ediff-backup-specs
-		     (ediff--buffer-file-name buf-to-patch))
+                     (shell-quote-argument
+		      (ediff--buffer-file-name buf-to-patch)))
 	     ))
 
       ;; restore environment for gnu patch

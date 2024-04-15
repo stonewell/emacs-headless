@@ -1,6 +1,6 @@
 ;;; browse-url.el --- pass a URL to a web browser  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2024 Free Software Foundation, Inc.
 
 ;; Author: Denis Howe <dbh@doc.ic.ac.uk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -244,7 +244,7 @@ be used instead."
      (concat
       "\\(?:"
       ;; Match paired parentheses, e.g. in Wikipedia URLs:
-      ;; http://thread.gmane.org/47B4E3B2.3050402@gmail.com
+      ;; http://thread.gmane.org/47B4E3B2.3050402@gmail.com [dead link]
       "[" chars punct "]+" "(" "[" chars punct "]+" ")"
       "\\(?:" "[" chars punct "]+" "[" chars "]" "\\)?"
       "\\|"
@@ -680,14 +680,18 @@ For example, when point is on an URL fragment like
 Note that if you set this to \"https\", websites that do not yet
 support HTTPS may not load correctly in your web browser.  Such
 websites are increasingly rare, but they do still exist."
-  :type 'string
+  :type '(choice (const :tag "HTTP" "http")
+                 (const :tag "HTTPS" "https")
+                 (string :tag "Something else" "https"))
   :version "29.1")
 
 (defun browse-url-url-at-point ()
   (or (thing-at-point 'url t)
       ;; assume that the user is pointing at something like gnu.org/gnu
-      (let ((f (thing-at-point 'filename t)))
-        (and f (concat browse-url-default-scheme "://" f)))))
+      (when-let ((f (thing-at-point 'filename t)))
+	(if (string-match-p browse-url-button-regexp f)
+	    f
+	  (concat browse-url-default-scheme "://" f)))))
 
 ;; Having this as a separate function called by the browser-specific
 ;; functions allows them to be stand-alone commands, making it easier
@@ -700,8 +704,10 @@ it defaults to the current region, else to the URL at or before
 point.  If invoked with a mouse button, it moves point to the
 position clicked before acting.
 
-This function returns a list (URL NEW-WINDOW-FLAG)
-for use in `interactive'."
+This function returns a list (URL NEW-WINDOW-FLAG) for use in
+`interactive'.  NEW-WINDOW-FLAG is the prefix arg; if
+`browse-url-new-window-flag' is non-nil, invert the prefix arg
+instead."
   (let ((event (elt (this-command-keys) 0)))
     (mouse-set-point event))
   (list (read-string prompt (or (and transient-mark-mode mark-active
@@ -711,8 +717,7 @@ for use in `interactive'."
 				      (buffer-substring-no-properties
 				       (region-beginning) (region-end))))
 				(browse-url-url-at-point)))
-	(not (eq (null browse-url-new-window-flag)
-		 (null current-prefix-arg)))))
+	(xor browse-url-new-window-flag current-prefix-arg)))
 
 ;; called-interactive-p needs to be called at a function's top-level, hence
 ;; this macro.  We use that rather than interactive-p because
@@ -875,8 +880,8 @@ The variables `browse-url-browser-function',
 `browse-url-handlers', and `browse-url-default-handlers'
 determine which browser function to use.
 
-This command prompts for a URL, defaulting to the URL at or
-before point.
+Interactively, this command prompts for a URL, defaulting to the
+URL at or before point.
 
 The additional ARGS are passed to the browser function.  See the
 doc strings of the actual functions, starting with
@@ -884,7 +889,9 @@ doc strings of the actual functions, starting with
 significance of ARGS (most of the functions ignore it).
 
 If ARGS are omitted, the default is to pass
-`browse-url-new-window-flag' as ARGS."
+`browse-url-new-window-flag' as ARGS.  Interactively, pass the
+prefix arg as ARGS; if `browse-url-new-window-flag' is non-nil,
+invert the prefix arg instead."
   (interactive (browse-url-interactive-arg "URL: "))
   (unless (called-interactively-p 'interactive)
     (setq args (or args (list browse-url-new-window-flag))))
@@ -1305,7 +1312,7 @@ Default to the URL around or before point."
   (let* ((scheme (save-match-data
                    (if (string-match "\\(.+\\):/" url)
                        (match-string 1 url)
-                     "http")))
+                     browse-url-default-scheme)))
          (mime (concat "application/x-vnd.Be.URL." scheme)))
     (haiku-roster-launch mime (vector url))))
 
@@ -1320,7 +1327,7 @@ and instant messengers instead of opening it in a web browser."
   :type 'boolean
   :version "30.1")
 
-(declare-function android-browse-url "androidselect.c")
+(declare-function android-browse-url "../term/android-win")
 
 ;;;###autoload
 (defun browse-url-default-android-browser (url &optional _new-window)
@@ -1335,7 +1342,7 @@ point."
     (setq url (browse-url-encode-url url)))
   ;; Make sure the URL starts with an appropriate scheme.
   (unless (string-match "\\(.+\\):/" url)
-    (setq url (concat "http://" url)))
+    (setq url (concat browse-url-default-scheme "://" url)))
   (android-browse-url url browse-url-android-share))
 
 (function-put 'browse-url-default-android-browser

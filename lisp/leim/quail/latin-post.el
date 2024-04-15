@@ -1,6 +1,6 @@
 ;;; latin-post.el --- Quail packages for inputting various European characters  -*-coding: utf-8; lexical-binding: t -*-
 
-;; Copyright (C) 1997-1998, 2001-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2001-2024 Free Software Foundation, Inc.
 ;; Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
 ;;   2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -1616,6 +1616,7 @@ Doubling the postfix separates the letter and postfix: e.g. a^^ -> a^
 ;; Italian	(itln)
 ;; Spanish	(spnsh)
 ;; Dvorak	(dvorak)
+;; Colemak	(colemak)
 ;;
 ;;; 92.12.15  created for Mule Ver.0.9.6 by Takahashi N. <ntakahas@etl.go.jp>
 ;;; 92.12.29  modified by Takahashi N. <ntakahas@etl.go.jp>
@@ -2222,6 +2223,55 @@ Dead accent is right to æ." nil t t t t nil nil nil nil nil t)
  ("<" ?W)
  (">" ?V)
  ("?" ?Z)
+ )
+
+;;
+(quail-define-package
+ "english-colemak" "English" "CM@" t
+ "English (ASCII) input method simulating Colemak keyboard"
+ nil t t t t nil nil nil nil nil t)
+
+;; 1!  2@  3#  4$  5%  6^  7&  8*  9(  0)  -_ =+  `~
+;;  qQ  wW  fF  pP  gG  jJ  lL  uU  yY  ;:  [{  ]}
+;;   aA  rR  sS  tT  dD  hH  nN  eE  iI  oO  '"  \|
+;;    zZ  xX  cC  vV  bB  kK  mM  ,<  .>  /?
+
+(quail-define-rules
+ ("e" ?f)
+ ("r" ?p)
+ ("t" ?g)
+ ("y" ?j)
+ ("u" ?l)
+ ("i" ?u)
+ ("o" ?y)
+ ("p" ?\;)
+ ("s" ?r)
+ ("d" ?s)
+ ("f" ?t)
+ ("g" ?d)
+ ("j" ?n)
+ ("k" ?e)
+ ("l" ?i)
+ (";" ?o)
+ ("n" ?k)
+
+ ("E" ?F)
+ ("R" ?P)
+ ("T" ?G)
+ ("Y" ?J)
+ ("U" ?L)
+ ("I" ?U)
+ ("O" ?Y)
+ ("P" ?\:)
+ ("S" ?R)
+ ("D" ?S)
+ ("F" ?T)
+ ("G" ?D)
+ ("J" ?N)
+ ("K" ?E)
+ ("L" ?I)
+ (":" ?O)
+ ("N" ?K)
  )
 
 (quail-define-package

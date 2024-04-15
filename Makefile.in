@@ -1,6 +1,6 @@
 ### @configure_input@
 
-# Copyright (C) 1992-2023 Free Software Foundation, Inc.
+# Copyright (C) 1992-2024 Free Software Foundation, Inc.
 
 # This file is part of GNU Emacs.
 
@@ -421,7 +421,7 @@ advice-on-failure:
 
 sanity-check:
 	@[ -f .no-advice-on-failure ] && exit 0; true
-	@v=`src/emacs${EXEEXT} --batch --eval \
+	@v=`src/emacs${EXEEXT} --batch -Q --eval \
 	  '(progn (defun f (n) (if (= 0 n) 1 (* n (f (- n 1))))) (princ (f 10)))' \
 	  2> /dev/null`; \
 	[ "X$$v" = "X3628800" ] && exit 0; \
@@ -812,6 +812,7 @@ install-info: info
 	      done; \
 	     (cd "$${thisdir}"; \
 	      ${INSTALL_INFO} --info-dir="$(DESTDIR)${infodir}" "$(DESTDIR)${infodir}/$$elt"); \
+	      cp elisp_type_hierarchy* $(DESTDIR)${infodir}/; \
 	   done; \
 	fi
 
@@ -954,6 +955,7 @@ uninstall: uninstall-$(NTDIR) uninstall-doc uninstall-gsettings-schemas
 	        ext=.gz; else ext=; fi; \
 	     rm -f $$elt$$ext $$elt-[1-9]$$ext $$elt-[1-9][0-9]$$ext; \
 	   done; \
+	   rm -f elisp_type_hierarchy.jpg elisp_type_hierarchy.txt; \
 	 fi)
 	(if [ -n "${GZIP_PROG}" ]; then \
 	    ext=.gz; else ext=; fi; \

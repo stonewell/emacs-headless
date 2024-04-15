@@ -1,6 +1,6 @@
 /* Low-level bidirectional buffer/string-scanning functions for GNU Emacs.
 
-Copyright (C) 2000-2001, 2004-2005, 2009-2023 Free Software Foundation,
+Copyright (C) 2000-2001, 2004-2005, 2009-2024 Free Software Foundation,
 Inc.
 
 Author: Eli Zaretskii <eliz@gnu.org>
@@ -420,7 +420,7 @@ bidi_paired_bracket_type (int c)
 static void
 bidi_set_sos_type (struct bidi_it *bidi_it, int level_before, int level_after)
 {
-  int higher_level = (level_before > level_after ? level_before : level_after);
+  int higher_level = max (level_before, level_after);
 
   /* FIXME: should the default sos direction be user selectable?  */
   bidi_it->sos = ((higher_level & 1) != 0 ? R2L : L2R); /* X10 */
@@ -751,6 +751,19 @@ bidi_cache_find_level_change (int level, int dir, bool before)
 	}
     }
 
+  return -1;
+}
+
+/* Find the previous character position where LEVEL changes to a lower
+   one.  Return -1 if not found (which really shouldn't happen if this
+   function is called on a backward scan).  */
+ptrdiff_t
+bidi_level_start (int level)
+{
+  ptrdiff_t slot = bidi_cache_find_level_change (level, -1, true);
+
+  if (slot >= 0)
+    return bidi_cache[slot].charpos;
   return -1;
 }
 
@@ -2908,7 +2921,6 @@ bidi_resolve_brackets (struct bidi_it *bidi_it)
     }
   else if (bidi_it->bracket_pairing_pos != eob)
     {
-      eassert (bidi_it->resolved_level == -1);
       /* If the cached state shows an increase of embedding level due
 	 to an isolate initiator, we need to update the 1st cached
 	 state of the next run of the current isolating sequence with
@@ -2917,6 +2929,7 @@ bidi_resolve_brackets (struct bidi_it *bidi_it)
       if (bidi_it->level_stack[bidi_it->stack_idx].level > prev_level
 	  && ISOLATE_STATUS (bidi_it, bidi_it->stack_idx))
 	{
+	  eassert (bidi_it->resolved_level == -1);
 	  bidi_record_type_for_neutral (&prev_for_neutral, prev_level, 0);
 	  bidi_record_type_for_neutral (&next_for_neutral, prev_level, 1);
 	}
@@ -2931,6 +2944,7 @@ bidi_resolve_brackets (struct bidi_it *bidi_it)
 	    }
 	  else if (bidi_it->bracket_pairing_pos == -1)
 	    {
+	      eassert (bidi_it->resolved_level == -1);
 	      /* Higher levels were not BPA-resolved yet, even if
 		 cached by bidi_find_bracket_pairs.  Force application
 		 of BPA to the new level now.  */

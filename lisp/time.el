@@ -1,6 +1,6 @@
 ;;; time.el --- display time, load and mail indicator in mode line of Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1987, 1993-1994, 1996, 2000-2023 Free Software
+;; Copyright (C) 1985-1987, 1993-1994, 1996, 2000-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -459,7 +459,11 @@ Each element has the form (TIMEZONE LABEL).
 TIMEZONE should be a string of the form AREA/LOCATION, where AREA is
 the name of a region -- a continent or ocean, and LOCATION is the name
 of a specific location, e.g., a city, within that region.
-LABEL is a string to display as the label of that TIMEZONE's time."
+LABEL is a string to display as the label of that TIMEZONE's time.
+
+This option has effect only on systems that support Posix-style
+zoneinfo files specified as CONTINENT/CITY.  In particular,
+MS-Windows doesn't support that; use `legacy-style-world-list' instead."
   :type '(repeat (list string string))
   :version "23.1")
 
@@ -478,7 +482,10 @@ TIMEZONE should be a string of the form:
 
 See the documentation of the TZ environment variable on your system,
 for more details about the format of TIMEZONE.
-LABEL is a string to display as the label of that TIMEZONE's time."
+LABEL is a string to display as the label of that TIMEZONE's time
+
+This is the only option that has effect on MS-Windows, where you also
+cannot specify the [offset][,date[/time],date[/time]] part."
   :type '(repeat (list string string))
   :version "23.1")
 
@@ -589,7 +596,7 @@ See `world-clock'."
 (defun world-clock ()
   "Display a world clock buffer with times in various time zones.
 The variable `world-clock-list' specifies which time zones to use.
-To turn off the world time display, go to the window and type `\\[quit-window]'."
+To turn off the world time display, go to the window and type \\[quit-window]."
   (interactive)
   (if-let ((buffer (get-buffer world-clock-buffer-name)))
       (pop-to-buffer buffer)
@@ -611,7 +618,7 @@ To turn off the world time display, go to the window and type `\\[quit-window]'.
 (defun world-clock-update (&optional _arg _noconfirm)
   "Update the `world-clock' buffer."
   (if (get-buffer world-clock-buffer-name)
-      (with-current-buffer (get-buffer world-clock-buffer-name)
+      (with-current-buffer world-clock-buffer-name
         (let ((op (point)))
           (world-clock-display (time--display-world-list))
           (goto-char op)))

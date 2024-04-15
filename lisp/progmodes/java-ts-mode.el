@@ -1,6 +1,6 @@
 ;;; java-ts-mode.el --- tree-sitter support for Java  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
 
 ;; Author     : Theodor Thornhill <theo@thornhill.no>
 ;; Maintainer : Theodor Thornhill <theo@thornhill.no>
@@ -74,7 +74,12 @@
      ((parent-is "program") column-0 0)
      ((match "}" "element_value_array_initializer")
       parent-bol 0)
-     ((node-is "}") column-0 c-ts-common-statement-offset)
+     ((node-is
+       ,(format "\\`%s\\'"
+                (regexp-opt '("constructor_body" "class_body" "interface_body"
+                              "block" "switch_block" "array_initializer"))))
+      parent-bol 0)
+     ((node-is "}") standalone-parent 0)
      ((node-is ")") parent-bol 0)
      ((node-is "else") parent-bol 0)
      ((node-is "]") parent-bol 0)
@@ -86,10 +91,10 @@
      ((parent-is "array_initializer") parent-bol java-ts-mode-indent-offset)
      ((parent-is "annotation_type_body") column-0 c-ts-common-statement-offset)
      ((parent-is "interface_body") column-0 c-ts-common-statement-offset)
-     ((parent-is "constructor_body") column-0 c-ts-common-statement-offset)
+     ((parent-is "constructor_body") standalone-parent java-ts-mode-indent-offset)
      ((parent-is "enum_body_declarations") parent-bol 0)
      ((parent-is "enum_body") column-0 c-ts-common-statement-offset)
-     ((parent-is "switch_block") column-0 c-ts-common-statement-offset)
+     ((parent-is "switch_block") standalone-parent java-ts-mode-indent-offset)
      ((parent-is "record_declaration_body") column-0 c-ts-common-statement-offset)
      ((query "(method_declaration (block _ @indent))") parent-bol java-ts-mode-indent-offset)
      ((query "(method_declaration (block (_) @indent))") parent-bol java-ts-mode-indent-offset)
@@ -125,7 +130,7 @@
      ((parent-is "case_statement") parent-bol java-ts-mode-indent-offset)
      ((parent-is "labeled_statement") parent-bol java-ts-mode-indent-offset)
      ((parent-is "do_statement") parent-bol java-ts-mode-indent-offset)
-     ((parent-is "block") column-0 c-ts-common-statement-offset)))
+     ((parent-is "block") standalone-parent java-ts-mode-indent-offset)))
   "Tree-sitter indent rules.")
 
 (defvar java-ts-mode--keywords
@@ -305,6 +310,13 @@ Return nil if there is no name or if NODE is not a defun node."
       (treesit-node-child-by-field-name node "name")
       t))))
 
+
+(defvar java-ts-mode--feature-list
+  '(( comment definition )
+    ( constant keyword string type)
+    ( annotation expression literal)
+    ( bracket delimiter operator)))
+
 ;;;###autoload
 (define-derived-mode java-ts-mode prog-mode "Java"
   "Major mode for editing Java, powered by tree-sitter."
@@ -384,11 +396,7 @@ Return nil if there is no name or if NODE is not a defun node."
 
   ;; Font-lock.
   (setq-local treesit-font-lock-settings java-ts-mode--font-lock-settings)
-  (setq-local treesit-font-lock-feature-list
-              '(( comment definition )
-                ( constant keyword string type)
-                ( annotation expression literal)
-                ( bracket delimiter operator)))
+  (setq-local treesit-font-lock-feature-list java-ts-mode--feature-list)
 
   ;; Imenu.
   (setq-local treesit-simple-imenu-settings
@@ -397,6 +405,8 @@ Return nil if there is no name or if NODE is not a defun node."
                 ("Enum" "\\`record_declaration\\'" nil nil)
                 ("Method" "\\`method_declaration\\'" nil nil)))
   (treesit-major-mode-setup))
+
+(derived-mode-add-parents 'java-ts-mode '(java-mode))
 
 (if (treesit-ready-p 'java)
     (add-to-list 'auto-mode-alist '("\\.java\\'" . java-ts-mode)))

@@ -1,5 +1,5 @@
 # ndk-build-helper-2.mk -- Helper for ndk-build.m4.
-# Copyright (C) 2023 Free Software Foundation, Inc.
+# Copyright (C) 2023-2024 Free Software Foundation, Inc.
 # This file is part of GNU Emacs.
 
 # GNU Emacs is free software: you can redistribute it and/or modify
@@ -87,7 +87,7 @@ endef
 # Resolve additional dependencies based on LOCAL_STATIC_LIBRARIES and
 # LOCAL_SHARED_LIBRARIES.
 
-SYSTEM_LIBRARIES = z libz libc c libdl dl libstdc++ stdc++ log liblog android libandroid
+SYSTEM_LIBRARIES = z libz libc c libdl dl libstdc++ stdc++ stlport libstlport gnustl libgnustl c++ libc++ log liblog android libandroid
 
 $(foreach module,$(filter-out $(SYSTEM_LIBRARIES), $(LOCAL_STATIC_LIBRARIES) $(LOCAL_WHOLE_STATIC_LIBRARIES)),$(eval $(call add-a-name,$(module))))
 $(foreach module,$(filter-out $(SYSTEM_LIBRARIES), $(LOCAL_SHARED_LIBRARIES)),$(eval $(call add-so-name,$(module))))

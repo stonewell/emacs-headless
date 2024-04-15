@@ -1,5 +1,5 @@
 /* Markers: examining, setting and deleting.
-   Copyright (C) 1985, 1997-1998, 2001-2023 Free Software Foundation,
+   Copyright (C) 1985, 1997-1998, 2001-2024 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -19,6 +19,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #include <config.h>
+
+/* Work around GCC bug 113253.  */
+#if __GNUC__ == 13
+# pragma GCC diagnostic ignored "-Wanalyzer-deref-before-check"
+#endif
 
 #include "lisp.h"
 #include "character.h"
@@ -458,6 +463,18 @@ DEFUN ("marker-position", Fmarker_position, Smarker_position, 1, 1, 0,
   return Qnil;
 }
 
+DEFUN ("marker-last-position", Fmarker_last_position, Smarker_last_position, 1, 1, 0,
+       doc: /* Return last position of MARKER in its buffer.
+This is like `marker-position' with one exception:  If the buffer of
+MARKER is dead, it returns the last position of MARKER in that buffer
+before it was killed.  */)
+  (Lisp_Object marker)
+{
+  CHECK_MARKER (marker);
+
+  return make_fixnum (XMARKER (marker)->charpos);
+}
+
 /* Change M so it points to B at CHARPOS and BYTEPOS.  */
 
 static void
@@ -825,6 +842,7 @@ void
 syms_of_marker (void)
 {
   defsubr (&Smarker_position);
+  defsubr (&Smarker_last_position);
   defsubr (&Smarker_buffer);
   defsubr (&Sset_marker);
   defsubr (&Scopy_marker);

@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -49,39 +49,6 @@ public final class EmacsPixmap extends EmacsHandleObject
   /* ID used to determine whether or not the GC clip rects
      changed.  */
   private long gcClipRectID;
-
-  public
-  EmacsPixmap (short handle, int colors[], int width,
-	       int height, int depth)
-  {
-    super (handle);
-
-    if (depth != 1 && depth != 24)
-      throw new IllegalArgumentException ("Invalid depth specified"
-					  + " for pixmap: " + depth);
-
-    switch (depth)
-      {
-      case 1:
-	bitmap = Bitmap.createBitmap (colors, width, height,
-				      Bitmap.Config.ALPHA_8);
-	break;
-
-      case 24:
-	bitmap = Bitmap.createBitmap (colors, width, height,
-				      Bitmap.Config.ARGB_8888);
-	bitmap.setHasAlpha (false);
-	break;
-      }
-
-    this.width = width;
-    this.height = height;
-    this.depth = depth;
-
-    /* The immutable bitmap constructor is only leveraged to create
-       small fringe bitmaps.  */
-    this.needCollect = false;
-  }
 
   public
   EmacsPixmap (short handle, int width, int height, int depth)

@@ -1,6 +1,6 @@
 /* Lock files for editing.
 
-Copyright (C) 1985-1987, 1993-1994, 1996, 1998-2023 Free Software
+Copyright (C) 1985-1987, 1993-1994, 1996, 1998-2024 Free Software
 Foundation, Inc.
 
 Author: Richard King
@@ -563,7 +563,7 @@ lock_file (Lisp_Object fn)
 
   /* See if this file is visited and has changed on disk since it was
      visited.  */
-  Lisp_Object subject_buf = get_truename_buffer (fn);
+  Lisp_Object subject_buf = Fget_truename_buffer (fn);
   if (!NILP (subject_buf)
       && NILP (Fverify_visited_file_modtime (subject_buf))
       && !NILP (Ffile_exists_p (fn))
@@ -638,8 +638,11 @@ unlock_all_files (void)
 }
 
 DEFUN ("lock-file", Flock_file, Slock_file, 1, 1, 0,
-       doc: /* Lock FILE.
-If the option `create-lockfiles' is nil, this does nothing.  */)
+       doc: /* Check whether FILE was modified since it was visited, and lock it.
+If user option `create-lockfiles' is nil, this does not create
+a lock file for FILE, but it still checks whether FILE was modified
+outside of the current Emacs session, and if so, asks the user
+whether to modify FILE.  */)
   (Lisp_Object file)
 {
 #ifndef MSDOS

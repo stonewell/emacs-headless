@@ -1,6 +1,6 @@
 ;;; use-package-core.el --- A configuration macro for simplifying your .emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@newartisans.com>
 ;; Maintainer: John Wiegley <johnw@newartisans.com>
@@ -344,6 +344,20 @@ if this option is enabled, you must require `use-package' in your
 user init file at loadup time, or you will see errors concerning
 undefined variables."
   :type 'boolean
+  :group 'use-package)
+
+(defcustom use-package-vc-prefer-newest nil
+  "Prefer the newest commit over the latest release.
+By default, much like GNU ELPA and NonGNU ELPA, the `:vc' keyword
+tracks the latest stable release of a package.  If this option is
+non-nil, the latest commit is preferred instead.  This has the
+same effect as specifying `:rev :newest' in every invocation of
+`:vc'.
+
+Note that always tracking a package's latest commit might lead to
+stability issues."
+  :type 'boolean
+  :version "30.1"
   :group 'use-package)
 
 (defvar use-package-statistics (make-hash-table))
@@ -1619,7 +1633,7 @@ ARG is the normalized input to the `:vc' keyword, as returned by
 the `use-package-normalize/:vc' function.
 
 REST is a plist of other (following) keywords and their
-arguments, each having already been normalised by the respective
+arguments, each having already been normalized by the respective
 function.
 
 STATE is a plist of any state that keywords processed before
@@ -1649,9 +1663,11 @@ indicating the latest commit) revision."
                (if (and s (stringp s)) (intern s) s))
              (normalize (k v)
                (pcase k
-                 (:rev (cond ((or (eq v :last-release) (not v)) :last-release)
-                             ((eq v :newest) nil)
-                             (t (ensure-string v))))
+                 (:rev (pcase v
+                         ('nil (if use-package-vc-prefer-newest nil :last-release))
+                         (:last-release :last-release)
+                         (:newest nil)
+                         (_ (ensure-string v))))
                  (:vc-backend (ensure-symbol v))
                  (_ (ensure-string v)))))
     (pcase-let ((valid-kws '(:url :branch :lisp-dir :main-file :vc-backend :rev))
@@ -1690,7 +1706,7 @@ node `(use-package) Creating an extension'."
       (`(,(pred symbolp) . ,(or (pred plistp)    ; plist/version string + name
                                 (pred stringp)))
        (use-package-normalize--vc-arg arg))
-      (_ (use-package-error "Unrecognised argument to :vc.\
+      (_ (use-package-error "Unrecognized argument to :vc.\
  The keyword wants an argument of nil, t, a name of a package,\
  or a cons-cell as accepted by `package-vc-selected-packages', where \
  the accepted plist is augmented by a `:rev' keyword.")))))

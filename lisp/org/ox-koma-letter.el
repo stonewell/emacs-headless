@@ -1,13 +1,13 @@
 ;;; ox-koma-letter.el --- KOMA Scrlttr2 Back-End for Org Export Engine  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2024 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou AT gmail DOT com>
 ;;         Alan Schmitt <alan.schmitt AT polytechnique DOT org>
 ;;         Viktor Rosenfeld <listuser36 AT gmail DOT com>
 ;;         Rasmus Pank Roulund <emacs AT pank DOT eu>
 ;; Maintainer: Marco Wahl <marcowahlsoft@gmail.com>
-;; Keywords: org, wp, tex
+;; Keywords: org, text, tex
 
 ;; This file is part of GNU Emacs.
 
@@ -911,7 +911,9 @@ non-nil."
   (let (org-koma-letter-special-contents)
     (org-export-to-buffer 'koma-letter "*Org KOMA-LETTER Export*"
       async subtreep visible-only body-only ext-plist
-      (lambda () (LaTeX-mode)))))
+      (if (fboundp 'major-mode-remap)
+          (major-mode-remap 'latex-mode)
+        #'LaTeX-mode))))
 
 ;;;###autoload
 (defun org-koma-letter-export-to-latex

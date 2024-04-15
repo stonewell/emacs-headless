@@ -1,5 +1,5 @@
 /* Haiku window system support
-   Copyright (C) 2021-2023 Free Software Foundation, Inc.
+   Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -184,6 +184,11 @@ haiku_change_tab_bar_height (struct frame *f, int height)
      leading to the tab bar height being incorrectly set upon the next
      call to x_set_font.  (bug#59285) */
   int lines = height / unit;
+
+  /* Even so, HEIGHT might be less than unit if the tab bar face is
+     not so tall as the frame's font height; which if true lines will
+     be set to 0 and the tab bar will thus vanish.  */
+
   if (lines == 0 && height != 0)
     lines = 1;
 
@@ -2189,6 +2194,12 @@ haiku_set_use_frame_synchronization (struct frame *f, Lisp_Object arg,
   be_set_use_frame_synchronization (FRAME_HAIKU_VIEW (f), !NILP (arg));
 }
 
+bool
+haiku_should_pass_control_tab_to_system (void)
+{
+  return haiku_pass_control_tab_to_system;
+}
+
 
 
 DEFUN ("haiku-set-mouse-absolute-pixel-position",
@@ -3296,6 +3307,14 @@ syms_of_haikufns (void)
 	       Vx_sensitive_text_pointer_shape,
 	       doc: /* SKIP: real doc in xfns.c.  */);
   Vx_sensitive_text_pointer_shape = Qnil;
+
+  DEFVAR_BOOL ("haiku-pass-control-tab-to-system",
+	       haiku_pass_control_tab_to_system,
+	       doc: /* Whether or not to pass C-TAB to the system.
+Setting this variable will cause Emacs to pass C-TAB to the system
+(allowing window switching on the Haiku operating system), rather than
+intercepting it.  */);
+  haiku_pass_control_tab_to_system = true;
 
   DEFVAR_LISP ("haiku-allowed-ui-colors", Vhaiku_allowed_ui_colors,
 	       doc: /* Vector of UI colors that Emacs can look up from the system.

@@ -1,6 +1,6 @@
 ;;; rst.el --- Mode for viewing and editing reStructuredText-documents  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2003-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: Stefan Merten <stefan at merten-home dot de>
 ;; Author: Stefan Merten <stefan at merten-home dot de>,
@@ -1147,14 +1147,14 @@ as well but give an additional message."
       (unless (fboundp forwarder-function)
         (defalias forwarder-function
           (lambda ()
+            (:documentation
+             (format "Deprecated binding for %s, use \\[%s] instead."
+                     def def))
             (interactive)
             (call-interactively def)
             (message "[Deprecated use of key %s; use key %s instead]"
                      (key-description (this-command-keys))
-                     (key-description key)))
-          ;; FIXME: In Emacs-25 we could use (:documentation ...) instead.
-          (format "Deprecated binding for %s, use \\[%s] instead."
-                  def def)))
+                     (key-description key)))))
       (dolist (dep-key deprecated)
         (define-key keymap dep-key forwarder-function)))))
 

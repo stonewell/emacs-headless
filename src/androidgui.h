@@ -1,5 +1,5 @@
 /* Android window system support.
-   Copyright (C) 2023 Free Software Foundation, Inc.
+   Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -248,6 +248,11 @@ enum android_event_type
     ANDROID_CONTEXT_MENU,
     ANDROID_EXPOSE,
     ANDROID_INPUT_METHOD,
+    ANDROID_DND_DRAG_EVENT,
+    ANDROID_DND_URI_EVENT,
+    ANDROID_DND_TEXT_EVENT,
+    ANDROID_NOTIFICATION_DELETED,
+    ANDROID_NOTIFICATION_ACTION,
   };
 
 struct android_any_event
@@ -463,6 +468,7 @@ enum android_ime_operation
     ANDROID_IME_END_BATCH_EDIT,
     ANDROID_IME_REQUEST_SELECTION_UPDATE,
     ANDROID_IME_REQUEST_CURSOR_UPDATES,
+    ANDROID_IME_REPLACE_TEXT,
   };
 
 enum
@@ -509,6 +515,51 @@ struct android_ime_event
   unsigned long counter;
 };
 
+struct android_dnd_event
+{
+  /* Type of the event.  */
+  enum android_event_type type;
+
+  /* The event serial.  */
+  unsigned long serial;
+
+  /* The window that gave rise to the event.  */
+  android_window window;
+
+  /* X and Y coordinates of the event.  */
+  int x, y;
+
+  /* Data tied to this event, such as a URI or clipboard string.
+     Must be deallocated with `free'.  */
+  unsigned short *uri_or_string;
+
+  /* Length of that data.  */
+  size_t length;
+};
+
+struct android_notification_event
+{
+  /* Type of the event.  */
+  enum android_event_type type;
+
+  /* The event serial.  */
+  unsigned long serial;
+
+  /* The window that gave rise to the event (None).  */
+  android_window window;
+
+  /* The identifier of the notification whose status changed.
+     Must be deallocated with `free'.  */
+  char *tag;
+
+  /* The action that was activated, if any.  Must be deallocated with
+     `free'.  */
+  unsigned short *action;
+
+  /* Length of that data.  */
+  size_t length;
+};
+
 union android_event
 {
   enum android_event_type type;
@@ -540,6 +591,15 @@ union android_event
 
   /* This is used to dispatch input method editing requests.  */
   struct android_ime_event ime;
+
+  /* There is no analog under X because Android defines a strict DND
+     protocol, whereas there exist several competing X protocols
+     implemented in terms of X client messages.  */
+  struct android_dnd_event dnd;
+
+  /* X provides no equivalent interface for displaying
+     notifications.  */
+  struct android_notification_event notification;
 };
 
 enum
@@ -558,10 +618,38 @@ enum android_lookup_status
 
 enum android_ic_mode
   {
-    ANDROID_IC_MODE_NULL   = 0,
-    ANDROID_IC_MODE_ACTION = 1,
-    ANDROID_IC_MODE_TEXT   = 2,
+    ANDROID_IC_MODE_NULL     = 0,
+    ANDROID_IC_MODE_ACTION   = 1,
+    ANDROID_IC_MODE_TEXT     = 2,
+    ANDROID_IC_MODE_PASSWORD = 3,
   };
+
+enum android_stack_mode
+  {
+    ANDROID_ABOVE = 0,
+    ANDROID_BELOW = 1,
+  };
+
+enum android_wc_value_mask
+  {
+    ANDROID_CW_SIBLING	  = 0,
+    ANDROID_CW_STACK_MODE = 1,
+  };
+
+struct android_window_changes
+{
+  android_window sibling;
+  enum android_stack_mode stack_mode;
+};
+
+struct android_compose_status
+{
+  /* Accent character to be combined with another.  */
+  unsigned int accent;
+
+  /* Number of characters matched.  */
+  int chars_matched;
+};
 
 extern int android_pending (void);
 extern void android_next_event (union android_event *);
@@ -642,6 +730,9 @@ extern void android_bell (void);
 extern void android_set_input_focus (android_window, unsigned long);
 extern void android_raise_window (android_window);
 extern void android_lower_window (android_window);
+extern void android_reconfigure_wm_window (android_window,
+					   enum android_wc_value_mask,
+					   struct android_window_changes *);
 extern int android_query_tree (android_window, android_window *,
 			       android_window *, android_window **,
 			       unsigned int *);
@@ -655,7 +746,9 @@ extern void android_translate_coordinates (android_window, int,
 					   int, int *, int *);
 extern int android_wc_lookup_string (android_key_pressed_event *,
 				     wchar_t *, int, int *,
-				     enum android_lookup_status *);
+				     enum android_lookup_status *,
+				     struct android_compose_status *);
+extern void android_recreate_activity (android_window);
 extern void android_update_ic (android_window, ptrdiff_t, ptrdiff_t,
 			       ptrdiff_t, ptrdiff_t);
 extern void android_reset_ic (android_window, enum android_ic_mode);

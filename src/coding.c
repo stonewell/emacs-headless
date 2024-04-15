@@ -1,5 +1,5 @@
 /* Coding system handler (conversion, detection, etc).
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2024 Free Software Foundation, Inc.
    Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
      2005, 2006, 2007, 2008, 2009, 2010, 2011
      National Institute of Advanced Industrial Science and Technology (AIST)
@@ -314,9 +314,9 @@ static Lisp_Object Vbig5_coding_system;
 /* ISO2022 section */
 
 #define CODING_ISO_INITIAL(coding, reg)			\
-  (XFIXNUM (AREF (AREF (CODING_ID_ATTRS ((coding)->id),	\
-		     coding_attr_iso_initial),		\
-	       reg)))
+  XFIXNUM (AREF (AREF (CODING_ID_ATTRS ((coding)->id),	\
+		       coding_attr_iso_initial),	\
+		 reg))
 
 
 #define CODING_ISO_REQUEST(coding, charset_id)		\
@@ -466,7 +466,7 @@ enum iso_code_class_type
 #define CODING_CCL_ENCODER(coding)	\
   AREF (CODING_ID_ATTRS ((coding)->id), coding_attr_ccl_encoder)
 #define CODING_CCL_VALIDS(coding)					   \
-  (SDATA (AREF (CODING_ID_ATTRS ((coding)->id), coding_attr_ccl_valids)))
+  SDATA (AREF (CODING_ID_ATTRS ((coding)->id), coding_attr_ccl_valids))
 
 /* Index for each coding category in `coding_categories' */
 
@@ -614,9 +614,10 @@ inhibit_flag (int encoded_flag, bool var)
 static bool
 growable_destination (struct coding_system *coding)
 {
-  return STRINGP (coding->dst_object) || BUFFERP (coding->dst_object);
+  return (STRINGP (coding->dst_object)
+	  || BUFFERP (coding->dst_object)
+	  || NILP (coding->dst_object));
 }
-
 
 /* Safely get one byte from the source text pointed by SRC which ends
    at SRC_END, and set C to that byte.  If there are not enough bytes
@@ -4198,12 +4199,12 @@ decode_coding_iso_2022 (struct coding_system *coding)
 #define ENCODE_ISO_CHARACTER(charset, c)				   \
   do {									   \
     unsigned code;							   \
-    CODING_ENCODE_CHAR (coding, dst, dst_end, (charset), (c), code);	   \
+    CODING_ENCODE_CHAR (coding, dst, dst_end, charset, c, code);	   \
 									   \
     if (CHARSET_DIMENSION (charset) == 1)				   \
-      ENCODE_ISO_CHARACTER_DIMENSION1 ((charset), code);		   \
+      ENCODE_ISO_CHARACTER_DIMENSION1 (charset, code);		   \
     else								   \
-      ENCODE_ISO_CHARACTER_DIMENSION2 ((charset), code >> 8, code & 0xFF); \
+      ENCODE_ISO_CHARACTER_DIMENSION2 (charset, code >> 8, code & 0xFF); \
   } while (0)
 
 
@@ -5488,7 +5489,7 @@ decode_coding_charset (struct coding_system *coding)
     {
       int c;
       Lisp_Object val;
-      struct charset *charset;
+      struct charset *charset UNINIT;
       int dim;
       int len = 1;
       unsigned code;
@@ -7005,7 +7006,6 @@ get_translation (Lisp_Object trans, int *buf, int *buf_end, ptrdiff_t *nchars)
   return Qnil;
 }
 
-
 static int
 produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 	       bool last_block)
@@ -7063,7 +7063,10 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 		      || ckd_add (&dst_size, dst_size, buf_end - buf))
 		    memory_full (SIZE_MAX);
 		  dst = alloc_destination (coding, dst_size, dst);
-		  if (EQ (coding->src_object, coding->dst_object))
+		  if (EQ (coding->src_object, coding->dst_object)
+		      /* Input and output are not C buffers, which are safe to
+			 assume to be different.  */
+		      && !NILP (coding->src_object))
 		    {
 		      coding_set_source (coding);
 		      dst_end = (((unsigned char *) coding->source)
@@ -7098,7 +7101,10 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
       const unsigned char *src = coding->source;
       const unsigned char *src_end = src + coding->consumed;
 
-      if (EQ (coding->dst_object, coding->src_object))
+      if (EQ (coding->dst_object, coding->src_object)
+	  /* Input and output are not C buffers, which are safe to
+	     assume to be different.  */
+	  && !NILP (coding->src_object))
 	{
 	  eassert (growable_destination (coding));
 	  dst_end = (unsigned char *) src;
@@ -7119,7 +7125,8 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 		  if (dst == dst_end)
 		    {
 		      eassert (growable_destination (coding));
-		      if (EQ (coding->src_object, coding->dst_object))
+		      if (EQ (coding->src_object, coding->dst_object)
+			  && !NILP (coding->src_object))
 			dst_end = (unsigned char *) src;
 		      if (dst == dst_end)
 			{
@@ -7131,7 +7138,8 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 			  coding_set_source (coding);
 			  src = coding->source + offset;
 			  src_end = coding->source + coding->consumed;
-			  if (EQ (coding->src_object, coding->dst_object))
+			  if (EQ (coding->src_object, coding->dst_object)
+			      && !NILP (coding->src_object))
 			    dst_end = (unsigned char *) src;
 			}
 		    }
@@ -7150,14 +7158,16 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 		if (dst >= dst_end - 1)
 		  {
 		    eassert (growable_destination (coding));
-		    if (EQ (coding->src_object, coding->dst_object))
+		    if (EQ (coding->src_object, coding->dst_object)
+			&& !NILP (coding->src_object))
 		      dst_end = (unsigned char *) src;
 		    if (dst >= dst_end - 1)
 		      {
 			ptrdiff_t offset = src - coding->source;
 			ptrdiff_t more_bytes;
 
-			if (EQ (coding->src_object, coding->dst_object))
+			if (EQ (coding->src_object, coding->dst_object)
+			    && !NILP (coding->src_object))
 			  more_bytes = ((src_end - src) / 2) + 2;
 			else
 			  more_bytes = src_end - src + 2;
@@ -7166,7 +7176,8 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 			coding_set_source (coding);
 			src = coding->source + offset;
 			src_end = coding->source + coding->consumed;
-			if (EQ (coding->src_object, coding->dst_object))
+			if (EQ (coding->src_object, coding->dst_object)
+			    && !NILP (coding->src_object))
 			  dst_end = (unsigned char *) src;
 		      }
 		  }
@@ -7175,7 +7186,8 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 	}
       else
 	{
-	  if (!EQ (coding->src_object, coding->dst_object))
+	  if (!(EQ (coding->src_object, coding->dst_object)
+		&& !NILP (coding->src_object)))
 	    {
 	      ptrdiff_t require = coding->src_bytes - coding->dst_bytes;
 
@@ -7658,8 +7670,7 @@ consume_chars (struct coding_system *coding, Lisp_Object translation_table,
 	  if (pos == stop_charset)
 	    buf = handle_charset_annotation (pos, end_pos, coding,
 					     buf, &stop_charset);
-	  stop = (stop_composition < stop_charset
-		  ? stop_composition : stop_charset);
+	  stop = min (stop_composition, stop_charset);
 	}
 
       if (! multibytep)
@@ -8098,7 +8109,7 @@ decode_coding_object (struct coding_system *coding,
       set_buffer_internal (XBUFFER (src_object));
       if (from != GPT)
 	move_gap_both (from, from_byte);
-      if (EQ (src_object, dst_object))
+      if (BASE_EQ (src_object, dst_object))
 	{
 	  struct Lisp_Marker *tail;
 
@@ -8110,8 +8121,9 @@ decode_coding_object (struct coding_system *coding,
 	    }
 	  saved_pt = PT, saved_pt_byte = PT_BYTE;
 	  TEMP_SET_PT_BOTH (from, from_byte);
-	  current_buffer->text->inhibit_shrinking = 1;
-	  del_range_both (from, from_byte, to, to_byte, 1);
+	  current_buffer->text->inhibit_shrinking = true;
+	  prepare_to_modify_buffer (from, to, NULL);
+	  del_range_2 (from, from_byte, to, to_byte, false);
 	  coding->src_pos = -chars;
 	  coding->src_pos_byte = -bytes;
 	}
@@ -8137,6 +8149,13 @@ decode_coding_object (struct coding_system *coding,
     }
   else if (BUFFERP (dst_object))
     {
+      if (!BASE_EQ (src_object, dst_object))
+	{
+	  struct buffer *current = current_buffer;
+	  set_buffer_internal (XBUFFER (dst_object));
+	  prepare_to_modify_buffer (PT, PT, NULL);
+	  set_buffer_internal (current);
+	}
       code_conversion_save (0, 0);
       coding->dst_object = dst_object;
       coding->dst_pos = BUF_PT (XBUFFER (dst_object));
@@ -8157,7 +8176,14 @@ decode_coding_object (struct coding_system *coding,
   decode_coding (coding);
 
   if (BUFFERP (coding->dst_object))
-    set_buffer_internal (XBUFFER (coding->dst_object));
+    {
+      set_buffer_internal (XBUFFER (coding->dst_object));
+      signal_after_change (coding->dst_pos,
+			   BASE_EQ (src_object, dst_object) ? to - from : 0,
+			   coding->produced_char);
+      update_compositions (coding->dst_pos,
+			   coding->dst_pos + coding->produced_char, CHECK_ALL);
+    }
 
   if (! NILP (CODING_ATTR_POST_READ (attrs)))
     {
@@ -8170,7 +8196,7 @@ decode_coding_object (struct coding_system *coding,
 			     Fcons (undo_list, Fcurrent_buffer ()));
       bset_undo_list (current_buffer, Qt);
       TEMP_SET_PT_BOTH (coding->dst_pos, coding->dst_pos_byte);
-      val = safe_call1 (CODING_ATTR_POST_READ (attrs),
+      val = safe_calln (CODING_ATTR_POST_READ (attrs),
 			make_fixnum (coding->produced_char));
       CHECK_FIXNAT (val);
       coding->produced_char += Z - prev_Z;
@@ -8336,7 +8362,7 @@ encode_coding_object (struct coding_system *coding,
 	  set_buffer_internal (XBUFFER (coding->src_object));
 	}
 
-      safe_call2 (CODING_ATTR_PRE_WRITE (attrs),
+      safe_calln (CODING_ATTR_PRE_WRITE (attrs),
 		  make_fixnum (BEG), make_fixnum (Z));
       if (XBUFFER (coding->src_object) != current_buffer)
 	kill_src_buffer = 1;
@@ -8362,7 +8388,12 @@ encode_coding_object (struct coding_system *coding,
       if (same_buffer)
 	{
 	  saved_pt = PT, saved_pt_byte = PT_BYTE;
-	  coding->src_object = del_range_1 (from, to, 1, 1);
+	  /* Run 'prepare_to_modify_buffer' by hand because we don't want
+	     to run the after-change hooks yet.  */
+	  prepare_to_modify_buffer (from, to, &from);
+	  coding->src_object = del_range_2 (from, CHAR_TO_BYTE (from),
+					    to, CHAR_TO_BYTE (to),
+					    true);
 	  coding->src_pos = 0;
 	  coding->src_pos_byte = 0;
 	}
@@ -8393,11 +8424,12 @@ encode_coding_object (struct coding_system *coding,
 	{
 	  struct buffer *current = current_buffer;
 
-	  set_buffer_temp (XBUFFER (dst_object));
+	  set_buffer_internal (XBUFFER (dst_object));
+	  prepare_to_modify_buffer (PT, PT, NULL);
 	  coding->dst_pos = PT;
 	  coding->dst_pos_byte = PT_BYTE;
 	  move_gap_both (coding->dst_pos, coding->dst_pos_byte);
-	  set_buffer_temp (current);
+	  set_buffer_internal (current);
 	}
       coding->dst_multibyte
 	= ! NILP (BVAR (XBUFFER (dst_object), enable_multibyte_characters));
@@ -8434,6 +8466,16 @@ encode_coding_object (struct coding_system *coding,
 				   coding->produced);
 	  xfree (coding->destination);
 	}
+    }
+  else if (BUFFERP (coding->dst_object))
+    {
+      struct buffer *current = current_buffer;
+      set_buffer_internal (XBUFFER (dst_object));
+      signal_after_change (coding->dst_pos, same_buffer ? to - from : 0,
+			   coding->produced_char);
+      update_compositions (coding->dst_pos,
+			   coding->dst_pos + coding->produced_char, CHECK_ALL);
+      set_buffer_internal (current);
     }
 
   if (saved_pt >= 0)
@@ -9499,7 +9541,7 @@ not fully specified.)  */)
 
 DEFUN ("encode-coding-region", Fencode_coding_region, Sencode_coding_region,
        3, 4, "r\nzCoding system: ",
-       doc: /* Encode the current region using th specified coding system.
+       doc: /* Encode the current region using the specified coding system.
 Interactively, prompt for the coding system to encode the region, and
 replace the region with the bytes that are the result of the encoding.
 
