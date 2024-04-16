@@ -5375,7 +5375,7 @@ gui_display_get_resource (Display_Info *dpyinfo, Lisp_Object attribute,
   *nz++ = '.';
   lispstpcpy (nz, attribute);
 
-#ifndef HAVE_ANDROID
+  #if !defined(HAVE_ANDROID) && !defined(HAVE_HEADLESS)
   const char *value
     = dpyinfo->terminal->get_string_resource_hook (&dpyinfo->rdb,
 						   name_key,

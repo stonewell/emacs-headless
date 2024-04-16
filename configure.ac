@@ -3182,7 +3182,7 @@ AC_SUBST([HAIKU_CXX_OBJ])
 AC_SUBST([HAIKU_CFLAGS])
 
 if test "${with_headless}" = "yes"; then
-   window_system=none
+   window_system=headless
 
    AC_DEFINE([HAVE_HEADLESS], [1],
        [Defne if Emacs built in headless mode])
@@ -3247,6 +3247,9 @@ dnl use the toolkit if we have gtk, or X11R5 or newer.
   ;;
   android )
     term_header=androidterm.h
+  ;;
+  headless )
+    term_header=headless_term.h
   ;;
 esac
 

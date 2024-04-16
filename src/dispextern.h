@@ -163,6 +163,13 @@ typedef struct android_image *Emacs_Pix_Container;
 typedef struct android_image *Emacs_Pix_Context;
 #endif
 
+#ifdef HAVE_HEADLESS
+#include "headless_gui.h"
+typedef struct headless_display_info Display_Info;
+typedef struct headless_image *Emacs_Pix_Container;
+typedef struct headless_image *Emacs_Pix_Context;
+#endif
+
 #ifdef HAVE_WINDOW_SYSTEM
 # include <time.h>
 # include "fontset.h"
@@ -3637,7 +3644,7 @@ ptrdiff_t lookup_image (struct frame *, Lisp_Object, int);
 Lisp_Object image_spec_value (Lisp_Object, Lisp_Object, bool *);
 
 #if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_NS \
-  || defined HAVE_HAIKU || defined HAVE_ANDROID
+  || defined HAVE_HAIKU || defined HAVE_ANDROID || defined HAVE_HEADLESS
 #define RGB_PIXEL_COLOR unsigned long
 #endif
 
