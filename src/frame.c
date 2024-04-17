@@ -253,6 +253,8 @@ See also `frame-live-p'.  */)
       return Qhaiku;
     case output_android:
       return Qandroid;
+    case output_headless:
+      return Qheadless;
     default:
       emacs_abort ();
     }
@@ -6303,6 +6305,7 @@ syms_of_frame (void)
   DEFSYM (Qpgtk, "pgtk");
   DEFSYM (Qhaiku, "haiku");
   DEFSYM (Qandroid, "android");
+  DEFSYM (Qheadless, "headless");
   DEFSYM (Qvisible, "visible");
   DEFSYM (Qbuffer_predicate, "buffer-predicate");
   DEFSYM (Qbuffer_list, "buffer-list");

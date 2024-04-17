@@ -2446,6 +2446,10 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif /* !ANDROID_STUBIFY */
 #endif /* HAVE_ANDROID */
 
+#ifdef HAVE_HEADLESS
+      syms_of_headlessterm ();
+#endif /* HAVE_HEADLESS */
+
       syms_of_gnutls ();
 
 #ifdef HAVE_INOTIFY

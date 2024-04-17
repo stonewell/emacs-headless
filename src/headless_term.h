@@ -201,6 +201,8 @@ struct headless_output
    written with systems on which there can be many in mind.  */
 extern struct headless_display_info *x_display_list;
 
+extern void syms_of_androidterm (void);
+
 void headless_set_hooks (struct terminal *terminal);
 
 #endif //__HEADLESS_TERM_H__

@@ -65,6 +65,7 @@ enum output_method
   output_pgtk,
   output_haiku,
   output_android,
+  output_headless,
 };
 
 /* Input queue declarations and hooks.  */
@@ -543,6 +544,7 @@ struct terminal
     struct pgtk_display_info *pgtk;		/* pgtkterm.h */
     struct haiku_display_info *haiku;		/* haikuterm.h */
     struct android_display_info *android;	/* androidterm.h */
+    struct headless_display_info *headless;	/* headless_term.h */
   } display_info;
 
 
@@ -955,6 +957,9 @@ extern struct terminal *terminal_list;
 #elif defined (HAVE_ANDROID)
 #define TERMINAL_FONT_CACHE(t)						\
   (t->type == output_android ? t->display_info.android->name_list_element : Qnil)
+#elif defined (HAVE_HEADLESS)
+#define TERMINAL_FONT_CACHE(t)						\
+  (t->type == output_headless ? t->display_info.headless->name_list_element : Qnil)
 #endif
 
 extern struct terminal *decode_live_terminal (Lisp_Object);

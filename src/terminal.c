@@ -463,6 +463,8 @@ return values.  */)
       return Qhaiku;
     case output_android:
       return Qandroid;
+    case output_headless:
+      return Qheadless;
     default:
       emacs_abort ();
     }

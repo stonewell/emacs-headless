@@ -7040,7 +7040,8 @@ image_edge_detection (struct frame *f, struct image *img,
 
 
 #if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_HAIKU	\
-  || defined HAVE_ANDROID
+  || defined HAVE_ANDROID  || defined HAVE_HEADLESS
+
 
 static void
 image_pixmap_draw_cross (struct frame *f, Emacs_Pixmap pixmap,
@@ -7089,6 +7090,7 @@ image_pixmap_draw_cross (struct frame *f, Emacs_Pixmap pixmap,
 #else
   emacs_abort ();
 #endif
+#elif HAVE_HEADLESS
 #endif
 }
 
@@ -7143,7 +7145,7 @@ image_disable_image (struct frame *f, struct image *img)
 #define MaskForeground(f)  PIX_MASK_DRAW
 #endif	/* USE_CAIRO || HAVE_HAIKU */
 
-#if !defined USE_CAIRO && !defined HAVE_HAIKU
+#if !defined USE_CAIRO && !defined HAVE_HAIKU && !defined HAVE_HEADLESS
       image_sync_to_pixmaps (f, img);
 #endif	/* !USE_CAIRO && !HAVE_HAIKU */
       image_pixmap_draw_cross (f, img->pixmap, 0, 0, img->width, img->height,

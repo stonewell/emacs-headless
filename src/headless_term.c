@@ -16,6 +16,60 @@
 
 #include "headless_service.h"
 
+struct headless_display_info *x_display_list;
+
+char *
+get_keysym_name (int keysym)
+{
+  static char buffer[64]={0};
+
+  return buffer;
+}
+
+unsigned long
+headless_get_pixel (struct headless_image *ximg, int x, int y)
+{
+  return 0;
+}
+
+void
+headless_put_pixel (struct headless_image *ximg, int x, int y,
+		   unsigned long pixel)
+{
+}
+
+void
+syms_of_headlessterm (void)
+{
+  DEFVAR_BOOL ("x-use-underline-position-properties",
+	       x_use_underline_position_properties,
+     doc: /* SKIP: real doc in xterm.c.  */);
+  x_use_underline_position_properties = 1;
+
+  DEFVAR_BOOL ("x-underline-at-descent-line",
+	       x_underline_at_descent_line,
+     doc: /* SKIP: real doc in xterm.c.  */);
+  x_underline_at_descent_line = 0;
+
+  DEFVAR_LISP ("x-toolkit-scroll-bars", Vx_toolkit_scroll_bars,
+     doc: /* SKIP: real doc in xterm.c.  */);
+  Vx_toolkit_scroll_bars = Qt;
+
+  DEFSYM (Qshift, "shift");
+  DEFSYM (Qcontrol, "control");
+  DEFSYM (Qoption, "option");
+  DEFSYM (Qcommand, "command");
+
+  DEFSYM (Qdata_directory, "data-directory");
+
+  DEFSYM (Qx_use_underline_position_properties,
+	  "x-use-underline-position-properties");
+
+  DEFSYM (Qx_underline_at_descent_line, "x-underline-at-descent-line");
+
+  Fprovide (Qheadless, Qnil);
+}
+
 static void
 headless_cursor_to (struct frame *f, int vpos, int hpos);
 static void

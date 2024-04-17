@@ -949,6 +949,11 @@ default_pixels_per_inch_y (void)
 #else
 #define FRAME_ANDROID_P(f) ((f)->output_method == output_android)
 #endif
+#ifndef HAVE_HEADLESS
+#define FRAME_HEADLESS_P(f) false
+#else
+#define FRAME_HEADLESS_P(f) ((f)->output_method == output_headless)
+#endif
 
 /* FRAME_WINDOW_P tests whether the frame is a graphical window system
    frame.  */

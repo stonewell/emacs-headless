@@ -648,6 +648,23 @@ x_free_gc (struct frame *f, struct android_gc *gc)
 
 #endif
 
+#ifdef HAVE_HEADLESS
+
+static struct headless_gc *
+x_create_gc (struct frame *f, unsigned long value_mask,
+	     Emacs_GC *xgcv)
+{
+  return (struct headless_gc *)(1);
+}
+
+static void
+x_free_gc (struct frame *f, struct headless_gc *gc)
+{
+
+}
+
+#endif
+
 /***********************************************************************
 			   Frames and faces
  ***********************************************************************/
