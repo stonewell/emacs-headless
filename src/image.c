@@ -200,6 +200,31 @@ typedef android_pixmap Pixmap;
 
 #endif
 
+#ifdef HAVE_HEADLESS
+#include "headless_term.h"
+
+typedef struct headless_bitmap_record Bitmap_Record;
+
+typedef struct headless_image XImage;
+typedef headless_pixmap Pixmap;
+
+#define GET_PIXEL(ximg, x, y) 		headless_get_pixel (ximg, x, y)
+#define PUT_PIXEL(ximg, x, y, pixel)    headless_put_pixel (ximg, x, y, pixel)
+#define NO_PIXMAP			0
+
+#define PIX_MASK_RETAIN	0
+#define PIX_MASK_DRAW	1
+
+#define RGB_TO_ULONG(r, g, b) (((r) << 16) | ((g) << 8) | (b))
+#define RED_FROM_ULONG(color)	(((color) >> 16) & 0xff)
+#define GREEN_FROM_ULONG(color)	(((color) >> 8) & 0xff)
+#define BLUE_FROM_ULONG(color)	((color) & 0xff)
+#define RED16_FROM_ULONG(color)		(RED_FROM_ULONG (color) * 0x101)
+#define GREEN16_FROM_ULONG(color)	(GREEN_FROM_ULONG (color) * 0x101)
+#define BLUE16_FROM_ULONG(color)	(BLUE_FROM_ULONG (color) * 0x101)
+
+#endif
+
 static void image_disable_image (struct frame *, struct image *);
 static void image_edge_detection (struct frame *, struct image *, Lisp_Object,
                                   Lisp_Object);

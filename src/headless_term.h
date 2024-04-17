@@ -27,6 +27,24 @@
 #include "font.h"
 #include "termhooks.h"
 
+struct headless_bitmap_record
+{
+  /* The image backing the bitmap and its mask.  */
+  headless_pixmap pixmap, mask;
+
+  /* The file from which it comes.  */
+  char *file;
+
+  /* The number of references to it.  */
+  int refcount;
+
+  /* The height and width and the depth.  */
+  int height, width, depth;
+
+  /* Whether or not there is a mask.  */
+  bool have_mask;
+};
+
 struct headless_display_info
 {
   /* Chain of all struct headless_display_info structures.  */
@@ -62,6 +80,18 @@ struct headless_display_info
 
   /* Minimum font height over all fonts in font_table.  */
   int smallest_font_height;
+
+  /* The number of fonts opened for this display.  */
+  int n_fonts;
+
+  /* Pointer to bitmap records.  */
+  struct headless_bitmap_record *bitmaps;
+
+  /* Allocated size of bitmaps field.  */
+  ptrdiff_t bitmaps_size;
+
+  /* Last used bitmap index.  */
+  ptrdiff_t bitmaps_last;
 
   /* The frame currently with the input focus.  */
   struct frame *focus_frame;

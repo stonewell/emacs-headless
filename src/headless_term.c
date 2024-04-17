@@ -1,4 +1,19 @@
+#include <config.h>
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include <semaphore.h>
+
+#include "lisp.h"
 #include "headless_term.h"
+#include "keyboard.h"
+#include "blockinput.h"
+#include "buffer.h"
+#include "window.h"
+#include "textconv.h"
+#include "coding.h"
+#include "pdumper.h"
+
 #include "headless_service.h"
 
 static void

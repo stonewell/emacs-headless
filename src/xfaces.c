@@ -258,6 +258,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef HAVE_ANDROID
 #define GCGraphicsExposures 0
 #endif /* HAVE_ANDROID */
+
+#ifdef HAVE_HEADLESS
+#define GCGraphicsExposures 0
+#endif /* HAVE_ANDROID */
 #endif /* HAVE_WINDOW_SYSTEM */
 
 #include "buffer.h"
