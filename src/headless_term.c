@@ -18,6 +18,40 @@
 
 struct headless_display_info *x_display_list;
 
+extern frame_parm_handler headless_frame_parm_handlers[];
+
+static struct redisplay_interface headless_redisplay_interface =
+  {
+    headless_frame_parm_handlers,
+    gui_produce_glyphs,
+    gui_write_glyphs,
+    gui_insert_glyphs,
+    gui_clear_end_of_line,
+    NULL, //headless_scroll_run,
+    NULL, //headless_after_update_window_line,
+    NULL, /* update_window_begin */
+    NULL, /* update_window_end   */
+    NULL, //headless_flip_and_flush,
+    gui_clear_window_mouse_face,
+    gui_get_glyph_overhangs,
+    gui_fix_overlapping_area,
+    NULL, //headless_draw_fringe_bitmap,
+    NULL, /* define_fringe_bitmap */
+    NULL, /* destroy_fringe_bitmap */
+    NULL, //headless_compute_glyph_string_overhangs,
+    NULL, //headless_draw_glyph_string,
+    NULL, //headless_define_frame_cursor,
+    NULL, //headless_clear_frame_area,
+    NULL, //headless_clear_under_internal_border,
+    NULL, //headless_draw_window_cursor,
+    NULL, //headless_draw_vertical_window_border,
+    NULL, //headless_draw_window_divider,
+    NULL,
+    NULL, //headless_show_hourglass,
+    NULL, //headless_hide_hourglass,
+    headless_default_font_parameter,
+  };
+
 char *
 get_keysym_name (int keysym)
 {
@@ -36,6 +70,114 @@ void
 headless_put_pixel (struct headless_image *ximg, int x, int y,
 		   unsigned long pixel)
 {
+}
+
+static struct terminal *
+headless_create_terminal (struct headless_display_info *dpyinfo)
+{
+  struct terminal *terminal;
+
+  terminal = create_terminal (output_headless,
+			      &headless_redisplay_interface);
+  terminal->display_info.headless = dpyinfo;
+  dpyinfo->terminal = terminal;
+
+  /* terminal->clear_frame_hook = headless_clear_frame; */
+  /* terminal->ring_bell_hook = headless_ring_bell; */
+  /* terminal->toggle_invisible_pointer_hook */
+  /*   = headless_toggle_invisible_pointer; */
+  /* terminal->update_begin_hook = headless_update_begin; */
+  /* terminal->update_end_hook = headless_update_end; */
+  /* terminal->read_socket_hook = headless_read_socket; */
+  /* terminal->frame_up_to_date_hook = headless_frame_up_to_date; */
+  /* terminal->buffer_flipping_unblocked_hook */
+  /*   = headless_buffer_flipping_unblocked_hook; */
+  /* terminal->defined_color_hook = headless_defined_color; */
+  /* terminal->query_frame_background_color */
+  /*   = headless_query_frame_background_color; */
+  /* terminal->query_colors = headless_query_colors; */
+  /* terminal->mouse_position_hook = headless_mouse_position; */
+  /* terminal->get_focus_frame = headless_get_focus_frame; */
+  /* terminal->focus_frame_hook = headless_focus_frame; */
+  /* terminal->frame_rehighlight_hook = headless_frame_rehighlight_hook; */
+  /* terminal->frame_raise_lower_hook = headless_frame_raise_lower; */
+  /* terminal->frame_visible_invisible_hook */
+  /*   = headless_make_frame_visible_invisible; */
+  /* terminal->fullscreen_hook = headless_fullscreen_hook; */
+  /* terminal->iconify_frame_hook = headless_iconify_frame; */
+  /* terminal->set_window_size_hook = headless_set_window_size; */
+  /* terminal->set_frame_offset_hook = headless_set_offset; */
+  /* terminal->set_frame_alpha_hook = headless_set_alpha; */
+  /* terminal->set_new_font_hook = headless_new_font; */
+  /* terminal->set_bitmap_icon_hook = headless_bitmap_icon; */
+  /* terminal->implicit_set_name_hook = headless_implicitly_set_name; */
+  /* terminal->menu_show_hook = headless_menu_show; */
+  /* terminal->popup_dialog_hook = headless_popup_dialog; */
+  /* terminal->change_tab_bar_height_hook = headless_change_tab_bar_height; */
+  /* terminal->change_tool_bar_height_hook = headless_change_tool_bar_height; */
+  /* terminal->set_scroll_bar_default_width_hook */
+  /*   = headless_set_scroll_bar_default_width; */
+  /* terminal->set_scroll_bar_default_height_hook */
+  /*   = headless_set_scroll_bar_default_height; */
+  /* terminal->free_pixmap = headless_free_pixmap_hook; */
+  /* terminal->delete_frame_hook = headless_delete_frame; */
+  /* terminal->delete_terminal_hook = headless_delete_terminal; */
+
+  return terminal;
+}
+
+/* Initialize the Headless terminal interface.  The display connection
+   has already been set up by the system at this point.  */
+
+void
+headless_term_init (void)
+{
+  struct terminal *terminal;
+  struct headless_display_info *dpyinfo;
+  Lisp_Object color_file, color_map;
+
+  dpyinfo = xzalloc (sizeof *dpyinfo);
+  terminal = headless_create_terminal (dpyinfo);
+  terminal->kboard = allocate_kboard (Qheadless);
+  terminal->kboard->reference_count++;
+
+  dpyinfo->n_planes = 24;
+
+  /* This function should only be called once at startup.  */
+  eassert (!x_display_list);
+  x_display_list = dpyinfo;
+
+  dpyinfo->name_list_element
+    = Fcons (build_pure_c_string ("headless"), Qnil);
+
+  color_file = Fexpand_file_name (build_string ("rgb.txt"),
+				  Vdata_directory);
+  color_map = Fx_load_color_file (color_file);
+
+  if (NILP (color_map))
+    fatal ("Could not read %s.\n", SDATA (color_file));
+
+  dpyinfo->color_map = color_map;
+
+  /* https://lists.gnu.org/r/emacs-devel/2015-11/msg00194.html  */
+  dpyinfo->smallest_font_height = 1;
+  dpyinfo->smallest_char_width = 1;
+
+  terminal->name = xstrdup ("headless");
+
+  /* The display "connection" is now set up, and it must never go
+     away.  */
+  terminal->reference_count = 30000;
+
+  /* Set the baud rate to the same value it gets set to on X.  */
+  baud_rate = 19200;
+}
+
+void
+frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y)
+{
+  /* This cannot be implemented on Android, and as such is left
+     blank.  */
 }
 
 void

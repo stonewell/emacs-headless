@@ -975,6 +975,9 @@ default_pixels_per_inch_y (void)
 #ifdef HAVE_ANDROID
 #define FRAME_WINDOW_P(f) FRAME_ANDROID_P (f)
 #endif
+#ifdef HAVE_HEADLESS
+#define FRAME_WINDOW_P(f) FRAME_HEADLESS_P (f)
+#endif
 #ifndef FRAME_WINDOW_P
 #define FRAME_WINDOW_P(f) ((void) (f), false)
 #endif

@@ -6639,6 +6639,7 @@ init_display_interactive (void)
   if (!inhibit_window_system && !will_dump_p ())
     {
       Vinitial_window_system = Qheadless;
+      headless_term_init ();
       return;
     }
 #endif

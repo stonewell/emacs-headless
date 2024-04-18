@@ -2448,6 +2448,8 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 
 #ifdef HAVE_HEADLESS
       syms_of_headlessterm ();
+      syms_of_headlessfns ();
+      syms_of_headlessfont ();
 #endif /* HAVE_HEADLESS */
 
       syms_of_gnutls ();

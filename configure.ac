@@ -3187,7 +3187,7 @@ if test "${with_headless}" = "yes"; then
    AC_DEFINE([HAVE_HEADLESS], [1],
        [Defne if Emacs built in headless mode])
    HEADLESS_LIBS=""
-   HEADLESS_OBJ="headless_term.o headless_service.o headless_fns.o"
+   HEADLESS_OBJ="headless_term.o headless_service.o headless_fns.o headless_font.o headless_menu.o"
    HEADLESS_CXX_OBJ=""
 fi
 

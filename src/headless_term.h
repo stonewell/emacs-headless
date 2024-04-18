@@ -200,8 +200,13 @@ struct headless_output
    currently in use.  There is only ever one, but the rest of Emacs is
    written with systems on which there can be many in mind.  */
 extern struct headless_display_info *x_display_list;
+extern struct font_driver headlessfont_driver;
 
-extern void syms_of_androidterm (void);
+extern void syms_of_headlessterm (void);
+extern void syms_of_headlessfns (void);
+extern void syms_of_headlessfont (void);
+extern void headless_default_font_parameter (struct frame *, Lisp_Object);
+extern void headless_term_init (void);
 
 void headless_set_hooks (struct terminal *terminal);
 
