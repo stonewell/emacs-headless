@@ -836,3 +836,29 @@ syms_of_headlessfns (void)
   defsubr (&Sxw_display_color_p);
   defsubr (&Sx_display_grayscale_p);
 }
+
+DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
+       1, 3, 0, doc: /* SKIP: real doc in xfns.c.  */)
+     (Lisp_Object display, Lisp_Object resource_string, Lisp_Object must_succeed)
+{
+  CHECK_STRING (display);
+
+  if (NILP (Fstring_equal (display, build_string ("be"))))
+    {
+      if (!NILP (must_succeed))
+	fatal ("Invalid display %s", SDATA (display));
+      else
+	signal_error ("Invalid display", display);
+    }
+
+  if (x_display_list)
+    {
+      if (!NILP (must_succeed))
+	fatal ("A display is already open");
+      else
+	error ("A display is already open");
+    }
+
+  headless_term_init ();
+  return Qnil;
+}

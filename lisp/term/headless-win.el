@@ -42,7 +42,9 @@
 
 (add-to-list 'display-format-alist '(".*" . headless))
 
-(declare-function headless-get-connection "headlessfns.c")
+(declare-function headless-get-connection "headless_fns.c")
+(declare-function x-open-connection "headless_fns.c"
+                  (display &optional xrm-string must-succeed))
 
 ;; Window system initialization.  This is extremely simple because all
 ;; initialization is done in headless_term_init.
@@ -52,6 +54,7 @@
   "Set up the window system.  WINDOW-SYSTEM must be HEADLESS.
 DISPLAY is ignored on Headless."
   ;; Just make sure the window system was initialized at startup.
+  (message "headless window system initialize")
 )
 
 (cl-defmethod frame-creation-function (params &context (window-system headless))

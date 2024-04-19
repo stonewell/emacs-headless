@@ -2742,6 +2742,13 @@ nil default-directory" name)
                     ((equal argi "-kill")
                      (kill-emacs t))
 
+                    ((or (equal argi "-headless")
+                         (equal argi "--headless"))
+                     (progn
+                       (message "running in headless mode")
+                       )
+                     )
+
                     ;; This is for when they use --no-desktop with -q, or
                     ;; don't load Desktop in their .emacs.  If desktop.el
                     ;; _is_ loaded, it will handle this switch, and we

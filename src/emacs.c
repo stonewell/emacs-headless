@@ -189,6 +189,10 @@ bool initialized;
    but instead should use the virtual terminal under which it was started.  */
 bool inhibit_window_system;
 
+#ifdef HAVE_HEADLESS
+bool running_headless_mode;
+#endif
+
 /* If true, a filter or a sentinel is running.  Tested to save the match
    data on the first attempt to change it inside asynchronous code.  */
 bool running_asynch_code;
@@ -281,6 +285,11 @@ Initialization options:\n\
 --debug-init                enable Emacs Lisp debugger for init file\n\
 --display, -d DISPLAY       use X server DISPLAY\n\
 ",
+#ifdef HAVE_HEADLESS
+"\
+--headless                  run emacs in headless mode\n\
+",
+#endif
 #ifdef HAVE_MODULES
     "\
 --module-assertions         assert behavior of dynamic modules\n\
@@ -1708,6 +1717,18 @@ main (int argc, char **argv)
       sort_args (argc, argv);
     }
 
+#ifdef HAVE_HEADLESS
+  running_headless_mode = false;
+
+  if (!only_version)
+  {
+    if (argmatch (argv, argc, "-headless", "--headless", 9, NULL, &skip_args))
+    {
+      running_headless_mode = true;
+    }
+  }
+#endif
+
   /* Handle the --help option, which gives a usage message.  */
   if (argmatch (argv, argc, "-help", "--help", 3, NULL, &skip_args)
       && !only_version)
@@ -2657,6 +2678,9 @@ static const struct standard_args standard_args[] =
   { "-nl", "--no-loadup", 70, 0 },
   { "-nsl", "--no-site-lisp", 65, 0 },
   { "-no-build-details", "--no-build-details", 63, 0 },
+#ifdef HAVE_HEADLESS
+  { "-headless", "--headless", 95, 0 },
+#endif
 #ifdef HAVE_MODULES
   { "-module-assertions", "--module-assertions", 62, 0 },
 #endif

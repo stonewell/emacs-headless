@@ -5189,9 +5189,14 @@ extern void *w32_daemon_event;
 extern bool fatal_error_in_progress;
 
 /* True means don't do use window-system-specific display code.  */
-extern bool inhibit_window_system;
+    extern bool inhibit_window_system;
 /* True means that a filter or a sentinel is running.  */
 extern bool running_asynch_code;
+
+#ifdef HAVE_HEADLESS
+/* True means that running in headless mode */
+extern bool running_headless_mode;
+#endif
 
 /* Defined in process.c.  */
 struct Lisp_Process;
