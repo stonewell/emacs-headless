@@ -5193,11 +5193,6 @@ extern bool fatal_error_in_progress;
 /* True means that a filter or a sentinel is running.  */
 extern bool running_asynch_code;
 
-#ifdef HAVE_HEADLESS
-/* True means that running in headless mode */
-extern bool running_headless_mode;
-#endif
-
 /* Defined in process.c.  */
 struct Lisp_Process;
 extern void child_signal_init (void);
