@@ -6557,16 +6557,6 @@ init_display_interactive (void)
 #endif
     }
 
-#ifdef HAVE_HEADLESS
-  fprintf(stderr, "headless mod:%d\n", running_headless_mode);
-  if (!inhibit_window_system && !will_dump_p () && running_headless_mode)
-    {
-      Vinitial_window_system = Qheadless;
-      headless_term_init ();
-      return;
-    }
-#endif
-
   /* If the user wants to use a window system, we shouldn't bother
      initializing the terminal.  This is especially important when the
      terminal is so dumb that emacs gives up before and doesn't bother
@@ -6641,6 +6631,15 @@ init_display_interactive (void)
   if (!inhibit_window_system && !will_dump_p ())
     {
       Vinitial_window_system = Qhaiku;
+      return;
+    }
+#endif
+
+#ifdef HAVE_HEADLESS
+  fprintf(stderr, "headless mod:%d\n", running_headless_mode);
+  if (!inhibit_window_system && !will_dump_p ())
+    {
+      Vinitial_window_system = Qheadless;
       return;
     }
 #endif

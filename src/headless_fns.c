@@ -734,6 +734,41 @@ DEFUN ("x-display-grayscale-p", Fx_display_grayscale_p,
   return Qnil;
 }
 
+
+DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
+       1, 3, 0, doc: /* SKIP: real doc in xfns.c.  */)
+     (Lisp_Object display, Lisp_Object resource_string, Lisp_Object must_succeed)
+{
+  CHECK_STRING (display);
+
+  if (NILP (Fstring_equal (display, build_string ("headless"))))
+    {
+      if (!NILP (must_succeed))
+	fatal ("Invalid display %s", SDATA (display));
+      else
+	signal_error ("Invalid display", display);
+    }
+
+  if (x_display_list)
+    {
+      if (!NILP (must_succeed))
+	fatal ("A display is already open");
+      else
+	error ("A display is already open");
+    }
+
+  headless_term_init ();
+
+  if (x_display_list == 0)
+    {
+      if (!NILP (must_succeed))
+	fatal ("Display on %s not responding.\n", SSDATA (display));
+      else
+	error ("Display on %s not responding.\n", SSDATA (display));
+    }
+return Qnil;
+}
+
 void
 syms_of_headlessfns (void)
 {
@@ -835,30 +870,5 @@ syms_of_headlessfns (void)
   defsubr (&Sx_create_frame);
   defsubr (&Sxw_display_color_p);
   defsubr (&Sx_display_grayscale_p);
-}
-
-DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
-       1, 3, 0, doc: /* SKIP: real doc in xfns.c.  */)
-     (Lisp_Object display, Lisp_Object resource_string, Lisp_Object must_succeed)
-{
-  CHECK_STRING (display);
-
-  if (NILP (Fstring_equal (display, build_string ("be"))))
-    {
-      if (!NILP (must_succeed))
-	fatal ("Invalid display %s", SDATA (display));
-      else
-	signal_error ("Invalid display", display);
-    }
-
-  if (x_display_list)
-    {
-      if (!NILP (must_succeed))
-	fatal ("A display is already open");
-      else
-	error ("A display is already open");
-    }
-
-  headless_term_init ();
-  return Qnil;
+  defsubr (&Sx_open_connection);
 }

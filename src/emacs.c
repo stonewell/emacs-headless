@@ -2468,13 +2468,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif /* HAVE_ANDROID */
 
 #ifdef HAVE_HEADLESS
-      fprintf(stderr, "headless mod2:%d", running_headless_mode);
-      if (running_headless_mode || will_dump_p() || will_bootstrap_p())
-      {
-        syms_of_headlessterm ();
-        syms_of_headlessfns ();
-        syms_of_headlessfont ();
-      }
+      syms_of_headlessterm ();
+      syms_of_headlessfns ();
+      syms_of_headlessfont ();
 #endif /* HAVE_HEADLESS */
 
       syms_of_gnutls ();

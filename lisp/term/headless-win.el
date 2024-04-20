@@ -27,6 +27,7 @@
 
 ;;; Code:
 
+(eval-when-compile (require 'cl-lib))
 (unless (featurep 'headless)
   (error "%s: Loading headless-win without having Headless"
     invocation-name))
@@ -39,26 +40,57 @@
 (require 'faces)
 (require 'menu-bar)
 
+(defvar x-invocation-args)
+(defvar x-command-line-resources)
+
+(defvar headless-initialized nil
+  "Non-nil if headless windowing has been initialized.")
 
 (add-to-list 'display-format-alist '(".*" . headless))
 
 (declare-function headless-get-connection "headless_fns.c")
+(declare-function x-handle-args "common-win")
 (declare-function x-open-connection "headless_fns.c"
                   (display &optional xrm-string must-succeed))
-
-;; Window system initialization.  This is extremely simple because all
-;; initialization is done in headless_term_init.
 
 (cl-defmethod window-system-initialization (&context (window-system headless)
                                                      &optional _ignored)
   "Set up the window system.  WINDOW-SYSTEM must be HEADLESS.
 DISPLAY is ignored on Headless."
   ;; Just make sure the window system was initialized at startup.
-  (message "headless window system initialize")
+  (cl-assert (not headless-initialized))
+
+  ;; PENDING: not needed?
+  (setq command-line-args (x-handle-args command-line-args))
+
+  ;; Make sure we have a valid resource name.
+  (when (boundp 'x-resource-name)
+    (unless (stringp x-resource-name)
+      (let (i)
+	      (setq x-resource-name (copy-sequence invocation-name))
+
+	      ;; Change any . or * characters in x-resource-name to hyphens,
+	      ;; so as not to choke when we use it in X resource queries.
+	      (while (setq i (string-match "[.*]" x-resource-name))
+	        (aset x-resource-name i ?-)))))
+
+  (x-open-connection
+    "headless"
+    x-command-line-resources
+    ;; Exit Emacs with fatal error if this fails and we
+    ;; are the initial display.
+    (= (length (frame-list)) 0)
+    )
+
+  (x-apply-session-resources)
+
+  (setq headless-initialized t)
+  (message "headless window system initialize done")
 )
 
 (cl-defmethod frame-creation-function (params &context (window-system headless))
-  (x-create-frame-with-faces params))
+  (x-create-frame-with-faces params)
+  )
 
 (cl-defmethod handle-args-function (args &context (window-system headless))
   ;; Headless has no command line to provide arguments on.
