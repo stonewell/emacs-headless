@@ -288,6 +288,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   /* Not actually used, but be consistent with X.  */
   ((void) window_prompting);
 
+  message3(build_string("headless x-create-frame"));
   parms = Fcopy_alist (parms);
 
   /* Use this general default value to start with

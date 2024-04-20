@@ -6636,7 +6636,6 @@ init_display_interactive (void)
 #endif
 
 #ifdef HAVE_HEADLESS
-  fprintf(stderr, "headless mod:%d\n", running_headless_mode);
   if (!inhibit_window_system && !will_dump_p ())
     {
       Vinitial_window_system = Qheadless;
